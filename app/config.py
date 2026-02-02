@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     celery_broker_url: str 
     celery_result_backend: str 
     
-    # MinIO
+    # MinIO 1.0
     minio_endpoint: str 
     minio_access_key: str
     minio_secret_key: str

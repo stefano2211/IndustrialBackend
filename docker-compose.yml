@@ -56,6 +56,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./app:/app/app
       - ./tmp:/tmp
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
@@ -67,6 +68,7 @@ services:
     env_file:
       - .env
     volumes:
+      - ./app:/app/app
       - ./tmp:/tmp
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped

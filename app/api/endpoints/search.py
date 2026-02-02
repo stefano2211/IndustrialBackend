@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Query
-from app.retrieval.searcher import SemanticSearcher
-from app.agent.workflow import app as agent_app
-from app.schemas.api import SearchResponse, ChatRequest, ChatResponse
+from app.domain.retrieval.searcher import SemanticSearcher
+from app.domain.agent.workflow import app as agent_app
+from app.domain.schemas.api import SearchResponse, ChatRequest, ChatResponse
 from typing import Optional
 
 router = APIRouter()

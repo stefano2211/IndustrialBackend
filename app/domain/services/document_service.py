@@ -2,9 +2,9 @@ from fastapi import UploadFile
 import shutil
 import os
 import uuid
-from app.storage.blob import minio_client
+from app.persistence.blob import minio_client
 from app.worker.tasks import process_document_task
-from app.storage.vector import QdrantManager
+from app.persistence.vector import QdrantManager
 from loguru import logger
 
 class DocumentService:

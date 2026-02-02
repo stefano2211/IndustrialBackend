@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.tool_config import ToolConfigCreate, ToolConfigRead, ToolConfigUpdate
-from app.services.tool_config_service import ToolConfigService
-from app.core.db import get_session
+from app.domain.schemas.tool_config import ToolConfigCreate, ToolConfigRead, ToolConfigUpdate
+from app.domain.services.tool_config_service import ToolConfigService
+from app.persistence.db import get_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 

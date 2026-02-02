@@ -1,10 +1,10 @@
 # app/ingestion/pipeline.py
 from uuid import uuid4
-from app.ingestion.document_loader import DocumentLoader
-from app.ingestion.text_splitter import HierarchicalSplitter
-from app.ingestion.embedder import Embedder
-from app.storage.vector import QdrantManager
-from app.models.ner import get_extractor  
+from app.domain.ingestion.document_loader import DocumentLoader
+from app.domain.ingestion.text_splitter import HierarchicalSplitter
+from app.domain.ingestion.embedder import Embedder
+from app.persistence.vector import QdrantManager
+from app.domain.models.ner import get_extractor  
 from qdrant_client.http.models import PointStruct
 from loguru import logger
 import uuid

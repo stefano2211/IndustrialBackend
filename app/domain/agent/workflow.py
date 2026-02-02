@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END, START
 from langgraph.prebuilt import tools_condition
-from app.agent.state import AgentState
-from app.agent.nodes import agent, tool_node
+from app.domain.agent.state import AgentState
+from app.domain.agent.nodes import agent, tool_node
 
 # Define the graph
 workflow = StateGraph(AgentState)

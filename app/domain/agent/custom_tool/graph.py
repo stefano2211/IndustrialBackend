@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
-from app.agent.custom_tool.state import CustomToolState
-from app.agent.custom_tool.nodes import agent_node, api_call_node
+from app.domain.agent.custom_tool.state import CustomToolState
+from app.domain.agent.custom_tool.nodes import agent_node, api_call_node
 
 # Define the graph
 workflow = StateGraph(CustomToolState)

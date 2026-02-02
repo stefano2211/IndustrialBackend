@@ -12,15 +12,24 @@ class QdrantManager:
         self._create_collection_if_not_exists()
 
     def _create_collection_if_not_exists(self):
-        collections = self.client.get_collections().collections
-        collection_names = [c.name for c in collections]
-        
-        if self.collection_name not in collection_names:
+        try:
+            # Intentar crear siempre; si existe, qdrant-client o la API lanzarán error
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=VectorParams(size=384, distance=Distance.COSINE),
             )
             logger.info(f"Collection '{self.collection_name}' created")
+        except Exception as e:
+            # Capturamos excepciones genéricas porque qdrant-client puede variar (UnexpectedResponse, RpcError)
+            # Si el error indica que ya existe, lo ignoramos.
+            error_msg = str(e).lower()
+            if "already exists" in error_msg or "409" in error_msg:
+                logger.info(f"Collection '{self.collection_name}' already exists.")
+            else:
+                logger.error(f"Failed to check/create collection: {e}")
+                # No lanzamos raise para permitir que el servicio continúe si es solo un tema de conexión temporal,
+                # aunque idealmente debería reintentarse.
+                raise e
 
     def upsert(self, points: list[PointStruct]):
         # Aseguramos que todos los IDs sean UUID válidos

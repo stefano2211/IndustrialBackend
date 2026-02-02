@@ -1,5 +1,5 @@
-from app.ingestion.embedder import Embedder
-from app.storage.vector import QdrantManager
+from app.domain.ingestion.embedder import Embedder
+from app.persistence.vector import QdrantManager
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 from typing import Optional
 

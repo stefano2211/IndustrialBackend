@@ -1,5 +1,5 @@
 from langchain_core.tools import tool
-from app.retrieval.searcher import SemanticSearcher
+from app.domain.retrieval.searcher import SemanticSearcher
 
 from typing import List
 
@@ -29,9 +29,9 @@ async def use_custom_tool(tool_name: str, query: str) -> str:
         tool_name: The name of the tool to use (e.g., 'finance_api', 'weather_api').
         query: The user's specific question or query for this tool.
     """
-    from app.core.db import get_session
-    from app.services.tool_config_service import ToolConfigService
-    from app.agent.custom_tool.graph import custom_tool_graph
+    from app.persistence.db import get_session
+    from app.domain.services.tool_config_service import ToolConfigService
+    from app.domain.agent.custom_tool.graph import custom_tool_graph
     from langchain_core.messages import HumanMessage
     
     # Get DB session

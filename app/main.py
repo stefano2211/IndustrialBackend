@@ -7,7 +7,7 @@ UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 from contextlib import asynccontextmanager
-from app.core.db import init_db
+from app.persistence.db import init_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

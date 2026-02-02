@@ -1,11 +1,11 @@
-from app.agent.state import AgentState
-from app.agent.tools import retrieve_documents, use_custom_tool
+from app.domain.agent.state import AgentState
+from app.domain.agent.tools import retrieve_documents, use_custom_tool
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage
 from langgraph.prebuilt import ToolNode
 from app.config import settings
-from app.core.db import get_session
-from app.services.tool_config_service import ToolConfigService
+from app.persistence.db import get_session
+from app.domain.services.tool_config_service import ToolConfigService
 
 # Initialize LLM with tools
 llm = ChatOpenAI(

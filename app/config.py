@@ -28,7 +28,12 @@ class Settings(BaseSettings):
     postgres_password: str = "postgres"
     postgres_host: str = "postgres"
     postgres_port: int = 5432
-    postgres_db: str = "aura_db" 
+    postgres_db: str = "aura_db"
+
+    # Security
+    secret_key: str
+    access_token_expire_minutes: int = 30 # Default 30 mins
+ 
     
     model_config = {"env_file": ".env"}
 

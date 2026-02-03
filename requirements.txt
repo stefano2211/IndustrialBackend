@@ -25,6 +25,11 @@ flower==2.0.1
 minio==7.2.18
 unstructured[docx]
 langgraph
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==3.2.2
 yfinance
 sqlmodel==0.0.22
 asyncpg==0.29.0
+psycopg2-binary
+email-validator

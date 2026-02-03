@@ -1,13 +1,18 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.domain.schemas.api import ChatRequest, ChatResponse
 from app.domain.agent.workflow import app as agent_app
 from langchain_core.messages import HumanMessage
 from loguru import logger
+from app.api import deps
+from app.domain.models.user import User
 
 router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(
+    request: ChatRequest,
+    current_user: User = Depends(deps.get_current_user)
+):
     """
     Chat with the AI Agent (Orchestrator).
     The agent will route your request to the appropriate sub-agent (Financial RAG or Placeholder).

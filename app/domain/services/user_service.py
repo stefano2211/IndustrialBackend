@@ -16,6 +16,7 @@ class UserService:
 
     def create_user(self, user_in: UserCreate) -> User:
         db_user = User(
+            username=user_in.username,
             email=user_in.email,
             hashed_password=get_password_hash(user_in.password),
             is_active=user_in.is_active,

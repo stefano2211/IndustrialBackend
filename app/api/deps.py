@@ -1,6 +1,6 @@
 from typing import Generator, Annotated
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import ValidationError
 from sqlmodel import Session
@@ -11,17 +11,15 @@ from app.domain.models.user import User
 from app.domain.schemas.token import TokenPayload
 from app.domain.services.user_service import UserService
 
-reusable_oauth2 = OAuth2PasswordBearer(
-    tokenUrl="/auth/login"
-)
+security = HTTPBearer()
 
 def get_current_user(
     session: Annotated[Session, Depends(get_session)],
-    token: Annotated[str, Depends(reusable_oauth2)]
+    token: Annotated[HTTPAuthorizationCredentials, Depends(security)]
 ) -> User:
     try:
         payload = jwt.decode(
-            token, settings.secret_key, algorithms=[ALGORITHM]
+            token.credentials, settings.secret_key, algorithms=[ALGORITHM]
         )
         token_data = TokenPayload(**payload)
     except (JWTError, ValidationError):

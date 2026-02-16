@@ -1,22 +1,23 @@
 from langchain_core.tools import tool
-from app.domain.agent.subagents.rag_financial.graph import create_financial_graph
+from app.domain.agent.subagents.rag_industrial.graph import create_industrial_graph
 from app.domain.agent.subagents.rag_placeholder.graph import placeholder_node
 from langchain_core.messages import HumanMessage
 
 # Initialize graphs/nodes
 # Note: In a real app we might want to cache the graph compilation or initialization
-financial_graph = create_financial_graph()
+financial_graph = create_industrial_graph()
 
-# Wrapper for Financial RAG
+# Wrapper for Industrial RAG
 @tool
-async def ask_financial_agent(query: str) -> str:
+async def ask_industrial_agent(query: str) -> str:
     """
-    Use this tool to ask questions about financial data, revenue, sales, or business reports.
+    Use this tool to ask questions about industrial safety, regulations (OSHA, ISO), compliance, hazards, or incident reports.
     Input should be the specific question asking for information.
     """
     # Create the state for the sub-agent
     # The sub-agent expects a dictionary with "messages"
     # financial_graph is actually a node function (async) in current implementation
+    # TODO: Rename financial_graph to something more generic like 'rag_graph' in future refactor
     response = await financial_graph({"messages": [HumanMessage(content=query)]})
     
     # Extract the final answer (last message)

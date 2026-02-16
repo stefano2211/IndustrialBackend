@@ -7,8 +7,8 @@ searcher = SemanticSearcher()
 @tool
 def retrieve_documents(query: str) -> str:
     """
-    Retrieve financial reports, contracts, and internal documents relevant to the query.
-    Use this tool to answer questions about the company's data.
+    Retrieve industrial safety reports, OSHA/ISO regulations, incident logs, and compliance documents relevant to the query.
+    Use this tool to answer questions about hazards, safety standards, and past incidents.
     """
     results = searcher.search(query, limit=5)
     

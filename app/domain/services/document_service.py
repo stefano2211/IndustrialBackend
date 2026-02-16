@@ -69,11 +69,18 @@ class DocumentService:
         # Convertir sets a listas para JSON
         consolidated_entities = {k: list(v) for k, v in all_entities.items()}
         
+        # Sort chunks by index to reconstruct text in order
+        chunks.sort(key=lambda x: x.payload.get("metadata", {}).get("chunk_index", 0))
+        
+        # Reconstruct full text
+        full_text = "\n\n".join([chunk.payload.get("text", "") for chunk in chunks])
+
         return {
             "doc_id": doc_id,
             "filename": filename,
             "category": category,
             "total_chunks": len(chunks),
+            "content": full_text,  # Added full content
             "entities": consolidated_entities
         }
 

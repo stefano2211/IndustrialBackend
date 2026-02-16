@@ -20,20 +20,33 @@ class GLINERExtractor:
                 device=device,
                 torch_dtype="float32"  # Para CPU stability
             )
-            # Schema para NER con descripciones en NL (mejora precisión)
+            # Schema para NER con descripciones en NL (mejora precisión) - ADAPTADO A COMPLIANCE INDUSTRIAL
             self.ner_schema = {
-                "person": "Nombres de personas o contactos",
-                "organization": "Nombres de empresas, organizaciones o entidades legales",
-                "date": "Fechas, plazos o referencias temporales como '15 de enero de 2025'",
-                "money": "Importes monetarios, presupuestos o pagos como '185.000 €'",
-                "location": "Lugares geográficos como ciudades o países",
-                "financial_metric": "Métricas financieras clave como 'Net Revenues', 'Operating Income', 'EPS', 'Organic Growth'",
-                "fiscal_period": "Periodos fiscales como 'Q3 2025', 'Fiscal Year 2024', 'Nine Months Ended'",
-                "growth_rate": "Porcentajes de crecimiento o variación como '+5%', 'declined 2%', 'organic revenue growth of 9%'"
+                "regulation": "Specific regulations, laws, or norms (e.g., 'OSHA 1910', 'ISO 14001', 'NOM-002-STPS', 'Clean Air Act')",
+                "standard": "Safety, quality, or technical standards (e.g., 'ANSI Z87.1', 'NFPA 70E', 'ASTM International')",
+                "date": "Compliance deadlines, audit dates, incident dates, or effective dates",
+                "penalty": "Monetary fines, sanctions, or penalties for non-compliance",
+                "location": "Specific facility names, zones, or areas (e.g., 'Zone A', 'Warehouse 3', 'Assembly Line 1')",
+                "responsible_party": "Individuals, roles, or departments responsible for compliance (e.g., 'Safety Officer', 'Plant Manager', 'EHS Dept')",
+                "equipment": "Machinery, tools, or equipment involved in compliance checks or incidents (e.g., 'Forklift', 'Boiler B')",
+                "hazard": "Specific safety or environmental hazards identified (e.g., 'Chemical Spill', 'High Voltage', 'Slippery Floor')",
+                "organization": "Nombres de empresas, organizaciones o entidades legales", # Mantenemos general también
+                "money": "Importes monetarios" # Mantenemos general
             }
-            # Schema para clasificación de docs (single-label, categorías mutuamente exclusivas)
+            # Schema para clasificación de docs (single-label, categorías mutuamente exclusivas) - ADAPTADO A COMPLIANCE INDUSTRIAL
             self.classification_schema = {
-                "document_type": ["contract", "invoice", "report", "nda", "email_thread", "financial_statement", "policy"]
+                "document_type": [
+                    "audit_report", 
+                    "permit", 
+                    "incident_report", 
+                    "procedure", 
+                    "certification", 
+                    "non_compliance_notice",
+                    "contract", 
+                    "invoice", 
+                    "report", 
+                    "policy"
+                ]
             }
             logger.info(f"GLiNER2-large-v1 loaded: {model_name} on {device}")
         except Exception as e:

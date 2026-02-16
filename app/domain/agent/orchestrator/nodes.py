@@ -1,13 +1,12 @@
 from langchain_openai import ChatOpenAI
 from app.config import settings
 from app.domain.agent.orchestrator.prompts import orchestrator_prompt
-from app.domain.agent.orchestrator.tools import ask_financial_agent, ask_placeholder_agent
+from app.domain.agent.orchestrator.tools import ask_industrial_agent, ask_placeholder_agent
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 # List of tools available to the orchestrator
-# List of tools available to the orchestrator
-TOOLS = [ask_financial_agent, ask_placeholder_agent]
-MEMBERS = "Financial_RAG, Placeholder_RAG"
+TOOLS = [ask_industrial_agent, ask_placeholder_agent]
+MEMBERS = "Industrial_RAG, Placeholder_RAG"
 
 def orchestrator_node(state):
     llm = ChatOpenAI(

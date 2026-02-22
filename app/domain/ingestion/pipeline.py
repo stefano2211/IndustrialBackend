@@ -43,7 +43,12 @@ class DocumentProcessor:
 
         # 4. NER Enrichment (por chunk)
         enriched_chunks = []
+        import time 
         for i, chunk in enumerate(chunks):
+            # Throttling para evitar 429 de cuotas de LLM (Free Tier)
+            if i > 0:
+                time.sleep(40) 
+            
             entities = extractor.extract_entities(chunk.page_content)
             chunk.metadata["entities"] = entities
             chunk.metadata["doc_category"] = doc_category  

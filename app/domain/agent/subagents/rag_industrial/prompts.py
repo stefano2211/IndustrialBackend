@@ -13,6 +13,5 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM_PROMPT),
         MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"),
     ]
 )

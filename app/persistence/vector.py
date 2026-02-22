@@ -16,7 +16,7 @@ class QdrantManager:
             # Intentar crear siempre; si existe, qdrant-client o la API lanzarán error
             self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+                vectors_config=VectorParams(size=3072, distance=Distance.COSINE),
             )
             logger.info(f"Collection '{self.collection_name}' created")
         except Exception as e:

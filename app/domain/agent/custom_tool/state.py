@@ -1,7 +1,7 @@
 from typing import TypedDict, Annotated, List, Dict, Any
 from langchain_core.messages import BaseMessage
 import operator
-from app.domain.models.tool_config import ToolConfig
+from app.domain.schemas.tool_config import ToolConfig
 
 class CustomToolState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]

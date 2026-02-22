@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI
-from app.config import settings
+from app.core.config import settings
 from app.domain.agent.subagents.rag_placeholder.prompts import prompt
 from langchain_core.messages import AIMessage
 

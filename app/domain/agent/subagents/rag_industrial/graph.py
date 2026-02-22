@@ -1,6 +1,6 @@
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_tools_agent, AgentExecutor
-from app.config import settings
+from app.core.config import settings
 from app.domain.agent.subagents.rag_industrial.tools import retrieve_documents
 from app.domain.agent.subagents.rag_industrial.prompts import prompt
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage

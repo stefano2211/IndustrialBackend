@@ -1,5 +1,5 @@
 from langchain_openai import ChatOpenAI
-from app.config import settings
+from app.core.config import settings
 from app.domain.agent.orchestrator.prompts import orchestrator_prompt
 from app.domain.agent.orchestrator.tools import ask_industrial_agent, ask_placeholder_agent
 from langchain_core.utils.function_calling import convert_to_openai_tool

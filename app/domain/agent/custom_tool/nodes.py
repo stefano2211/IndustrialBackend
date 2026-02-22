@@ -2,7 +2,7 @@ import json
 import httpx
 from langchain_core.messages import ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from app.config import settings
+from app.core.config import settings
 from app.domain.agent.custom_tool.state import CustomToolState
 from loguru import logger
 

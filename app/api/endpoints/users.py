@@ -4,7 +4,7 @@ from sqlmodel import Session
 from app.api import deps
 from app.core.database import get_session
 from app.domain.schemas.user import UserRead, UserUpdate
-from app.domain.models.user import User
+from app.domain.schemas.user import User
 from app.domain.services.user_service import UserService
 
 router = APIRouter()

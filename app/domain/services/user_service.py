@@ -1,6 +1,6 @@
 from sqlmodel import Session, select
 from typing import Optional
-from app.domain.models.user import User
+from app.domain.schemas.user import User
 from app.domain.schemas.user import UserCreate, UserUpdate
 from app.core.security import get_password_hash, verify_password
 from datetime import datetime

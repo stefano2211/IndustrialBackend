@@ -1,7 +1,7 @@
 from celery import Celery
 from app.domain.ingestion.pipeline import DocumentProcessor
 from app.persistence.blob import minio_client
-from app.config import settings
+from app.core.config import settings
 import os
 from loguru import logger
 

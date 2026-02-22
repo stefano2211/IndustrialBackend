@@ -4,7 +4,7 @@ from app.domain.agent.workflow import app as agent_app
 from langchain_core.messages import HumanMessage
 from loguru import logger
 from app.api import deps
-from app.domain.models.user import User
+from app.domain.schemas.user import User
 
 router = APIRouter()
 

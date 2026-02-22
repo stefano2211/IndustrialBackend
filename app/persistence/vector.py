@@ -1,7 +1,7 @@
 # app/core/vector_store.py
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
-from app.config import settings
+from app.core.config import settings
 from loguru import logger
 import uuid
 

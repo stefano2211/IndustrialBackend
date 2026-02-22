@@ -1,6 +1,6 @@
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.domain.models.tool_config import ToolConfig
+from app.domain.schemas.tool_config import ToolConfig
 from app.domain.schemas.tool_config import ToolConfigCreate, ToolConfigUpdate
 from typing import List, Optional
 

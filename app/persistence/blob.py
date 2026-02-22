@@ -1,5 +1,5 @@
 from minio import Minio
-from app.config import settings
+from app.core.config import settings
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 import os

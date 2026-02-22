@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from app.domain.services.document_service import DocumentService
 from app.api import deps
-from app.domain.models.user import User
+from app.domain.schemas.user import User
 
 router = APIRouter(dependencies=[Depends(deps.get_current_user)])
 document_service = DocumentService()

@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from sqlmodel import Session
 from app.core.database import get_session
 from app.core.security import ALGORITHM
-from app.config import settings
-from app.domain.models.user import User
+from app.core.config import settings
+from app.domain.schemas.user import User
 from app.domain.schemas.token import TokenPayload
 from app.domain.services.user_service import UserService
 

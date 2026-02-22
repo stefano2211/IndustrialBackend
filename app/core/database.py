@@ -1,5 +1,5 @@
 from sqlmodel import SQLModel, Session, create_engine
-from app.config import settings
+from app.core.config import settings
 from typing import Generator
 
 # Sync Database URL (using psycopg2 by default for 'postgresql://')

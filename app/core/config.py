@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+from typing import Optional
 
 class Settings(BaseSettings):
     # Qdrant
@@ -33,7 +34,23 @@ class Settings(BaseSettings):
     # Security
     secret_key: str
     access_token_expire_minutes: int = 30 # Default 30 mins
- 
+
+    # LLM Providers (Optional keys for other providers)
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    
+    # Defaults
+    default_llm_provider: str = "openrouter"
+    default_llm_model: Optional[str] = None # Will use openrouter_model if None
+    
+    # Orchestrator specific
+    orchestrator_llm_provider: Optional[str] = None
+    orchestrator_llm_model: Optional[str] = None
+    
+    # Subagent specific
+    subagent_llm_provider: Optional[str] = None
+    subagent_llm_model: Optional[str] = None
     
     model_config = {"env_file": ".env"}
 

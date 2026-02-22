@@ -1,30 +1,14 @@
-from pydantic import BaseModel, EmailStr
+from sqlmodel import SQLModel, Field
 from typing import Optional
-import uuid
 from datetime import datetime
+import uuid
 
-class UserBase(BaseModel):
-    username: str
-    email: EmailStr
-    is_active: bool = True
-    is_superuser: bool = False
-
-class UserCreate(UserBase):
-    password: str
-
-class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
-
-class UserRead(UserBase):
-    id: uuid.UUID
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
+class User(SQLModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    username: str = Field(index=True)
+    email: str = Field(unique=True, index=True)
+    hashed_password: str
+    is_active: bool = Field(default=True)
+    is_superuser: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

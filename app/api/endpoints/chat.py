@@ -18,18 +18,32 @@ async def chat_endpoint(
     The agent will route your request to the appropriate sub-agent (Financial RAG or Placeholder).
     """
     try:
+        # User identification
+        user_id = request.user_id or str(current_user.id)
+        thread_id = request.thread_id or "default_thread"
+
         # Convert user input to LangChain message
         messages = [HumanMessage(content=request.query)]
         
-        # Invoke the agent graph
-        response = await agent_app.ainvoke({"messages": messages})
+        # Config for LangGraph (Threading + Store)
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "user_id": user_id
+            }
+        }
+
+        # Invoke the agent graph with persistence config
+        response = await agent_app.ainvoke({"messages": messages}, config=config)
         
         # Extract the final response content
-        # The response is typically the last message in the list
         final_message = response["messages"][-1].content
         
-        # For now, sources are empty as we haven't extracted them from the graph state yet
-        return ChatResponse(answer=final_message, sources=[])
+        return ChatResponse(
+            answer=final_message, 
+            sources=[],
+            thread_id=thread_id # Need to add this to ChatResponse too or just return it
+        )
 
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}")

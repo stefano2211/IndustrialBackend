@@ -15,7 +15,7 @@ class DocumentService:
         self.upload_dir = "/tmp/uploads"
         os.makedirs(self.upload_dir, exist_ok=True)
 
-    async def upload_document(self, file: UploadFile):
+    async def upload_document(self, file: UploadFile, user_id: str):
         """Maneja la subida de archivos, almacenamiento en MinIO y encolado de tarea."""
         file_id = str(uuid.uuid4())
         safe_filename = f"{file_id}_{file.filename}"
@@ -29,7 +29,7 @@ class DocumentService:
             minio_client.upload_file(temp_path, safe_filename)
             
             # Encolar tarea de procesamiento
-            task = process_document_task.delay(safe_filename, file.filename)
+            task = process_document_task.delay(safe_filename, file.filename, user_id=user_id)
             
             return {
                 "task_id": task.id, 
@@ -41,9 +41,9 @@ class DocumentService:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def get_document_details(self, doc_id: str):
+    def get_document_details(self, doc_id: str, user_id: str):
         """Recupera detalles y metadatos agregados de un documento."""
-        chunks = self.qdrant.get_document_chunks(doc_id)
+        chunks = self.qdrant.get_document_chunks(doc_id, user_id=user_id)
         
         if not chunks:
             return None
@@ -84,9 +84,9 @@ class DocumentService:
             "entities": consolidated_entities
         }
 
-    def delete_document(self, doc_id: str):
+    def delete_document(self, doc_id: str, user_id: str):
         """Elimina un documento de Qdrant."""
-        self.qdrant.delete_document(doc_id)
+        self.qdrant.delete_document(doc_id, user_id=user_id)
         return {"status": "deleted", "doc_id": doc_id}
 
     def get_task_status(self, task_id: str):

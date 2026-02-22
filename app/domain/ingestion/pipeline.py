@@ -23,9 +23,9 @@ class DocumentProcessor:
             self.extractor = get_extractor(device="cpu")
         return self.extractor
 
-    def process(self, file_path: str, doc_id: str = None):
+    def process(self, file_path: str, user_id: str, doc_id: str = None):
         doc_id = doc_id or str(uuid4())
-        logger.info(f"Processing document: {file_path}")
+        logger.info(f"Processing document: {file_path} for user: {user_id}")
 
         # 1. Load
         docs = self.loader.load(file_path)
@@ -69,6 +69,7 @@ class DocumentProcessor:
                     "metadata": {
                         **chunk.metadata,
                         "doc_id": doc_id,
+                        "user_id": user_id,
                         "chunk_index": i
                     }
                 }

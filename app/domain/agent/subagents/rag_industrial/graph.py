@@ -15,22 +15,19 @@ def create_industrial_graph():
 
     async def industrial_node(state):
         messages = state["messages"]
+        user_id = state.get("user_id", "default_user")
         
         # Invoke the chain
         response = await chain.ainvoke({"messages": messages})
-        
-        # If the LLM wants to call tools, we execute them and potentially loop.
-        # However, as a simple LangGraph node, we generally return the AIMessage.
-        # The parent graph (orchestrator) handles tool execution via ToolNode if 
-        # this node is treated as a component. 
-        # But if this is a stand-alone node returning a final answer:
         
         if response.tool_calls:
             # Simple direct tool execution for this specific node
             for tool_call in response.tool_calls:
                 if tool_call["name"] == "retrieve_documents":
-                    # Execute tool
-                    tool_output = await retrieve_documents.ainvoke(tool_call["args"])
+                    # Execute tool injecting user_id
+                    # We merge the tool's original args with the injected user_id
+                    tool_args = {**tool_call["args"], "user_id": user_id}
+                    tool_output = await retrieve_documents.ainvoke(tool_args)
                     
                     # Add messages to history and re-invoke to get final answer
                     new_messages = messages + [response, ToolMessage(

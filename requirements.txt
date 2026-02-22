@@ -20,6 +20,9 @@ flower==2.0.1
 minio==7.2.18
 unstructured[docx]
 langgraph
+langgraph-checkpoint-postgres
+langgraph-store-postgres
+psycopg[binary,pool]
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==3.2.2

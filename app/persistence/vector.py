@@ -55,14 +55,18 @@ class QdrantManager:
             with_payload=True
         )
 
-    def get_document_chunks(self, doc_id: str):
-        """Recupera todos los chunks de un documento específico."""
+    def get_document_chunks(self, doc_id: str, user_id: str):
+        """Recupera todos los chunks de un documento específico, validando el usuario."""
         
         filter_dict = Filter(
             must=[
                 FieldCondition(
                     key="metadata.doc_id",
                     match=MatchValue(value=doc_id)
+                ),
+                FieldCondition(
+                    key="metadata.user_id",
+                    match=MatchValue(value=user_id)
                 )
             ]
         )
@@ -77,14 +81,18 @@ class QdrantManager:
         )
         return results
 
-    def delete_document(self, doc_id: str):
-        """Elimina todos los chunks de un documento."""
+    def delete_document(self, doc_id: str, user_id: str):
+        """Elimina todos los chunks de un documento de un usuario específico."""
         
         filter_dict = Filter(
             must=[
                 FieldCondition(
                     key="metadata.doc_id",
                     match=MatchValue(value=doc_id)
+                ),
+                FieldCondition(
+                    key="metadata.user_id",
+                    match=MatchValue(value=user_id)
                 )
             ]
         )

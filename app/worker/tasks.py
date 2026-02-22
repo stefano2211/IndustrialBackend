@@ -26,12 +26,12 @@ celery_app.conf.update(
 processor = DocumentProcessor()
 
 @celery_app.task(bind=True, name="process_document")
-def process_document_task(self, object_key: str, filename: str):
+def process_document_task(self, object_key: str, filename: str, user_id: str):
     try:
         self.update_state(state="PROGRESS", meta={"status": "descargando", "filename": filename})
         local_path = minio_client.download_file(object_key)
         self.update_state(state="PROGRESS", meta={"status": "procesando", "filename": filename})
-        result = processor.process(local_path)
+        result = processor.process(local_path, user_id=user_id)
         os.unlink(local_path)
         source_url = minio_client.get_presigned_url(object_key)
         return {

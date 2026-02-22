@@ -9,16 +9,19 @@ financial_graph = create_industrial_graph()
 
 # Wrapper for Industrial RAG
 @tool
-async def ask_industrial_agent(query: str) -> str:
+async def ask_industrial_agent(query: str, config: dict) -> str:
     """
     Use this tool to ask questions about industrial safety, regulations (OSHA, ISO), compliance, hazards, or incident reports.
     Input should be the specific question asking for information.
     """
+    # Extract user_id from config
+    user_id = config.get("configurable", {}).get("user_id", "default_user")
+    
     # Create the state for the sub-agent
-    # The sub-agent expects a dictionary with "messages"
-    # financial_graph is actually a node function (async) in current implementation
-    # TODO: Rename financial_graph to something more generic like 'rag_graph' in future refactor
-    response = await financial_graph({"messages": [HumanMessage(content=query)]})
+    response = await financial_graph({
+        "messages": [HumanMessage(content=query)],
+        "user_id": user_id
+    })
     
     # Extract the final answer (last message)
     return response["messages"][-1].content

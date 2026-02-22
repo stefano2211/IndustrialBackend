@@ -11,13 +11,19 @@ class SemanticSearcher:
     def search(
         self, 
         query: str, 
+        user_id: str,
         limit: int = 5, 
         entity_filter: Optional[str] = None,
         category_filter: Optional[str] = None
     ):
         query_vector = self.embedder.embed_query(query)
         
-        conditions = []
+        conditions = [
+            FieldCondition(
+                key="metadata.user_id",
+                match=MatchValue(value=user_id)
+            )
+        ]
         if entity_filter:
             conditions.append(
                 FieldCondition(

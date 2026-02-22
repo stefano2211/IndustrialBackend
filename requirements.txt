@@ -1,9 +1,11 @@
+# BUILD_TAG: 202602221959-CLEAN-INSTALL
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-langchain==0.3.2
-langchain-community==0.3.1
-langchain-huggingface==0.1.0
-langchain-openai==0.2.0
+langchain>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+langchain-anthropic>=0.2.0
+langchain-google-genai>=2.0.0
 qdrant-client==1.11.2
 pymupdf==1.24.10
 python-docx==1.1.2
@@ -12,14 +14,7 @@ pydantic==2.9.2
 python-multipart==0.0.9
 loguru==0.7.2
 python-dotenv==1.0.1
-torch==2.9.1
-torchaudio
-torchvision
---extra-index-url https://download.pytorch.org/whl/cpu
-sentence-transformers==5.1.2
-transformers==4.57.1
-gliner2==1.0.2
-accelerate==1.12.0
+langextract==1.1.1
 celery[redis]
 flower==2.0.1
 minio==7.2.18

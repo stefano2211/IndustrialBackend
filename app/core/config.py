@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     subagent_llm_provider: Optional[str] = None
     subagent_llm_model: Optional[str] = None
     
+    # Extractor specific (Google LangExtract works best with Gemini)
+    extractor_llm_provider: str = "gemini"
+    extractor_llm_model: str = "gemini-1.5-pro"
+    
     model_config = {"env_file": ".env"}
 
 settings = Settings()

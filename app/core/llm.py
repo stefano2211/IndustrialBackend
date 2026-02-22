@@ -27,6 +27,8 @@ class LLMFactory:
                 provider = settings.orchestrator_llm_provider
             elif role == "subagent" and settings.subagent_llm_provider:
                 provider = settings.subagent_llm_provider
+            elif role == "extractor" and settings.extractor_llm_provider:
+                provider = settings.extractor_llm_provider
             else:
                 provider = settings.default_llm_provider
         
@@ -36,6 +38,8 @@ class LLMFactory:
                 model_name = settings.orchestrator_llm_model
             elif role == "subagent" and settings.subagent_llm_model:
                 model_name = settings.subagent_llm_model
+            elif role == "extractor" and settings.extractor_llm_model:
+                model_name = settings.extractor_llm_model
             elif provider == LLMProvider.OPENROUTER:
                 model_name = settings.openrouter_model
             else:

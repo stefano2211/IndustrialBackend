@@ -1,129 +1,107 @@
-from gliner2 import GLiNER2
-from typing import List, Dict, Optional
+import langextract
+from typing import List, Dict, Optional, Any
+from pydantic import BaseModel, Field
+from app.core.llm import LLMFactory
 from loguru import logger
+import json
 
-class GLINERExtractor:
-    def __init__(
-        self, 
-        model_name: str = "fastino/gliner2-base-v1",
-        device: str = "cpu"
-    ):
+# Definimos los esquemas de extracción usando Pydantic para LangExtract
+class EntityExtraction(BaseModel):
+    regulation: List[str] = Field(default=[], description="Specific regulations, laws, or norms (e.g., 'OSHA 1910', 'ISO 14001', 'NOM-002-STPS')")
+    standard: List[str] = Field(default=[], description="Safety, quality, or technical standards (e.g., 'ANSI Z87.1', 'NFPA 70E')")
+    date: List[str] = Field(default=[], description="Compliance deadlines, audit dates, incident dates, or effective dates")
+    penalty: List[str] = Field(default=[], description="Monetary fines, sanctions, or penalties for non-compliance")
+    location: List[str] = Field(default=[], description="Specific facility names, zones, or areas (e.g., 'Zone A', 'Warehouse 3')")
+    responsible_party: List[str] = Field(default=[], description="Individuals, roles, or departments responsible for compliance")
+    equipment: List[str] = Field(default=[], description="Machinery, tools, or equipment involved in compliance or incidents")
+    hazard: List[str] = Field(default=[], description="Specific safety or environmental hazards identified")
+    organization: List[str] = Field(default=[], description="Company names, organizations, or legal entities")
+    money: List[str] = Field(default=[], description="Monetary amounts")
+
+class DocumentClassification(BaseModel):
+    document_type: str = Field(description="Categoría del documento (audit_report, permit, incident_report, procedure, certification, notice, contract, invoice, policy, unknown)")
+
+class LangExtractExtractor:
+    def __init__(self):
         """
-        Inicializa gliner2-base-v1.
-        Args:
-            model_name: Modelo HF (default: fastino/gliner2-base-v1).
-            device: "cpu" o "cuda" (recomendado CPU para escalabilidad).
+        Inicializa extractor usando Google LangExtract.
+        Utiliza el LLM configurado en LLMFactory para el rol 'extractor' (Gemini recomendado).
         """
         try:
-            self.model = GLiNER2.from_pretrained(
-                model_name, 
-                device=device,
-                torch_dtype="float32"  # Para CPU stability
-            )
-            # Schema para NER con descripciones en NL (mejora precisión) - ADAPTADO A COMPLIANCE INDUSTRIAL
-            self.ner_schema = {
-                "regulation": "Specific regulations, laws, or norms (e.g., 'OSHA 1910', 'ISO 14001', 'NOM-002-STPS', 'Clean Air Act')",
-                "standard": "Safety, quality, or technical standards (e.g., 'ANSI Z87.1', 'NFPA 70E', 'ASTM International')",
-                "date": "Compliance deadlines, audit dates, incident dates, or effective dates",
-                "penalty": "Monetary fines, sanctions, or penalties for non-compliance",
-                "location": "Specific facility names, zones, or areas (e.g., 'Zone A', 'Warehouse 3', 'Assembly Line 1')",
-                "responsible_party": "Individuals, roles, or departments responsible for compliance (e.g., 'Safety Officer', 'Plant Manager', 'EHS Dept')",
-                "equipment": "Machinery, tools, or equipment involved in compliance checks or incidents (e.g., 'Forklift', 'Boiler B')",
-                "hazard": "Specific safety or environmental hazards identified (e.g., 'Chemical Spill', 'High Voltage', 'Slippery Floor')",
-                "organization": "Nombres de empresas, organizaciones o entidades legales", # Mantenemos general también
-                "money": "Importes monetarios" # Mantenemos general
-            }
-            # Schema para clasificación de docs (single-label, categorías mutuamente exclusivas) - ADAPTADO A COMPLIANCE INDUSTRIAL
-            self.classification_schema = {
-                "document_type": [
-                    "audit_report", 
-                    "permit", 
-                    "incident_report", 
-                    "procedure", 
-                    "certification", 
-                    "non_compliance_notice",
-                    "contract", 
-                    "invoice", 
-                    "report", 
-                    "policy"
-                ]
-            }
-            logger.info(f"GLiNER2-large-v1 loaded: {model_name} on {device}")
+            # Obtenemos el LLM de la factoría para el rol específico de extractor
+            self.llm = LLMFactory.get_llm(role="extractor")
+            # Extraemos la configuración para LangExtract (que usa su propia factoría interna)
+            self.model_id = getattr(self.llm, "model_name", settings.extractor_llm_model)
+            self.api_key = getattr(self.llm, "google_api_key", settings.gemini_api_key)
+            
+            logger.info(f"LangExtractExtractor initialized for model: {self.model_id}")
         except Exception as e:
-            logger.error(f"Failed to load GLiNER2-large-v1: {e}")
+            logger.error(f"Failed to initialize LangExtractExtractor: {e}")
             raise
 
-    def extract_entities(
-        self, 
-        text: str
-    ) -> Dict[str, List[str]]:
+    def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """
-        Extrae entidades del texto usando extract_entities (de docs GLiNER2).
-        Args:
-            text: Texto a procesar.
-        Returns:
-            Dict como {'money': ['185.000 €'], 'project_code': ['AUR-2025-007']}.
+        Extrae entidades del texto usando LangExtract.
         """
-        if len(text.strip()) < 50:  # Optimización: Skip chunks muy cortos
+        if len(text.strip()) < 50:
             return {}
         
         try:
-            # extract_entities según docs: schema como dict posicional después de text
-            result = self.model.extract_entities(
-                text, 
-                self.ner_schema  
+            prompt = "Extract compliance and industrial safety entities from the following text."
+            
+            # langextract.extract es la función principal en la v1.1.1
+            extraction_result = langextract.extract(
+                text_or_documents=text, 
+                schema_class=EntityExtraction,
+                prompt_description=prompt,
+                model_id=self.model_id,
+                api_key=self.api_key
             )
             
-            # Parse output: {'entities': {label: [values]}} → flatten
-            entities = result.get('entities', {})
+            # El resultado suele ser una instancia de la clase Pydantic definida
+            if isinstance(extraction_result, EntityExtraction):
+                return extraction_result.model_dump()
             
-            # Flatten a list por label (evita duplicados)
-            extracted = {}
-            for label, values in entities.items():
-                if isinstance(values, list):
-                    extracted[label] = list(set([v.strip() for v in values if v.strip()]))  
-                else:
-                    extracted[label] = [str(values).strip()] if values else []
+            # Fallback en caso de que devuelva un dict
+            return extraction_result if isinstance(extraction_result, dict) else {}
             
-            logger.debug(f"Extracted {len(extracted)} entity types from text (len={len(text)})")
-            return extracted  # {'money': ['185.000 €'], ...}
         except Exception as e:
-            logger.warning(f"NER extraction failed for text: {e}")
+            logger.warning(f"LangExtract entity extraction failed: {e}")
             return {}
 
-    def classify_document(
-        self, 
-        text: str
-    ) -> str:
+    def classify_document(self, text: str) -> str:
         """
-        Clasifica el documento completo usando classify_text (de docs GLiNER2).
-        Args:
-            text: Texto completo del documento.
-        Returns:
-            String con la categoría (ej: 'contract').
+        Clasifica el documento usando LangExtract.
         """
-        if len(text.strip()) < 100:  # Optimización: Skip docs muy cortos
+        if len(text.strip()) < 100:
             return "unknown"
         
         try:
-            # classify_text según docs: schema como dict posicional (single-label)
-            result = self.model.classify_text(
-                text, 
-                self.classification_schema 
+            prompt = "Classify this industrial document based on its content into the most appropriate category."
+            
+            classification_result = langextract.extract(
+                text_or_documents=text,
+                schema_class=DocumentClassification,
+                prompt_description=prompt,
+                model_id=self.model_id,
+                api_key=self.api_key
             )
             
-            category = result.get('document_type', 'unknown')
-            logger.debug(f"Classified document as: {category}")
-            return category
-        except Exception as e:
-            logger.warning(f"Document classification failed: {e}")
+            if isinstance(classification_result, DocumentClassification):
+                return classification_result.document_type
+            
+            if isinstance(classification_result, dict):
+                return classification_result.get("document_type", "unknown")
+                
             return "unknown"
-
+        except Exception as e:
+            logger.warning(f"LangExtract document classification failed: {e}")
+            return "unknown"
 
 _extractor_instance = None
 
-def get_extractor(device: str = "cpu") -> 'GLINERExtractor':
+def get_extractor(device: str = "cpu") -> 'LangExtractExtractor':
     global _extractor_instance
     if _extractor_instance is None:
-        _extractor_instance = GLINERExtractor(device=device)
+        _extractor_instance = LangExtractExtractor()
     return _extractor_instance

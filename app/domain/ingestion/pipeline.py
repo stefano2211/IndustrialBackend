@@ -18,7 +18,7 @@ class DocumentProcessor:
         self.extractor = None 
 
     def _get_extractor(self):
-        """Lazy load GLiNER2 solo cuando se necesita."""
+        """Lazy load LangExtract extractor only when needed."""
         if self.extractor is None:
             self.extractor = get_extractor(device="cpu")
         return self.extractor
@@ -71,5 +71,5 @@ class DocumentProcessor:
             for i, (chunk, vector) in enumerate(zip(enriched_chunks, vectors))
         ]
         self.vector_store.upsert(points)
-        logger.success(f"Document {doc_id} ({doc_category}) processed and stored ({len(chunks)} chunks with GLiNER2 NER + classification)")
+        logger.success(f"Document {doc_id} ({doc_category}) processed and stored ({len(chunks)} chunks with LangExtract NER + classification)")
         return {"doc_id": doc_id, "chunks": len(chunks), "category": doc_category}

@@ -18,8 +18,8 @@ async def chat_endpoint(
     The agent will route your request to the appropriate sub-agent (Financial RAG or Placeholder).
     """
     try:
-        # User identification
-        user_id = request.user_id or str(current_user.id)
+        # User identification strictly from JWT
+        user_id = str(current_user.id)
         thread_id = request.thread_id or "default_thread"
 
         # Convert user input to LangChain message

@@ -1,6 +1,6 @@
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from app.core.config import settings
-from app.persistence.memoryAI.checkpointer import DB_URL
+from app.persistence.memoryAI.checkpointer import get_pool
 
 # Internal store instance
 _store: AsyncPostgresStore = None
@@ -8,11 +8,12 @@ _store: AsyncPostgresStore = None
 async def get_store():
     """
     Returns an AsyncPostgresStore instance.
-    Initializes the store on first call.
+    Initializes the store on first call using the shared pool.
     """
     global _store
     if _store is None:
-        _store = AsyncPostgresStore.from_conn_string(DB_URL)
+        pool = await get_pool()
+        _store = AsyncPostgresStore(pool)
         # Ensure tables exist
         await _store.setup()
     

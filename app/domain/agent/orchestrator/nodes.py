@@ -10,10 +10,8 @@ MEMBERS = "Industrial_RAG, Placeholder_RAG"
 
 async def orchestrator_node(state, config, store):
     llm = LLMFactory.get_llm(role="orchestrator", temperature=0)
+    user_id = config.get("configurable", {}).get("user_id", "default_user")
 
-    # ... (rest of the code to use store if needed) ...
-    # For now just pass it through or log
-    
     # Bind tools to the LLM
     llm_with_tools = llm.bind_tools(TOOLS)
     
@@ -23,6 +21,9 @@ async def orchestrator_node(state, config, store):
     response = await chain.ainvoke({
         "messages": state["messages"],
         "members": MEMBERS
-    })
+    }, config=config)
     
-    return {"messages": [response]}
+    return {
+        "messages": [response],
+        "user_id": user_id
+    }

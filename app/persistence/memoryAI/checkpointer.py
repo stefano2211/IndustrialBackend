@@ -9,11 +9,8 @@ DB_URL = f"postgresql://{settings.postgres_user}:{settings.postgres_password}@{s
 # Internal pool instance
 _pool: AsyncConnectionPool = None
 
-async def get_checkpointer():
-    """
-    Returns an AsyncPostgresSaver instance.
-    Initializes the connection pool on first call.
-    """
+async def get_pool():
+    """Returns the shared AsyncConnectionPool instance."""
     global _pool
     if _pool is None:
         _pool = AsyncConnectionPool(
@@ -21,10 +18,18 @@ async def get_checkpointer():
             max_size=10,
             kwargs={"autocommit": True}
         )
+    return _pool
+
+async def get_checkpointer():
+    """
+    Returns an AsyncPostgresSaver instance.
+    Initializes the connection pool on first call.
+    """
+    pool = await get_pool()
     
     # Initialize and setup tables if necessary
-    saver = AsyncPostgresSaver(_pool)
-    # Note: setup() is usually called once or handled by the saver
+    saver = AsyncPostgresSaver(pool)
+    await saver.setup()
     return saver
 
 async def close_pool():

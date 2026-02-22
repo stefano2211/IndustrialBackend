@@ -1,7 +1,9 @@
-from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool, InjectedToolArg
+from typing import Annotated
 from app.domain.agent.subagents.rag_industrial.graph import create_industrial_graph
 from app.domain.agent.subagents.rag_placeholder.graph import placeholder_node
-from langchain_core.messages import HumanMessage
 
 # Initialize graphs/nodes
 # Note: In a real app we might want to cache the graph compilation or initialization
@@ -9,7 +11,10 @@ financial_graph = create_industrial_graph()
 
 # Wrapper for Industrial RAG
 @tool
-async def ask_industrial_agent(query: str, config: dict) -> str:
+async def ask_industrial_agent(
+    query: str, 
+    config: Annotated[RunnableConfig, InjectedToolArg]
+) -> str:
     """
     Use this tool to ask questions about industrial safety, regulations (OSHA, ISO), compliance, hazards, or incident reports.
     Input should be the specific question asking for information.

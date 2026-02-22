@@ -6,3 +6,4 @@ class AgentState(TypedDict):
     """The shared state of the agent workflow."""
     messages: Annotated[Sequence[BaseMessage], operator.add]
     next: str
+    user_id: str

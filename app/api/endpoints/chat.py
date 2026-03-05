@@ -1,14 +1,15 @@
 import uuid
 from fastapi import APIRouter, HTTPException, Depends
-from sqlmodel import Session, select
+from sqlmodel import select
 from app.domain.schemas.api import ChatRequest, ChatResponse
 from app.domain.schemas.conversation import Conversation, ChatMessage
 from app.domain.agent.workflow import app as agent_app
 from langchain_core.messages import HumanMessage
 from loguru import logger
 from app.api import deps
-from app.core.database import get_session
+from app.persistence.db import get_session
 from app.domain.schemas.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
 from datetime import datetime
 
@@ -18,7 +19,7 @@ router = APIRouter()
 async def chat_endpoint(
     request: ChatRequest,
     current_user: User = Depends(deps.get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
     """
     Chat with the AI Agent (Orchestrator).
@@ -30,7 +31,8 @@ async def chat_endpoint(
 
         # Auto-create Conversation if it doesn't exist
         statement = select(Conversation).where(Conversation.thread_id == thread_id)
-        conversation = session.exec(statement).first()
+        result = await session.execute(statement)
+        conversation = result.scalars().first()
         if not conversation:
             conversation = Conversation(
                 user_id=current_user.id,
@@ -38,18 +40,18 @@ async def chat_endpoint(
                 title=request.query[:80] if request.query else "New Chat",
             )
             session.add(conversation)
-            session.commit()
-            session.refresh(conversation)
+            await session.commit()
+            await session.refresh(conversation)
 
         # Update timestamp on every message
         conversation.updated_at = datetime.utcnow()
         session.add(conversation)
-        session.commit()
+        await session.commit()
 
         # Save user message to DB
         user_msg = ChatMessage(thread_id=thread_id, role="user", content=request.query)
         session.add(user_msg)
-        session.commit()
+        await session.commit()
 
         # Convert user input to LangChain message
         messages = [HumanMessage(content=request.query)]
@@ -59,7 +61,8 @@ async def chat_endpoint(
             "configurable": {
                 "thread_id": thread_id,
                 "user_id": user_id,
-                "knowledge_base_id": request.knowledge_base_id
+                "knowledge_base_id": request.knowledge_base_id,
+                "session": session
             }
         }
 
@@ -72,7 +75,7 @@ async def chat_endpoint(
         # Save assistant message to DB
         assistant_msg = ChatMessage(thread_id=thread_id, role="assistant", content=final_message)
         session.add(assistant_msg)
-        session.commit()
+        await session.commit()
         
         return ChatResponse(
             answer=final_message, 

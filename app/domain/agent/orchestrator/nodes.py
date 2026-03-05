@@ -9,7 +9,10 @@ TOOLS = [ask_knowledge_agent, ask_placeholder_agent]
 MEMBERS = "Knowledge_Base_Agent, Placeholder_Agent"
 
 async def orchestrator_node(state, config, store):
-    llm = LLMFactory.get_llm(role="orchestrator", temperature=0)
+    # Obtain session from config or dependency injection if possible
+    # For now, we will use a workaround or ensure session is in config
+    session = config.get("configurable", {}).get("session")
+    llm = await LLMFactory.get_llm(role="orchestrator", temperature=0, session=session)
     user_id = config.get("configurable", {}).get("user_id", "default_user")
 
     # Bind tools to the LLM

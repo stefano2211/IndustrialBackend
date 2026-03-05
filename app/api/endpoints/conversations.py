@@ -1,9 +1,10 @@
 import uuid
 from typing import Annotated, Any, List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 from app.api import deps
-from app.core.database import get_session
+from app.persistence.db import get_session
 from app.domain.schemas.user import User
 from app.domain.schemas.conversation import (
     Conversation,
@@ -18,9 +19,9 @@ router = APIRouter()
 
 
 @router.post("", response_model=ConversationRead)
-def create_conversation(
+async def create_conversation(
     *,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(deps.get_current_user)],
     body: ConversationCreate,
 ) -> Any:
@@ -31,15 +32,15 @@ def create_conversation(
         title=body.title,
     )
     session.add(conversation)
-    session.commit()
-    session.refresh(conversation)
+    await session.commit()
+    await session.refresh(conversation)
     return conversation
 
 
 @router.get("", response_model=List[ConversationRead])
-def list_conversations(
+async def list_conversations(
     *,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(deps.get_current_user)],
 ) -> Any:
     """List all conversations for the current user, newest first."""
@@ -48,15 +49,16 @@ def list_conversations(
         .where(Conversation.user_id == current_user.id)
         .order_by(Conversation.updated_at.desc())
     )
-    conversations = session.exec(statement).all()
+    result = await session.execute(statement)
+    conversations = list(result.scalars().all())
     return conversations
 
 
 @router.get("/{thread_id}/messages", response_model=List[MessageRead])
-def get_conversation_messages(
+async def get_conversation_messages(
     thread_id: str,
     *,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(deps.get_current_user)],
 ) -> Any:
     """
@@ -68,7 +70,8 @@ def get_conversation_messages(
         Conversation.thread_id == thread_id,
         Conversation.user_id == current_user.id,
     )
-    conversation = session.exec(conv_stmt).first()
+    result = await session.execute(conv_stmt)
+    conversation = result.scalars().first()
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -78,16 +81,17 @@ def get_conversation_messages(
         .where(ChatMessage.thread_id == thread_id)
         .order_by(ChatMessage.created_at.asc())
     )
-    db_messages = session.exec(msg_stmt).all()
+    res_msg = await session.execute(msg_stmt)
+    db_messages = list(res_msg.scalars().all())
 
     return [MessageRead(role=m.role, content=m.content) for m in db_messages]
 
 
 @router.delete("/{thread_id}")
-def delete_conversation(
+async def delete_conversation(
     thread_id: str,
     *,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(deps.get_current_user)],
 ) -> Any:
     """Delete a conversation and its messages."""
@@ -95,17 +99,19 @@ def delete_conversation(
         Conversation.thread_id == thread_id,
         Conversation.user_id == current_user.id,
     )
-    conversation = session.exec(statement).first()
+    result = await session.execute(statement)
+    conversation = result.scalars().first()
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Delete messages first
     msg_stmt = select(ChatMessage).where(ChatMessage.thread_id == thread_id)
-    messages = session.exec(msg_stmt).all()
+    res_msg = await session.execute(msg_stmt)
+    messages = list(res_msg.scalars().all())
     for msg in messages:
-        session.delete(msg)
+        await session.delete(msg)
 
-    session.delete(conversation)
-    session.commit()
+    await session.delete(conversation)
+    await session.commit()
     return {"detail": "Conversation deleted"}
 

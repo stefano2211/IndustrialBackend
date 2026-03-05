@@ -31,7 +31,8 @@ def process_document_task(self, object_key: str, filename: str, user_id: str, do
         self.update_state(state="PROGRESS", meta={"status": "descargando", "filename": filename})
         local_path = minio_client.download_file(object_key)
         self.update_state(state="PROGRESS", meta={"status": "procesando", "filename": filename})
-        result = processor.process(local_path, user_id=user_id, doc_id=doc_id, knowledge_base_id=knowledge_base_id)
+        import asyncio
+        result = asyncio.run(processor.process(local_path, user_id=user_id, doc_id=doc_id, knowledge_base_id=knowledge_base_id))
         os.unlink(local_path)
         source_url = minio_client.get_presigned_url(object_key)
         return {

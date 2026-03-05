@@ -4,7 +4,8 @@ from app.domain.agent.subagents.rag_placeholder.prompts import prompt
 from langchain_core.messages import AIMessage
 
 async def placeholder_node(state):
-    llm = LLMFactory.get_llm(role="subagent", temperature=0)
+    session = state.get("session", None)
+    llm = await LLMFactory.get_llm(role="subagent", temperature=0, session=session)
     
     # Simple chain: Prompt -> LLM
     chain = prompt | llm

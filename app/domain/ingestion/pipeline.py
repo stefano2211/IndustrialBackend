@@ -8,6 +8,7 @@ from app.domain.models.ner import get_extractor
 from qdrant_client.http.models import PointStruct
 from loguru import logger
 import uuid
+from typing import Optional, Any
 
 class DocumentProcessor:
     def __init__(self):
@@ -23,7 +24,7 @@ class DocumentProcessor:
             self.extractor = get_extractor(device="cpu")
         return self.extractor
 
-    def process(self, file_path: str, user_id: str, doc_id: str = None, knowledge_base_id: str = None):
+    async def process(self, file_path: str, user_id: str, doc_id: str = None, knowledge_base_id: str = None, session: Optional[Any] = None):
         doc_id = doc_id or str(uuid4())
         logger.info(f"Processing document: {file_path} for user: {user_id}")
 
@@ -35,7 +36,7 @@ class DocumentProcessor:
 
         # 2. Clasificación del documento completo (NUEVO: Antes del split)
         extractor = self._get_extractor()
-        doc_category = extractor.classify_document(full_text)
+        doc_category = await extractor.classify_document(full_text, session=session)
         logger.info(f"Document classified as: {doc_category}")
 
         # 3. Split
@@ -43,13 +44,13 @@ class DocumentProcessor:
 
         # 4. NER Enrichment (por chunk)
         enriched_chunks = []
-        import time 
+        import asyncio
         for i, chunk in enumerate(chunks):
             # Throttling para evitar 429 de cuotas de LLM (Free Tier)
             if i > 0:
-                time.sleep(40) 
+                await asyncio.sleep(40) 
             
-            entities = extractor.extract_entities(chunk.page_content)
+            entities = await extractor.extract_entities(chunk.page_content, session=session)
             chunk.metadata["entities"] = entities
             chunk.metadata["doc_category"] = doc_category  
             enriched_chunks.append(chunk)

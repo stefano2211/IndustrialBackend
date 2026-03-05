@@ -5,6 +5,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 class LLMProvider(str, Enum):
     OPENROUTER = "openrouter"
@@ -12,16 +13,34 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
 
+from app.persistence.repositories.llm_config_repository import LLMConfigRepository
+
 class LLMFactory:
     @staticmethod
-    def get_llm(
+    async def get_db_config(session: AsyncSession, role: str) -> Optional[Dict[str, str]]:
+        repo = LLMConfigRepository(session)
+        config = await repo.get_config(role)
+        if config:
+            return {"provider": config.provider, "model_name": config.model_name}
+        return None
+
+    @staticmethod
+    async def get_llm(
         role: Optional[str] = None,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
         temperature: float = 0,
+        session: Optional[AsyncSession] = None,
         **kwargs
     ) -> Any:
-        # 1. Determine Provider
+        # 1. Resolve Provider and Model from DB if session is present
+        if session and role and not (provider and model_name):
+            db_config = await LLMFactory.get_db_config(session, role)
+            if db_config:
+                provider = provider or db_config["provider"]
+                model_name = model_name or db_config["model_name"]
+
+        # 2. Determine Provider fallback
         if not provider:
             if role == "orchestrator" and settings.orchestrator_llm_provider:
                 provider = settings.orchestrator_llm_provider
@@ -32,7 +51,7 @@ class LLMFactory:
             else:
                 provider = settings.default_llm_provider
         
-        # 2. Determine Model Name
+        # 3. Determine Model Name fallback
         if not model_name:
             if role == "orchestrator" and settings.orchestrator_llm_model:
                 model_name = settings.orchestrator_llm_model

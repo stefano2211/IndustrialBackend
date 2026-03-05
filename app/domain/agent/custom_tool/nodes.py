@@ -6,18 +6,19 @@ from app.core.llm import LLMFactory
 from app.domain.agent.custom_tool.state import CustomToolState
 from loguru import logger
 
-# Initialize LLM
-llm = LLMFactory.get_llm(role="subagent", temperature=0)
-
-def agent_node(state: CustomToolState):
+async def agent_node(state: CustomToolState):
     """
     Uses the tool's system prompt to extract parameters from the user's query.
     """
     messages = state.get("messages", [])
     tool_config = state.get("tool_config")
+    session = state.get("session") # Assuming session is passed in state
     
     if not tool_config:
         return {"messages": [ToolMessage(content="Error: Tool configuration missing.", tool_call_id="unknown")]}
+
+    # Initialize LLM inside the node
+    llm = await LLMFactory.get_llm(role="subagent", temperature=0, session=session)
 
     # Construct system prompt
     base_prompt = tool_config.system_prompt

@@ -1,6 +1,7 @@
 import langextract
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.llm import LLMFactory
 from app.core.config import settings
 from loguru import logger
@@ -24,68 +25,50 @@ class DocumentClassification(BaseModel):
 
 class LangExtractExtractor:
     def __init__(self):
-        """
-        Inicializa extractor usando LangChain con soporte para salida estructurada.
-        Utiliza el LLM configurado en LLMFactory para el rol 'extractor' (Gemini recomendado).
-        """
-        try:
-            # Obtenemos el LLM de la factoría para el rol específico de extractor
-            self.llm = LLMFactory.get_llm(role="extractor")
-            
-            # Preparamos los modelos con salida estructurada
+        self.llm = None
+        self.extraction_model = None
+        self.classification_model = None
+
+    async def _ensure_initialized(self, session: Optional[AsyncSession] = None):
+        if self.llm is None:
+            self.llm = await LLMFactory.get_llm(role="extractor", session=session)
             self.extraction_model = self.llm.with_structured_output(EntityExtraction)
             self.classification_model = self.llm.with_structured_output(DocumentClassification)
-            
-            logger.info("LangExtractExtractor (via LangChain) initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize LangExtractExtractor: {e}")
-            raise
+            logger.info("LangExtractExtractor initialized successfully")
 
-    def extract_entities(self, text: str) -> Dict[str, List[str]]:
-        """
-        Extrae entidades del texto usando salida estructurada de LangChain.
-        """
+    async def extract_entities(self, text: str, session: Optional[AsyncSession] = None) -> Dict[str, List[str]]:
         if len(text.strip()) < 50:
             return {}
         
+        await self._ensure_initialized(session)
         try:
-            # Invocamos el modelo estructurado con instrucciones explícitas
             prompt = f"""Extract compliance and industrial safety entities from the following text according to the specific schema.
             
             Text:
             {text}"""
             
-            result = self.extraction_model.invoke(prompt)
-            
-            # El resultado es una instancia de EntityExtraction
+            result = await self.extraction_model.ainvoke(prompt)
             if isinstance(result, EntityExtraction):
                 return result.model_dump()
-            
             return {}
-            
         except Exception as e:
             logger.warning(f"Entity extraction failed: {e}")
             return {}
 
-    def classify_document(self, text: str) -> str:
-        """
-        Clasifica el documento usando salida estructurada de LangChain.
-        """
+    async def classify_document(self, text: str, session: Optional[AsyncSession] = None) -> str:
         if len(text.strip()) < 100:
             return "unknown"
         
+        await self._ensure_initialized(session)
         try:
-            # Invocamos el modelo estructurado con instrucciones explícitas
             prompt = f"""Classify this industrial document based on its content into the most appropriate category.
             
             Text to classify:
-            {text[:2000]}""" # Usamos los primeros 2k caracteres para clasificar
+            {text[:2000]}"""
             
-            result = self.classification_model.invoke(prompt)
-            
+            result = await self.classification_model.ainvoke(prompt)
             if isinstance(result, DocumentClassification):
                 return result.document_type
-                
             return "unknown"
         except Exception as e:
             logger.warning(f"Document classification failed: {e}")

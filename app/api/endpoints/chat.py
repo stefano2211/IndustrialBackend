@@ -58,7 +58,8 @@ async def chat_endpoint(
         config = {
             "configurable": {
                 "thread_id": thread_id,
-                "user_id": user_id
+                "user_id": user_id,
+                "knowledge_base_id": request.knowledge_base_id
             }
         }
 

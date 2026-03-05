@@ -9,23 +9,25 @@ from app.domain.agent.subagents.rag_placeholder.graph import placeholder_node
 # Note: In a real app we might want to cache the graph compilation or initialization
 financial_graph = create_industrial_graph()
 
-# Wrapper for Industrial RAG
+# Wrapper for Knowledge Base RAG
 @tool
-async def ask_industrial_agent(
+async def ask_knowledge_agent(
     query: str, 
     config: Annotated[RunnableConfig, InjectedToolArg]
 ) -> str:
     """
-    Use this tool to ask questions about industrial safety, regulations (OSHA, ISO), compliance, hazards, or incident reports.
-    Input should be the specific question asking for information.
+    Use this tool for EVERYTHING related to searching information, reading documents, invoices, manuals, or any user data.
+    Input should be the specific question asking for information, summarizing exactly what the user wants to know.
     """
-    # Extract user_id from config
+    # Extract user_id and optionally knowledge_base_id from config
     user_id = config.get("configurable", {}).get("user_id", "default_user")
+    kb_id = config.get("configurable", {}).get("knowledge_base_id", None)
     
     # Create the state for the sub-agent
     response = await financial_graph({
         "messages": [HumanMessage(content=query)],
-        "user_id": user_id
+        "user_id": user_id,
+        "knowledge_base_id": kb_id
     })
     
     # Extract the final answer (last message)

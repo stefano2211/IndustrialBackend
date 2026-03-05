@@ -14,7 +14,8 @@ class SemanticSearcher:
         user_id: str,
         limit: int = 5, 
         entity_filter: Optional[str] = None,
-        category_filter: Optional[str] = None
+        category_filter: Optional[str] = None,
+        knowledge_base_id: Optional[str] = None
     ):
         query_vector = self.embedder.embed_query(query)
         
@@ -36,6 +37,13 @@ class SemanticSearcher:
                 FieldCondition(
                     key="metadata.doc_category",
                     match=MatchValue(value=category_filter)
+                )
+            )
+        if knowledge_base_id:
+            conditions.append(
+                FieldCondition(
+                    key="metadata.knowledge_base_id",
+                    match=MatchValue(value=knowledge_base_id)
                 )
             )
         

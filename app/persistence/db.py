@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 # Import all models so SQLModel.metadata.create_all creates their tables
 from app.domain.schemas.user import User  # noqa: F401
 from app.domain.schemas.conversation import Conversation, ChatMessage  # noqa: F401
+from app.domain.schemas.knowledge import KnowledgeBase, KnowledgeDocument # noqa: F401
 
 # Construct Database URL
 # Ensure these variables are in your .env or settings

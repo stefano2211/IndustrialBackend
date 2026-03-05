@@ -8,13 +8,14 @@ searcher = SemanticSearcher()
 @tool
 def retrieve_documents(
     query: str,
-    user_id: Annotated[str, InjectedToolArg]
+    user_id: Annotated[str, InjectedToolArg],
+    knowledge_base_id: Annotated[str, InjectedToolArg] = None
 ) -> str:
     """
     Retrieve industrial safety reports, OSHA/ISO regulations, incident logs, and compliance documents relevant to the query.
     Use this tool to answer questions about hazards, safety standards, and past incidents.
     """
-    results = searcher.search(query, user_id=user_id, limit=5)
+    results = searcher.search(query, user_id=user_id, knowledge_base_id=knowledge_base_id, limit=5)
     
     formatted_docs = []
     for res in results:

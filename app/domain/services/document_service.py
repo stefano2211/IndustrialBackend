@@ -15,7 +15,7 @@ class DocumentService:
         self.upload_dir = "/tmp/uploads"
         os.makedirs(self.upload_dir, exist_ok=True)
 
-    async def upload_document(self, file: UploadFile, user_id: str):
+    async def upload_document(self, file: UploadFile, user_id: str, knowledge_base_id: str = None):
         """Maneja la subida de archivos, almacenamiento en MinIO y encolado de tarea."""
         file_id = str(uuid.uuid4())
         safe_filename = f"{file_id}_{file.filename}"
@@ -29,7 +29,7 @@ class DocumentService:
             minio_client.upload_file(temp_path, safe_filename)
             
             # Encolar tarea de procesamiento
-            task = process_document_task.delay(safe_filename, file.filename, user_id=user_id)
+            task = process_document_task.delay(safe_filename, file.filename, user_id=user_id, doc_id=file_id, knowledge_base_id=knowledge_base_id)
             
             return {
                 "task_id": task.id, 

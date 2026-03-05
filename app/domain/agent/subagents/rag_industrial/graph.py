@@ -16,6 +16,7 @@ def create_industrial_graph():
     async def industrial_node(state):
         messages = state["messages"]
         user_id = state.get("user_id", "default_user")
+        kb_id = state.get("knowledge_base_id", None)
         
         # Invoke the chain
         response = await chain.ainvoke({"messages": messages})
@@ -24,9 +25,9 @@ def create_industrial_graph():
             # Simple direct tool execution for this specific node
             for tool_call in response.tool_calls:
                 if tool_call["name"] == "retrieve_documents":
-                    # Execute tool injecting user_id
-                    # We merge the tool's original args with the injected user_id
-                    tool_args = {**tool_call["args"], "user_id": user_id}
+                    # Execute tool injecting user_id and knowledge_base_id
+                    # We merge the tool's original args with the injected args
+                    tool_args = {**tool_call["args"], "user_id": user_id, "knowledge_base_id": kb_id}
                     tool_output = await retrieve_documents.ainvoke(tool_args)
                     
                     # Add messages to history and re-invoke to get final answer

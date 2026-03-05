@@ -13,6 +13,7 @@ class SearchResponse(BaseModel):
 class ChatRequest(BaseModel):
     query: str
     thread_id: str | None = None
+    knowledge_base_id: str | None = None
 
 class ChatResponse(BaseModel):
     answer: str

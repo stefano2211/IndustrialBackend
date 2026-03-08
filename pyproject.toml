@@ -1,0 +1,42 @@
+[project]
+name = "aura-backend"
+version = "0.1.0"
+description = "IndustrialBackend AI using FastAPI, LangGraph and Celery"
+readme = "readme.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "langchain>=0.3.0",
+    "langchain-community>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+    "qdrant-client==1.11.2",
+    "pymupdf==1.24.10",
+    "python-docx==1.1.2",
+    "pdfplumber==0.11.4",
+    "pydantic==2.9.2",
+    "python-multipart==0.0.9",
+    "loguru==0.7.2",
+    "python-dotenv==1.0.1",
+    "langextract==1.1.1",
+    "celery[redis]",
+    "flower==2.0.1",
+    "minio==7.2.18",
+    "unstructured[docx]",
+    "langgraph",
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary,pool]",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "bcrypt==3.2.2",
+    "yfinance",
+    "sqlmodel==0.0.22",
+    "asyncpg==0.29.0",
+    "psycopg2-binary",
+    "email-validator"
+]
+
+[tool.uv]
+managed = true

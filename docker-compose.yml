@@ -50,7 +50,7 @@ services:
   api:
     build: .
     container_name: api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
     ports:
       - "8000:8000"
     env_file:
@@ -64,7 +64,7 @@ services:
   worker:
     build: .
     container_name: worker
-    command: celery -A app.worker.tasks.celery worker --loglevel=info --concurrency=4 --pool=prefork
+    command: uv run celery -A app.worker.tasks.celery worker --loglevel=info --concurrency=4 --pool=prefork
     env_file:
       - .env
     volumes:
@@ -76,7 +76,7 @@ services:
   flower:
     build: .
     container_name: flower
-    command: celery -A app.worker.tasks.celery flower --port=5555 --basic_auth=admin:supergrok2025
+    command: uv run celery -A app.worker.tasks.celery flower --port=5555 --basic_auth=admin:supergrok2025
     ports:
       - "5555:5555"
     env_file:

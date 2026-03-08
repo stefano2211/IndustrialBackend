@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     await close_pool()
 
 app = FastAPI(
-    title="Aura Research - Document Analysis System (MinIO + Celery)",
+    title="IA Industrial - Document Analysis System (MinIO + Celery)",
     lifespan=lifespan
 )
 

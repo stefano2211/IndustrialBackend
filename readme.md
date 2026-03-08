@@ -231,3 +231,32 @@ The document processing flow is designed to be robust and asynchronous:
 ### 5.2 Database Scaling
 - **Qdrant:** Supports distributed deployment with sharding. As the vector index grows, we can add more Qdrant nodes.
 - **MinIO/S3:** Object storage is inherently scalable for massive amounts of document data.
+
+## 6. Deployment & CI/CD (AWS EC2 + Terraform)
+The project includes an automated deployment pipeline to an AWS EC2 instance using **Terraform** and **GitHub Actions**.
+
+### 6.1 Prerequisites
+1. **AWS Account** with an IAM User that has programmatic access (Access Key & Secret).
+2. **GitHub Repository** (this code pushed to GitHub).
+
+### 6.2 GitHub Secrets
+You must configure the following Secrets in your GitHub Repository (`Settings > Secrets and variables > Actions`):
+
+| Secret Name | Description |
+| :--- | :--- |
+| `AWS_ACCESS_KEY_ID` | Your AWS IAM User Access Key |
+| `AWS_SECRET_ACCESS_KEY` | Your AWS IAM User Secret Key |
+| `SSH_PRIVATE_KEY` | Private SSH Key (RSA/Ed25519) to access the EC2 instance |
+| `SSH_PUBLIC_KEY` | Public SSH Key (paired with the private key) injected by Terraform |
+| `OPENROUTER_API_KEY` | (Optional) Your OpenRouter API Key for the RAG agent |
+| `GEMINI_API_KEY` | (Optional) Your Gemini API Key for the Extractor agent |
+
+*Note: You can generate an SSH key pair locally using `ssh-keygen -t ed25519 -C "deploy@aura" -f ./deploy_key_ec2`.*
+
+### 6.3 Deployment Pipeline
+The pipeline (`.github/workflows/deploy.yml`) has two jobs:
+1. **`test`**: Runs on any Pull Request or Push to `main`. Validates dependencies using `uv`.
+2. **`deploy`**: Runs **only** on a Push/Merge to `main`. 
+   - Uses Terraform (`terraform/` folder) to provision an AWS EC2 `t3.medium` instance and configure a Security Group (ports 22, 8000, 5555).
+   - Copies the repository to the EC2 via SCP.
+   - SSHs into the instance, injects the basic `.env` file, and runs `docker compose up -d --build`.

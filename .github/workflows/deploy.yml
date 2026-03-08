@@ -1,0 +1,136 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      # If you have pytest configured, uncomment the following line
+      # - name: Run tests
+      #   run: uv run pytest
+
+  deploy:
+    name: Deploy to AWS EC2
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: >
+          terraform apply -auto-approve
+          -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+      
+      - name: Get EC2 Public IP
+        id: get_ip
+        run: |
+          EC2_IP=$(terraform output -raw instance_public_ip)
+          echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
+          echo "Instance IP is $EC2_IP"
+
+      - name: Wait for SSH to be ready
+        run: |
+          echo "Waiting for EC2 instance to be ready for SSH..."
+          for i in {1..30}; do
+            nc -z -w5 ${{ env.EC2_IP }} 22 && echo "SSH is open!" && break
+            echo "Retrying..."
+            sleep 10
+          done
+
+      - name: Copy project files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.EC2_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "."
+          target: "/home/ubuntu/aura-backend"
+
+      - name: Start Application via Docker Compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.EC2_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "Waiting for EC2 initialization (cloud-init) to finish installing Docker..."
+            cloud-init status --wait
+            
+            cd /home/ubuntu/aura-backend
+            
+            # Create a basic .env file if it doesn't exist
+            if [ ! -f .env ]; then
+              echo "Creating initial .env file..."
+              echo "POSTGRES_USER=postgres" > .env
+              echo "POSTGRES_PASSWORD=postgres" >> .env
+              echo "POSTGRES_DB=aura_db" >> .env
+              echo "POSTGRES_HOST=postgres" >> .env
+              echo "POSTGRES_PORT=5432" >> .env
+              
+              echo "CELERY_BROKER_URL=redis://redis:6379/0" >> .env
+              echo "CELERY_RESULT_BACKEND=redis://redis:6379/0" >> .env
+              
+              echo "QDRANT_HOST=qdrant" >> .env
+              echo "QDRANT_PORT=6333" >> .env
+              echo "QDRANT_COLLECTION=knowledge_base" >> .env
+              echo "EMBEDDING_MODEL=text-embedding-3-small" >> .env
+              
+              echo "MINIO_ENDPOINT=${{ env.EC2_IP }}:9000" >> .env
+              echo "MINIO_ACCESS_KEY=minioadmin" >> .env
+              echo "MINIO_SECRET_KEY=minioadmin123" >> .env
+              echo "MINIO_BUCKET=documents" >> .env
+              echo "MINIO_SECURE=false" >> .env
+              
+              echo "SECRET_KEY=your_super_secret_jwt_key_here" >> .env
+              echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> .env
+              echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+            fi
+
+            # Start docker containers using sudo to avoid group permission issues on first boot
+            sudo docker compose up -d --build

@@ -56,8 +56,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = 10
     llm_request_timeout: int = 120
 
-    # Ingestion Pipeline
-    ner_throttle_seconds: int = 40  # Delay between NER calls to avoid rate limits
+    # Ingestion Pipeline — NER Performance
+    ner_batch_size: int = 5          # Chunks grouped per LLM call (reduces total calls)
+    ner_max_concurrency: int = 3     # Max parallel batch requests to the LLM
+    ner_retry_max_attempts: int = 5  # Max retries on rate-limit (429) errors
     
     # Extractor specific (Google LangExtract works best with Gemini)
     extractor_llm_provider: str = "gemini"

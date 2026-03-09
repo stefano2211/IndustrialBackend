@@ -1,19 +1,20 @@
-from sqlmodel import select
+"""User service — Business logic for user management."""
+
 from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone
+
 from app.domain.schemas.user import User, UserCreate, UserUpdate
 from app.core.security import get_password_hash, verify_password
-from datetime import datetime
-from sqlalchemy.ext.asyncio import AsyncSession
-import uuid
+from app.persistence.repositories.user_repository import UserRepository
+
 
 class UserService:
     def __init__(self, session: AsyncSession):
-        self.session = session
+        self.repository = UserRepository(session)
 
     async def get_by_email(self, email: str) -> Optional[User]:
-        statement = select(User).where(User.email == email)
-        result = await self.session.execute(statement)
-        return result.scalars().first()
+        return await self.repository.get_by_email(email)
 
     async def create_user(self, user_in: UserCreate) -> User:
         db_user = User(
@@ -23,16 +24,11 @@ class UserService:
             is_active=user_in.is_active,
             is_superuser=user_in.is_superuser,
         )
-        self.session.add(db_user)
-        await self.session.commit()
-        await self.session.refresh(db_user)
-        return db_user
+        return await self.repository.create(db_user)
 
     async def authenticate(self, email: str, password: str) -> Optional[User]:
-        user = await self.get_by_email(email)
-        if not user:
-            return None
-        if not verify_password(password, user.hashed_password):
+        user = await self.repository.get_by_email(email)
+        if not user or not verify_password(password, user.hashed_password):
             return None
         return user
 
@@ -43,9 +39,6 @@ class UserService:
                 setattr(user, "hashed_password", get_password_hash(value))
             else:
                 setattr(user, key, value)
-        
-        user.updated_at = datetime.utcnow()
-        self.session.add(user)
-        await self.session.commit()
-        await self.session.refresh(user)
-        return user
+
+        user.updated_at = datetime.now(timezone.utc)
+        return await self.repository.update(user)

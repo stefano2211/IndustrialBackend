@@ -35,7 +35,8 @@ dependencies = [
     "sqlmodel==0.0.22",
     "asyncpg==0.29.0",
     "psycopg2-binary",
-    "email-validator"
+    "email-validator",
+    "deepagents",
 ]
 
 [tool.uv]

@@ -1,3 +1,10 @@
+"""
+LLM Factory — Creates LangChain chat model instances from config.
+
+Uses a provider registry (dict) instead of if/elif chains (OCP).
+Adding a new provider = adding one entry to the registry.
+"""
+
 from enum import Enum
 from typing import Optional, Any, Dict
 from langchain_openai import ChatOpenAI
@@ -7,13 +14,90 @@ from app.core.config import settings
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.persistence.repositories.llm_config_repository import LLMConfigRepository
+
+
 class LLMProvider(str, Enum):
     OPENROUTER = "openrouter"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
 
-from app.persistence.repositories.llm_config_repository import LLMConfigRepository
+
+# ---------------------------------------------------------------------------
+# Provider Registry — add new providers here (OCP)
+# ---------------------------------------------------------------------------
+
+def _create_openrouter(model_name: str, temperature: float, **kwargs):
+    return ChatOpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.openrouter_api_key,
+        model=model_name,
+        temperature=temperature,
+        **kwargs,
+    )
+
+
+def _create_openai(model_name: str, temperature: float, **kwargs):
+    if not settings.openai_api_key:
+        logger.warning("OPENAI_API_KEY not found in settings")
+    return ChatOpenAI(
+        api_key=settings.openai_api_key,
+        model=model_name or "gpt-4-turbo-preview",
+        temperature=temperature,
+        **kwargs,
+    )
+
+
+def _create_anthropic(model_name: str, temperature: float, **kwargs):
+    return ChatAnthropic(
+        anthropic_api_key=settings.anthropic_api_key,
+        model_name=model_name or "claude-3-opus-20240229",
+        temperature=temperature,
+        **kwargs,
+    )
+
+
+def _create_gemini(model_name: str, temperature: float, **kwargs):
+    return ChatGoogleGenerativeAI(
+        google_api_key=settings.gemini_api_key,
+        model=model_name or "gemini-pro",
+        temperature=temperature,
+        **kwargs,
+    )
+
+
+_PROVIDER_REGISTRY: Dict[str, Any] = {
+    LLMProvider.OPENROUTER: _create_openrouter,
+    LLMProvider.OPENAI: _create_openai,
+    LLMProvider.ANTHROPIC: _create_anthropic,
+    LLMProvider.GEMINI: _create_gemini,
+}
+
+
+# ---------------------------------------------------------------------------
+# Role → default provider/model resolution
+# ---------------------------------------------------------------------------
+
+_ROLE_DEFAULTS: Dict[str, Dict[str, Optional[str]]] = {
+    "orchestrator": {
+        "provider": settings.orchestrator_llm_provider,
+        "model": settings.orchestrator_llm_model,
+    },
+    "subagent": {
+        "provider": settings.subagent_llm_provider,
+        "model": settings.subagent_llm_model,
+    },
+    "extractor": {
+        "provider": settings.extractor_llm_provider,
+        "model": settings.extractor_llm_model,
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
 
 class LLMFactory:
     @staticmethod
@@ -31,75 +115,34 @@ class LLMFactory:
         model_name: Optional[str] = None,
         temperature: float = 0,
         session: Optional[AsyncSession] = None,
-        **kwargs
+        **kwargs,
     ) -> Any:
-        # 1. Resolve Provider and Model from DB if session is present
+        # 1. Try DB config first
         if session and role and not (provider and model_name):
             db_config = await LLMFactory.get_db_config(session, role)
             if db_config:
                 provider = provider or db_config["provider"]
                 model_name = model_name or db_config["model_name"]
 
-        # 2. Determine Provider fallback
-        if not provider:
-            if role == "orchestrator" and settings.orchestrator_llm_provider:
-                provider = settings.orchestrator_llm_provider
-            elif role == "subagent" and settings.subagent_llm_provider:
-                provider = settings.subagent_llm_provider
-            elif role == "extractor" and settings.extractor_llm_provider:
-                provider = settings.extractor_llm_provider
-            else:
-                provider = settings.default_llm_provider
-        
-        # 3. Determine Model Name fallback
+        # 2. Resolve from role defaults
+        if role and role in _ROLE_DEFAULTS:
+            defaults = _ROLE_DEFAULTS[role]
+            provider = provider or defaults.get("provider")
+            model_name = model_name or defaults.get("model")
+
+        # 3. Global fallback
+        provider = provider or settings.default_llm_provider
         if not model_name:
-            if role == "orchestrator" and settings.orchestrator_llm_model:
-                model_name = settings.orchestrator_llm_model
-            elif role == "subagent" and settings.subagent_llm_model:
-                model_name = settings.subagent_llm_model
-            elif role == "extractor" and settings.extractor_llm_model:
-                model_name = settings.extractor_llm_model
-            elif provider == LLMProvider.OPENROUTER:
+            if provider == LLMProvider.OPENROUTER:
                 model_name = settings.openrouter_model
             else:
                 model_name = settings.default_llm_model
-                
+
         logger.info(f"Initializing LLM: role={role}, provider={provider}, model={model_name}")
 
-        if provider == LLMProvider.OPENROUTER:
-            return ChatOpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=settings.openrouter_api_key,
-                model=model_name,
-                temperature=temperature,
-                **kwargs
-            )
-        
-        elif provider == LLMProvider.OPENAI:
-            if not settings.openai_api_key:
-                logger.warning("OPENAI_API_KEY not found in settings, using default")
-            return ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=model_name or "gpt-4-turbo-preview",
-                temperature=temperature,
-                **kwargs
-            )
-            
-        elif provider == LLMProvider.ANTHROPIC:
-            return ChatAnthropic(
-                anthropic_api_key=settings.anthropic_api_key,
-                model_name=model_name or "claude-3-opus-20240229",
-                temperature=temperature,
-                **kwargs
-            )
-            
-        elif provider == LLMProvider.GEMINI:
-            return ChatGoogleGenerativeAI(
-                google_api_key=settings.gemini_api_key,
-                model=model_name or "gemini-pro",
-                temperature=temperature,
-                **kwargs
-            )
-            
-        else:
+        # 4. Create via registry
+        factory_fn = _PROVIDER_REGISTRY.get(provider)
+        if not factory_fn:
             raise ValueError(f"Unsupported LLM provider: {provider}")
+
+        return factory_fn(model_name=model_name, temperature=temperature, **kwargs)

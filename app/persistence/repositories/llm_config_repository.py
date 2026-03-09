@@ -34,7 +34,7 @@ class LLMConfigRepository:
         if not config:
             return None
         
-        data = update_data.dict(exclude_unset=True)
+        data = update_data.model_dump(exclude_unset=True)
         for key, value in data.items():
             setattr(config, key, value)
             

@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # Subagent specific
     subagent_llm_provider: Optional[str] = None
     subagent_llm_model: Optional[str] = None
+
+    # LLM Resilience
+    llm_max_retries: int = 10
+    llm_request_timeout: int = 120
+
+    # Ingestion Pipeline
+    ner_throttle_seconds: int = 40  # Delay between NER calls to avoid rate limits
     
     # Extractor specific (Google LangExtract works best with Gemini)
     extractor_llm_provider: str = "gemini"

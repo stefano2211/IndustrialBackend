@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 
@@ -10,8 +10,8 @@ class KnowledgeBaseBase(SQLModel):
 class KnowledgeBase(KnowledgeBaseBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(index=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # Optional relationship if we want to load documents easily
     documents: List["KnowledgeDocument"] = Relationship(back_populates="knowledge_base", cascade_delete=True)
@@ -23,7 +23,7 @@ class KnowledgeDocument(KnowledgeDocumentBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     knowledge_base_id: uuid.UUID = Field(foreign_key="knowledgebase.id", index=True)
     file_id: str = Field(index=True) # Reference to MinIO/Qdrant processing ID
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     knowledge_base: KnowledgeBase = Relationship(back_populates="documents")
 

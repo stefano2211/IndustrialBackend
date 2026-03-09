@@ -29,7 +29,7 @@ class PromptRepository:
         if not db_prompt:
             return None
         
-        prompt_data = prompt_update.dict(exclude_unset=True)
+        prompt_data = prompt_update.model_dump(exclude_unset=True)
         for key, value in prompt_data.items():
             setattr(db_prompt, key, value)
         

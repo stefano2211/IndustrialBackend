@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 
@@ -10,8 +10,8 @@ class Conversation(SQLModel, table=True):
     user_id: uuid.UUID = Field(index=True)
     thread_id: str = Field(unique=True, index=True)
     title: str = Field(default="New Chat")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ChatMessage(SQLModel, table=True):
@@ -21,7 +21,7 @@ class ChatMessage(SQLModel, table=True):
     thread_id: str = Field(index=True)
     role: str  # 'user' or 'assistant'
     content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ConversationCreate(SQLModel):

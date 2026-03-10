@@ -40,5 +40,5 @@ class UserService:
             else:
                 setattr(user, key, value)
 
-        user.updated_at = datetime.now(timezone.utc)
+        user.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         return await self.repository.update(user)

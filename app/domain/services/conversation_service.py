@@ -63,6 +63,6 @@ class ConversationService:
             )
             conversation = await self.repository.create(conversation)
         else:
-            conversation.updated_at = datetime.now(timezone.utc)
+            conversation.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             conversation = await self.repository.update(conversation)
         return conversation

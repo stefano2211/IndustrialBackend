@@ -94,3 +94,52 @@ class AgentService:
 
         # 4. Extract final message
         return response["messages"][-1].content
+
+    async def stream(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        query: str,
+        knowledge_base_id: str | None,
+        session,
+        checkpointer=None,
+        store=None,
+    ):
+        """
+        Stream the Deep Agent response, yielding text chunks as they arrive.
+        Uses LangGraph's astream_events v2 API.
+        """
+        llm = await LLMFactory.get_llm(
+            role="orchestrator", temperature=0, session=session,
+        )
+        llm.max_retries = settings.llm_max_retries
+        llm.request_timeout = settings.llm_request_timeout
+
+        agent = create_industrial_agent(
+            model=llm, checkpointer=checkpointer, store=store,
+        )
+
+        config = {
+            "configurable": {
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "knowledge_base_id": knowledge_base_id,
+                "session": session,
+            }
+        }
+
+        async for event in agent.astream_events(
+            {
+                "messages": [HumanMessage(content=query)],
+                "files": {"/AGENTS.md": create_file_data(AGENTS_MD_CONTENT)},
+            },
+            config=config,
+            version="v2",
+        ):
+            kind = event.get("event", "")
+            # Only yield actual text content from the LLM stream
+            if kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    yield chunk.content

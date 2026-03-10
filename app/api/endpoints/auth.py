@@ -40,7 +40,19 @@ async def register_user(
 ) -> Any:
     """
     Create new user.
+    First registered user automatically becomes admin.
     """
+    from app.persistence.repositories.settings_repository import SettingsRepository
+    
+    settings_repo = SettingsRepository(session)
+    system_settings = await settings_repo.get_settings()
+    
+    if not system_settings.auth_enable_sign_ups:
+        raise HTTPException(
+            status_code=403,
+            detail="Public Sign-ups are currently disabled by the Administrator.",
+        )
+
     user_service = UserService(session)
     user = await user_service.get_by_email(email=user_in.email)
     if user:
@@ -48,5 +60,11 @@ async def register_user(
             status_code=400,
             detail="The user with this email already exists in the system",
         )
+
+    # First user becomes admin automatically
+    existing_users = await user_service.list_users()
+    if len(existing_users) == 0:
+        user_in.is_superuser = True
+
     user = await user_service.create_user(user_in=user_in)
     return user

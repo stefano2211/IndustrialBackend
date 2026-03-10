@@ -1,6 +1,7 @@
 """User service — Business logic for user management."""
 
-from typing import Optional
+from typing import Optional, List
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 
@@ -15,6 +16,12 @@ class UserService:
 
     async def get_by_email(self, email: str) -> Optional[User]:
         return await self.repository.get_by_email(email)
+
+    async def get_by_id(self, user_id: UUID) -> Optional[User]:
+        return await self.repository.get_by_id(user_id)
+
+    async def list_users(self) -> List[User]:
+        return await self.repository.list_all()
 
     async def create_user(self, user_in: UserCreate) -> User:
         db_user = User(
@@ -42,3 +49,18 @@ class UserService:
 
         user.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         return await self.repository.update(user)
+
+    async def update_user_role(self, user_id: UUID, is_superuser: bool) -> Optional[User]:
+        user = await self.repository.get_by_id(user_id)
+        if not user:
+            return None
+        user.is_superuser = is_superuser
+        user.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        return await self.repository.update(user)
+
+    async def delete_user(self, user_id: UUID) -> bool:
+        user = await self.repository.get_by_id(user_id)
+        if not user:
+            return False
+        await self.repository.delete(user)
+        return True

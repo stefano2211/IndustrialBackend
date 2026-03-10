@@ -1,22 +1,33 @@
 from app.domain.ingestion.embedder import Embedder
 from app.persistence.vector import QdrantManager
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-from typing import Optional
+from typing import Optional, Any
 
 class SemanticSearcher:
     def __init__(self):
         self.embedder = Embedder()
         self.vector_store = QdrantManager()
 
-    def search(
+    async def search(
         self, 
         query: str, 
         user_id: str,
-        limit: int = 5, 
+        limit: Optional[int] = None, 
         entity_filter: Optional[str] = None,
         category_filter: Optional[str] = None,
-        knowledge_base_id: Optional[str] = None
+        knowledge_base_id: Optional[str] = None,
+        session: Optional[Any] = None
     ):
+        # Fetch dynamic settings
+        final_limit = 5
+        if limit is not None:
+            final_limit = limit
+        elif session:
+            from app.persistence.repositories.settings_repository import SettingsRepository
+            repo = SettingsRepository(session)
+            system_settings = await repo.get_settings()
+            final_limit = system_settings.retrieval_search_results
+
         query_vector = self.embedder.embed_query(query)
         
         conditions = [
@@ -51,7 +62,7 @@ class SemanticSearcher:
         
         results = self.vector_store.search(
             query_vector, 
-            limit=limit, 
+            limit=final_limit, 
             filter_dict=filter_dict
         )
 

@@ -29,6 +29,7 @@ async def ask_knowledge_agent(
     configurable = config.get("configurable", {})
     user_id = configurable.get("user_id")
     knowledge_base_id = configurable.get("knowledge_base_id")
+    session = configurable.get("session")
 
     logger.info(
         f"[Knowledge Tool] Searching: query='{query}', "
@@ -39,11 +40,12 @@ async def ask_knowledge_agent(
         return "Error: No user_id found in the config. Cannot search."
 
     searcher = _get_searcher()
-    results = searcher.search(
+    # Now it dynamically reads limit from SystemSettings if session is present
+    results = await searcher.search(
         query,
         user_id=user_id,
         knowledge_base_id=knowledge_base_id,
-        limit=5,
+        session=session
     )
 
     formatted_docs = []

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 class SearchResult(BaseModel):
     text: str
@@ -10,10 +10,21 @@ class SearchResponse(BaseModel):
     query: str
     results: List[SearchResult]
 
+class ModelParams(BaseModel):
+    """Advanced model parameters controllable from the chat UI."""
+    system_prompt: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    seed: Optional[int] = None
+    stop_sequence: Optional[str] = None
+
 class ChatRequest(BaseModel):
     query: str
     thread_id: str | None = None
     knowledge_base_id: str | None = None
+    params: Optional[ModelParams] = None
 
 class ChatResponse(BaseModel):
     answer: str

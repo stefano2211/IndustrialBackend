@@ -10,7 +10,7 @@ Encapsulates the logic of:
 This isolates the chat endpoint from agent internals (Dependency Inversion).
 """
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from deepagents.backends.utils import create_file_data
 from loguru import logger
 
@@ -33,6 +33,35 @@ class AgentService:
         )
     """
 
+    def _apply_params(self, llm, params):
+        """Apply user-specified model parameters to the LLM instance."""
+        if not params:
+            return
+        if params.temperature is not None:
+            llm.temperature = params.temperature
+        if params.max_tokens is not None:
+            llm.max_tokens = params.max_tokens
+        if params.top_p is not None:
+            llm.top_p = params.top_p
+        # top_k and seed are provider-specific, set via model_kwargs
+        kwargs = getattr(llm, 'model_kwargs', {}) or {}
+        if params.top_k is not None:
+            kwargs['top_k'] = params.top_k
+        if params.seed is not None:
+            kwargs['seed'] = params.seed
+        if params.stop_sequence:
+            llm.stop = [params.stop_sequence]
+        if kwargs:
+            llm.model_kwargs = kwargs
+
+    def _build_messages(self, query: str, params=None):
+        """Build the messages list, optionally prepending a system prompt."""
+        messages = []
+        if params and params.system_prompt:
+            messages.append(SystemMessage(content=params.system_prompt))
+        messages.append(HumanMessage(content=query))
+        return messages
+
     async def invoke(
         self,
         *,
@@ -43,24 +72,10 @@ class AgentService:
         session,
         checkpointer=None,
         store=None,
+        params=None,
     ) -> str:
         """
         Invoke the Deep Agent and return the assistant's response text.
-
-        Args:
-            user_id: Current authenticated user ID.
-            thread_id: Conversation thread ID (for checkpointer).
-            query: The user's message.
-            knowledge_base_id: Optional KB to scope vector search.
-            session: Async DB session (passed through config for tools).
-            checkpointer: LangGraph checkpointer for state persistence.
-            store: LangGraph store for long-term memories.
-
-        Returns:
-            The agent's final response as a plain string.
-
-        Raises:
-            Exception: Any error from LLM or agent invocation.
         """
         # 1. Create LLM with connection resilience from settings
         llm = await LLMFactory.get_llm(
@@ -68,6 +83,7 @@ class AgentService:
         )
         llm.max_retries = settings.llm_max_retries
         llm.request_timeout = settings.llm_request_timeout
+        self._apply_params(llm, params)
 
         # 2. Build agent
         agent = create_industrial_agent(
@@ -86,7 +102,7 @@ class AgentService:
 
         response = await agent.ainvoke(
             {
-                "messages": [HumanMessage(content=query)],
+                "messages": self._build_messages(query, params),
                 "files": {"/AGENTS.md": create_file_data(AGENTS_MD_CONTENT)},
             },
             config=config,
@@ -105,6 +121,7 @@ class AgentService:
         session,
         checkpointer=None,
         store=None,
+        params=None,
     ):
         """
         Stream the Deep Agent response, yielding text chunks as they arrive.
@@ -115,6 +132,7 @@ class AgentService:
         )
         llm.max_retries = settings.llm_max_retries
         llm.request_timeout = settings.llm_request_timeout
+        self._apply_params(llm, params)
 
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
@@ -131,7 +149,7 @@ class AgentService:
 
         async for event in agent.astream_events(
             {
-                "messages": [HumanMessage(content=query)],
+                "messages": self._build_messages(query, params),
                 "files": {"/AGENTS.md": create_file_data(AGENTS_MD_CONTENT)},
             },
             config=config,

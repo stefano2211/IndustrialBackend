@@ -34,9 +34,7 @@ async def chat_endpoint(
     session: AsyncSession = Depends(get_session),
     conv_service: ConversationService = Depends(get_conversation_service),
 ):
-    """
-    Chat with the AI Agent (non-streaming, full response).
-    """
+    """Chat with the AI Agent (non-streaming, full response)."""
     try:
         user_id = str(current_user.id)
         thread_id = request.thread_id or str(uuid.uuid4())
@@ -61,6 +59,7 @@ async def chat_endpoint(
             session=session,
             checkpointer=checkpointer,
             store=store,
+            params=request.params,
         )
 
         session.add(ChatMessage(thread_id=thread_id, role="assistant", content=answer))
@@ -112,7 +111,6 @@ async def chat_stream_endpoint(
     async def event_generator():
         full_content = ""
         try:
-            # Send metadata first
             yield f"data: {json.dumps({'type': 'meta', 'thread_id': thread_id})}\n\n"
 
             async for chunk in _agent_service.stream(
@@ -123,11 +121,11 @@ async def chat_stream_endpoint(
                 session=session,
                 checkpointer=checkpointer,
                 store=store,
+                params=request.params,
             ):
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
 
-            # Persist the full assistant response
             session.add(ChatMessage(thread_id=thread_id, role="assistant", content=full_content))
             await session.commit()
 

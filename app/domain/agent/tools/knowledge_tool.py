@@ -39,6 +39,13 @@ async def ask_knowledge_agent(
     if not user_id:
         return "Error: No user_id found in the config. Cannot search."
 
+    if not knowledge_base_id:
+        return (
+            "Error: No hay ninguna base de conocimientos (Knowledge Base) seleccionada en este chat. "
+            "No puedes buscar documentos porque el usuario seleccionó 'Sin Contexto'. "
+            "Indícale al usuario que debe seleccionar una colección de documentos para poder buscar información."
+        )
+
     searcher = _get_searcher()
     # Now it dynamically reads limit from SystemSettings if session is present
     results = await searcher.search(

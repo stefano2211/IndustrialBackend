@@ -53,13 +53,14 @@ class DocumentProcessor:
 
     async def process_file(
         self,
-        file_path: Path,
+        file_path: Path | str,
         user_id: str,
+        doc_id: Optional[str] = None,
         knowledge_base_id: Optional[str] = None,
         session: Optional[Any] = None,
     ) -> dict:
         """Process a single file through the entire pipeline."""
-        doc_id = str(uuid.uuid4()) # Generate doc_id early for metadata
+        doc_id = doc_id or str(uuid.uuid4()) # Generate doc_id early for metadata
         logger.info(f"Processing document: {file_path} for user: {user_id}")
 
         # 1. Fetch dynamic settings

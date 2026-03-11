@@ -51,7 +51,7 @@ def process_document_task(
             state="PROGRESS", meta={"status": "procesando", "filename": filename}
         )
         result = asyncio.run(
-            processor.process(
+            processor.process_file(
                 local_path,
                 user_id=user_id,
                 doc_id=doc_id,

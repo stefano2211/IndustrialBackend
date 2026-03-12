@@ -10,6 +10,7 @@ from typing import Optional, Any, Dict
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from app.core.config import settings
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ class LLMProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
+    OLLAMA = "ollama"
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +69,21 @@ def _create_gemini(model_name: str, temperature: float, **kwargs):
     )
 
 
+def _create_ollama(model_name: str, temperature: float, **kwargs):
+    return ChatOllama(
+        base_url=settings.ollama_base_url,
+        model=model_name or "llama3.2",
+        temperature=temperature,
+        **kwargs,
+    )
+
+
 _PROVIDER_REGISTRY: Dict[str, Any] = {
     LLMProvider.OPENROUTER: _create_openrouter,
     LLMProvider.OPENAI: _create_openai,
     LLMProvider.ANTHROPIC: _create_anthropic,
     LLMProvider.GEMINI: _create_gemini,
+    LLMProvider.OLLAMA: _create_ollama,
 }
 
 
@@ -135,6 +147,8 @@ class LLMFactory:
         if not model_name:
             if provider == LLMProvider.OPENROUTER:
                 model_name = settings.openrouter_model
+            elif provider == LLMProvider.OLLAMA:
+                model_name = settings.default_llm_model or "llama3.2"
             else:
                 model_name = settings.default_llm_model
 

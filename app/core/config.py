@@ -40,9 +40,13 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
     
+    # Edge / Local Model configuration
+    ollama_base_url: str = "http://ollama:11434"
+
     # Defaults
-    default_llm_provider: str = "openrouter"
-    default_llm_model: Optional[str] = None # Will use openrouter_model if None
+    default_llm_provider: str = "ollama"
+    default_llm_model: Optional[str] = "llama3.2" # Will use this if none provided
+
     
     # Orchestrator specific
     orchestrator_llm_provider: Optional[str] = None
@@ -61,9 +65,9 @@ class Settings(BaseSettings):
     ner_max_concurrency: int = 3     # Max parallel batch requests to the LLM
     ner_retry_max_attempts: int = 5  # Max retries on rate-limit (429) errors
     
-    # Extractor specific (Google LangExtract works best with Gemini)
-    extractor_llm_provider: str = "gemini"
-    extractor_llm_model: str = "gemini-1.5-pro"
+    # Extractor specific (Local Extraction)
+    extractor_llm_provider: str = "ollama"
+    extractor_llm_model: str = "llama3.2"
     
     model_config = {"env_file": ".env"}
 

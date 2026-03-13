@@ -10,7 +10,7 @@ from loguru import logger
 
 from app.persistence.blob import minio_client
 from app.persistence.vector import QdrantManager
-from app.worker.tasks import process_document_task
+from app.domain.ingestion.pipeline import DocumentProcessor
 
 
 class DocumentService:
@@ -26,6 +26,7 @@ class DocumentService:
         upload_dir: str = "/tmp/uploads",
     ):
         self.qdrant = qdrant or QdrantManager()
+        self.processor = DocumentProcessor(vector_store=self.qdrant)
         self.upload_dir = upload_dir
         os.makedirs(self.upload_dir, exist_ok=True)
 
@@ -46,18 +47,18 @@ class DocumentService:
 
             minio_client.upload_file(temp_path, safe_filename)
 
-            task = process_document_task.delay(
-                safe_filename,
-                file.filename,
+            # Proceso síncrono
+            result = await self.processor.process_file(
+                temp_path,
                 user_id=user_id,
                 doc_id=file_id,
                 knowledge_base_id=knowledge_base_id,
             )
 
             return {
-                "task_id": task.id,
+                "task_id": file_id,
                 "filename": file.filename,
-                "status": "en cola",
+                "status": "completado",
                 "file_id": file_id,
             }
         finally:
@@ -74,20 +75,6 @@ class DocumentService:
         category = first_chunk.payload.get("metadata", {}).get("doc_category", "unknown")
         filename = first_chunk.payload.get("metadata", {}).get("source", "unknown")
 
-        # Consolidate unique entities from all chunks
-        all_entities: dict[str, set] = {}
-        for chunk in chunks:
-            entities = chunk.payload.get("metadata", {}).get("entities", {})
-            for label, values in entities.items():
-                if label not in all_entities:
-                    all_entities[label] = set()
-                if isinstance(values, list):
-                    all_entities[label].update(values)
-                elif isinstance(values, str):
-                    all_entities[label].add(values)
-
-        consolidated_entities = {k: list(v) for k, v in all_entities.items()}
-
         chunks.sort(key=lambda x: x.payload.get("metadata", {}).get("chunk_index", 0))
         full_text = "\n\n".join(chunk.payload.get("text", "") for chunk in chunks)
 
@@ -97,7 +84,6 @@ class DocumentService:
             "category": category,
             "total_chunks": len(chunks),
             "content": full_text,
-            "entities": consolidated_entities,
         }
 
     def delete_document(self, doc_id: str, user_id: str) -> dict:
@@ -107,13 +93,9 @@ class DocumentService:
 
     @staticmethod
     def get_task_status(task_id: str) -> dict:
-        """Get Celery task status."""
-        from celery.result import AsyncResult
-        from app.worker.tasks import celery_app
-
-        task = AsyncResult(task_id, app=celery_app)
+        """Simulate status for frontend polling on synchronous operations."""
         return {
             "task_id": task_id,
-            "status": task.state,
-            "info": task.info if task.info else None,
+            "status": "SUCCESS",
+            "info": {"status": "completado"}
         }

@@ -17,8 +17,9 @@ def _get_searcher() -> SemanticSearcher:
 
 @tool
 async def ask_knowledge_agent(
-    query: str,
     config: RunnableConfig,
+    query: str = "",
+    **kwargs,
 ) -> str:
     """
     Search the user's Knowledge Base for documents, invoices, manuals, regulations, incident reports, and any uploaded files.
@@ -26,6 +27,17 @@ async def ask_knowledge_agent(
     The tool automatically knows which user and knowledge base to search.
     Input should be a clear search query describing what information you need.
     """
+    # -------------------------------------------------------------
+    # Handle Llama 3.1 hallucinated nested structure: 
+    # {"tool": "ask_knowledge_agent", "parameters": {"query": "invoice"}}
+    # -------------------------------------------------------------
+    if not query:
+        parameters = kwargs.get("parameters") or kwargs.get("args") or {}
+        query = parameters.get("query", "")
+        
+    if not query:
+        return "Error: No query provided. Please provide a search query."
+
     configurable = config.get("configurable", {})
     user_id = configurable.get("user_id")
     knowledge_base_id = configurable.get("knowledge_base_id")

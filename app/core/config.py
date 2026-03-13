@@ -6,16 +6,9 @@ class Settings(BaseSettings):
     # Qdrant
     qdrant_host: str 
     qdrant_port: int 
-    qdrant_collection: str 
-    embedding_model: str 
+    qdrant_collection: str = "documents"
+    embedding_model: str = "nomic-embed-text"
     
-    # OpenRouter / LLM
-    openrouter_api_key: str
-    openrouter_model: str 
-    
-    # Celery
-    celery_broker_url: str 
-    celery_result_backend: str 
     
     # MinIO 1.0
     minio_endpoint: str 
@@ -35,17 +28,13 @@ class Settings(BaseSettings):
     secret_key: str
     access_token_expire_minutes: int = 30 # Default 30 mins
 
-    # LLM Providers (Optional keys for other providers)
-    openai_api_key: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    gemini_api_key: Optional[str] = None
     
     # Edge / Local Model configuration
     ollama_base_url: str = "http://ollama:11434"
 
     # Defaults
     default_llm_provider: str = "ollama"
-    default_llm_model: Optional[str] = "llama3.2" # Will use this if none provided
+    default_llm_model: Optional[str] = "llama3.1:8b" # Will use this if none provided
 
     
     # Orchestrator specific
@@ -67,7 +56,7 @@ class Settings(BaseSettings):
     
     # Extractor specific (Local Extraction)
     extractor_llm_provider: str = "ollama"
-    extractor_llm_model: str = "llama3.2"
+    extractor_llm_model: str = "llama3.1:8b"
     
     model_config = {"env_file": ".env"}
 

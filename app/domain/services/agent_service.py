@@ -81,8 +81,10 @@ class AgentService:
         llm = await LLMFactory.get_llm(
             role="orchestrator", temperature=0, session=session,
         )
-        llm.max_retries = settings.llm_max_retries
-        llm.request_timeout = settings.llm_request_timeout
+        if hasattr(llm, "max_retries"):
+            llm.max_retries = settings.llm_max_retries
+        if hasattr(llm, "request_timeout"):
+            llm.request_timeout = settings.llm_request_timeout
         self._apply_params(llm, params)
 
         # 2. Build agent
@@ -130,8 +132,10 @@ class AgentService:
         llm = await LLMFactory.get_llm(
             role="orchestrator", temperature=0, session=session,
         )
-        llm.max_retries = settings.llm_max_retries
-        llm.request_timeout = settings.llm_request_timeout
+        if hasattr(llm, "max_retries"):
+            llm.max_retries = settings.llm_max_retries
+        if hasattr(llm, "request_timeout"):
+            llm.request_timeout = settings.llm_request_timeout
         self._apply_params(llm, params)
 
         agent = create_industrial_agent(

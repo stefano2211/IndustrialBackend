@@ -1,10 +1,4 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
@@ -52,9 +46,20 @@ services:
     container_name: ollama
     ports:
       - "11434:11434"
+    environment:
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_KEEP_ALIVE=5m
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   ollama-pull:
     image: curlimages/curl:latest
@@ -67,8 +72,10 @@ services:
         while ! curl -s http://ollama:11434/api/tags > /dev/null; do
           sleep 2
         done
-        echo "Ollama is ready! Pulling qwen3.5:9b model..."
-        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"qwen3.5:9b\"}"
+        echo "Ollama is ready! Pulling llama3.1:8b model..."
+        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"llama3.1:8b\"}"
+        echo "Pulling nomic-embed-text model for embeddings..."
+        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"nomic-embed-text\"}"
         echo "Pull complete."
       '
 
@@ -90,31 +97,7 @@ services:
     depends_on:
       - ollama
 
-  worker:
-    build: .
-    container_name: worker
-    command: uv run celery -A app.worker.tasks.celery worker --loglevel=info --concurrency=4 --pool=prefork
-    env_file:
-      - .env
-    environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
-    volumes:
-      - ./app:/app/app
-      - ./tmp:/tmp
-      - hf_cache:/root/.cache/huggingface
-    restart: unless-stopped
-    depends_on:
-      - ollama
 
-  flower:
-    build: .
-    container_name: flower
-    command: uv run celery -A app.worker.tasks.celery flower --port=5555 --basic_auth=admin:supergrok2025
-    ports:
-      - "5555:5555"
-    env_file:
-      - .env
-    restart: unless-stopped
 
 volumes:
   minio_data:

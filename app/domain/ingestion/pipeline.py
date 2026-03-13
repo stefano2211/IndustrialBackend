@@ -22,7 +22,6 @@ from app.domain.ingestion.document_loader import DocumentLoader
 from app.domain.ingestion.text_splitter import HierarchicalSplitter
 from app.domain.ingestion.embedder import Embedder
 from app.persistence.vector import QdrantManager
-from app.domain.models.ner import get_extractor
 
 
 class DocumentProcessor:
@@ -43,13 +42,7 @@ class DocumentProcessor:
         self.splitter = splitter or HierarchicalSplitter()
         self.embedder = embedder or Embedder()
         self.vector_store = vector_store or QdrantManager()
-        self._extractor = None
-
-    def _get_extractor(self):
-        """Lazy load LangExtract extractor only when needed."""
-        if self._extractor is None:
-            self._extractor = get_extractor(device="cpu")
-        return self._extractor
+        self.vector_store = vector_store or QdrantManager()
 
     async def process_file(
         self,
@@ -83,9 +76,8 @@ class DocumentProcessor:
         for doc in docs:
             doc.metadata["doc_id"] = doc_id # Ensure doc_id is set for initial docs
 
-        extractor = self._get_extractor()
-        doc_category = await extractor.classify_document(full_text, session=session)
-        logger.info(f"Document classified as: {doc_category}")
+        doc_category = "document" # Default category since we removed classification
+        logger.info(f"Document category set to default: {doc_category}")
 
         # 3. Split
         # The original code used self.splitter.split_documents(docs)
@@ -117,13 +109,8 @@ class DocumentProcessor:
         total_chunks = len(chunks)
         logger.info(f"Document split into {total_chunks} chunks")
 
-        # 4. NER Enrichment — Batched + Concurrent
-        enriched_chunks = await self._enrich_chunks_with_ner(
-            chunks, extractor, doc_category, session
-        )
-
-        # 5. Embed
-        texts = [chunk.page_content for chunk in enriched_chunks]
+        # 4. Embed
+        texts = [chunk.page_content for chunk in chunks]
         vectors = self.embedder.embed_documents(texts)
 
         # 6. Store
@@ -142,78 +129,12 @@ class DocumentProcessor:
                     },
                 },
             )
-            for i, (chunk, vector) in enumerate(zip(enriched_chunks, vectors))
+            for i, (chunk, vector) in enumerate(zip(chunks, vectors))
         ]
         self.vector_store.upsert(points)
         logger.success(
-            f"Document {doc_id} ({doc_category}) processed: "
-            f"{total_chunks} chunks with NER + classification"
+            f"Document {doc_id} processed: "
+            f"{total_chunks} chunks"
         )
         return {"doc_id": doc_id, "chunks": total_chunks, "category": doc_category}
-
-    # ------------------------------------------------------------------
-    #  Batched + Concurrent NER Enrichment
-    # ------------------------------------------------------------------
-
-    async def _enrich_chunks_with_ner(
-        self,
-        chunks: List[Document],
-        extractor,
-        doc_category: str,
-        session: Optional[Any],
-    ) -> List[Document]:
-        """
-        Enrich chunks with NER entities using batch processing and concurrency.
-
-        Strategy:
-          1. Divide chunks into batches of `ner_batch_size`
-          2. Process up to `ner_max_concurrency` batches in parallel
-          3. Each batch sends a SINGLE LLM call for all its chunks
-        """
-        batch_size = settings.ner_batch_size
-        max_concurrency = settings.ner_max_concurrency
-
-        # Split chunks into batches
-        batches: List[List[Document]] = [
-            chunks[i : i + batch_size]
-            for i in range(0, len(chunks), batch_size)
-        ]
-
-        logger.info(
-            f"NER enrichment: {len(chunks)} chunks → {len(batches)} batches "
-            f"(size={batch_size}, concurrency={max_concurrency})"
-        )
-
-        # Process batches concurrently with a semaphore
-        semaphore = asyncio.Semaphore(max_concurrency)
-        all_entity_results: List[List[dict]] = [None] * len(batches)
-
-        async def process_batch(batch_idx: int, batch: List[Document]):
-            async with semaphore:
-                texts = [chunk.page_content for chunk in batch]
-                logger.debug(
-                    f"Processing NER batch {batch_idx + 1}/{len(batches)} "
-                    f"({len(texts)} chunks)"
-                )
-                entities_list = await extractor.extract_entities_batch(
-                    texts, session=session
-                )
-                all_entity_results[batch_idx] = entities_list
-
-        # Launch all batches concurrently (semaphore limits parallelism)
-        tasks = [
-            process_batch(i, batch) for i, batch in enumerate(batches)
-        ]
-        await asyncio.gather(*tasks)
-
-        # Flatten results and assign entities to each chunk
-        enriched_chunks = []
-        for batch_idx, batch in enumerate(batches):
-            entities_list = all_entity_results[batch_idx] or [{} for _ in batch]
-            for chunk, entities in zip(batch, entities_list):
-                chunk.metadata["entities"] = entities
-                chunk.metadata["doc_category"] = doc_category
-                enriched_chunks.append(chunk)
-
-        logger.info(f"NER enrichment complete: {len(enriched_chunks)} chunks enriched")
-        return enriched_chunks
+

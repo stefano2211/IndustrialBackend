@@ -7,9 +7,6 @@ Adding a new provider = adding one entry to the registry.
 
 from enum import Enum
 from typing import Optional, Any, Dict
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from app.core.config import settings
 from loguru import logger
@@ -19,10 +16,6 @@ from app.persistence.repositories.llm_config_repository import LLMConfigReposito
 
 
 class LLMProvider(str, Enum):
-    OPENROUTER = "openrouter"
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    GEMINI = "gemini"
     OLLAMA = "ollama"
 
 
@@ -30,59 +23,17 @@ class LLMProvider(str, Enum):
 # Provider Registry — add new providers here (OCP)
 # ---------------------------------------------------------------------------
 
-def _create_openrouter(model_name: str, temperature: float, **kwargs):
-    return ChatOpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=settings.openrouter_api_key,
-        model=model_name,
-        temperature=temperature,
-        **kwargs,
-    )
-
-
-def _create_openai(model_name: str, temperature: float, **kwargs):
-    if not settings.openai_api_key:
-        logger.warning("OPENAI_API_KEY not found in settings")
-    return ChatOpenAI(
-        api_key=settings.openai_api_key,
-        model=model_name or "gpt-4-turbo-preview",
-        temperature=temperature,
-        **kwargs,
-    )
-
-
-def _create_anthropic(model_name: str, temperature: float, **kwargs):
-    return ChatAnthropic(
-        anthropic_api_key=settings.anthropic_api_key,
-        model_name=model_name or "claude-3-opus-20240229",
-        temperature=temperature,
-        **kwargs,
-    )
-
-
-def _create_gemini(model_name: str, temperature: float, **kwargs):
-    return ChatGoogleGenerativeAI(
-        google_api_key=settings.gemini_api_key,
-        model=model_name or "gemini-pro",
-        temperature=temperature,
-        **kwargs,
-    )
-
 
 def _create_ollama(model_name: str, temperature: float, **kwargs):
     return ChatOllama(
         base_url=settings.ollama_base_url,
-        model=model_name or "llama3.2",
+        model=model_name or "llama3.1:8b",
         temperature=temperature,
         **kwargs,
     )
 
 
 _PROVIDER_REGISTRY: Dict[str, Any] = {
-    LLMProvider.OPENROUTER: _create_openrouter,
-    LLMProvider.OPENAI: _create_openai,
-    LLMProvider.ANTHROPIC: _create_anthropic,
-    LLMProvider.GEMINI: _create_gemini,
     LLMProvider.OLLAMA: _create_ollama,
 }
 
@@ -145,10 +96,8 @@ class LLMFactory:
         # 3. Global fallback
         provider = provider or settings.default_llm_provider
         if not model_name:
-            if provider == LLMProvider.OPENROUTER:
-                model_name = settings.openrouter_model
-            elif provider == LLMProvider.OLLAMA:
-                model_name = settings.default_llm_model or "llama3.2"
+            if provider == LLMProvider.OLLAMA:
+                model_name = settings.default_llm_model or "llama3.1:8b"
             else:
                 model_name = settings.default_llm_model
 

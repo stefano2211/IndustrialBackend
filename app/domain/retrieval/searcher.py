@@ -13,8 +13,6 @@ class SemanticSearcher:
         query: str, 
         user_id: str,
         limit: Optional[int] = None, 
-        entity_filter: Optional[str] = None,
-        category_filter: Optional[str] = None,
         knowledge_base_id: Optional[str] = None,
         session: Optional[Any] = None
     ):
@@ -36,20 +34,6 @@ class SemanticSearcher:
                 match=MatchValue(value=user_id)
             )
         ]
-        if entity_filter:
-            conditions.append(
-                FieldCondition(
-                    key=f"metadata.entities.{entity_filter}",
-                    match=MatchValue(value=True)  
-                )
-            )
-        if category_filter:
-            conditions.append(
-                FieldCondition(
-                    key="metadata.doc_category",
-                    match=MatchValue(value=category_filter)
-                )
-            )
         if knowledge_base_id:
             conditions.append(
                 FieldCondition(

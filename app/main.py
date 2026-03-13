@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="IA Industrial - Document Analysis System (MinIO + Celery)",
+    title="IA Industrial - Document Analysis System (Edge AI)",
     lifespan=lifespan,
 )
 

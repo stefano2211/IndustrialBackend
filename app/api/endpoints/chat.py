@@ -60,6 +60,7 @@ async def chat_endpoint(
             checkpointer=checkpointer,
             store=store,
             params=request.params,
+            model_id=request.model_id,
         )
 
         session.add(ChatMessage(thread_id=thread_id, role="assistant", content=answer))
@@ -122,6 +123,7 @@ async def chat_stream_endpoint(
                 checkpointer=checkpointer,
                 store=store,
                 params=request.params,
+                model_id=request.model_id,
             ):
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"

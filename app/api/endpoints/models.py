@@ -1,60 +1,70 @@
-"""LLM Config endpoints — thin HTTP handlers for model configuration."""
+"""Model management endpoints — handlers for custom Model configurations."""
 
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.persistence.db import get_session
-from app.persistence.repositories.llm_config_repository import LLMConfigRepository
-from app.domain.schemas.llm_config import LLMConfigRead, LLMConfigUpdate
+from app.persistence.repositories.model_repository import ModelRepository
+from app.domain.schemas.model import Model, ModelCreate, ModelRead, ModelUpdate
 
 router = APIRouter()
 
-
-async def get_llm_config_repo(
+async def get_model_repo(
     session: AsyncSession = Depends(get_session),
-) -> LLMConfigRepository:
-    return LLMConfigRepository(session)
+) -> ModelRepository:
+    return ModelRepository(session)
 
-
-@router.get("/", response_model=List[LLMConfigRead])
-async def list_configs(
-    repo: LLMConfigRepository = Depends(get_llm_config_repo),
+@router.get("/", response_model=List[ModelRead])
+async def list_models(
+    repo: ModelRepository = Depends(get_model_repo),
 ):
-    return await repo.list_configs()
+    """List all configured models."""
+    return await repo.list_all()
 
-
-@router.get("/{role}", response_model=LLMConfigRead)
-async def get_config(
-    role: str,
-    repo: LLMConfigRepository = Depends(get_llm_config_repo),
+@router.get("/{model_id}", response_model=ModelRead)
+async def get_model(
+    model_id: str,
+    repo: ModelRepository = Depends(get_model_repo),
 ):
-    config = await repo.get_config(role)
-    if not config:
-        raise HTTPException(status_code=404, detail=f"No config found for role: {role}")
-    return config
+    """Get details of a specific model by ID (slug)."""
+    model = await repo.get_by_id(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return model
 
-
-@router.put("/{role}", response_model=LLMConfigRead)
-async def set_config(
-    role: str,
-    config_in: LLMConfigUpdate,
-    repo: LLMConfigRepository = Depends(get_llm_config_repo),
+@router.post("/", response_model=ModelRead, status_code=status.HTTP_201_CREATED)
+async def create_model(
+    model_in: ModelCreate,
+    repo: ModelRepository = Depends(get_model_repo),
 ):
-    if not config_in.provider or not config_in.model_name:
-        raise HTTPException(
-            status_code=400, detail="Provider and model_name are required"
-        )
-    return await repo.set_config(role, config_in.provider, config_in.model_name)
+    """Create a new model configuration."""
+    existing = await repo.get_by_id(model_in.id)
+    if existing:
+        raise HTTPException(status_code=400, detail="Model with this ID already exists")
+    
+    new_model = Model.model_validate(model_in.model_dump())
+    return await repo.create(new_model)
 
-
-@router.patch("/{role}", response_model=LLMConfigRead)
-async def update_config(
-    role: str,
-    config_in: LLMConfigUpdate,
-    repo: LLMConfigRepository = Depends(get_llm_config_repo),
+@router.put("/{model_id}", response_model=ModelRead)
+async def update_model(
+    model_id: str,
+    model_in: ModelUpdate,
+    repo: ModelRepository = Depends(get_model_repo),
 ):
-    config = await repo.update_config(role, config_in)
-    if not config:
-        raise HTTPException(status_code=404, detail="Config not found")
-    return config
+    """Update an existing model configuration."""
+    model = await repo.update(model_id, model_in)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return model
+
+@router.delete("/{model_id}")
+async def delete_model(
+    model_id: str,
+    repo: ModelRepository = Depends(get_model_repo),
+):
+    """Delete a model configuration."""
+    success = await repo.delete(model_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return {"status": "success", "message": f"Model {model_id} deleted"}

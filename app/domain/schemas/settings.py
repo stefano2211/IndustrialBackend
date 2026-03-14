@@ -26,6 +26,15 @@ class SystemSettings(SQLModel, table=True):
     # Retrieval Settings
     retrieval_search_results: int = Field(default=5)
 
+    # Provider Settings (Ollama)
+    ollama_enabled: bool = Field(default=True)
+    ollama_base_url: str = Field(default="http://ollama:11434")
+
+    # Provider Settings (OpenRouter)
+    openrouter_enabled: bool = Field(default=False)
+    openrouter_api_key: Optional[str] = Field(default=None)
+    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1")
+
 
 # --- API Models for General Settings ---
 class SystemSettingsGeneralRead(SQLModel):
@@ -34,6 +43,13 @@ class SystemSettingsGeneralRead(SQLModel):
     feature_enable_api_keys: bool
     feature_jwt_expiration: str
     feature_enable_community_sharing: bool
+    
+    # Providers
+    ollama_enabled: bool
+    ollama_base_url: str
+    openrouter_enabled: bool
+    openrouter_api_key: Optional[str]
+    openrouter_base_url: str
 
 class SystemSettingsGeneralUpdate(SQLModel):
     auth_default_user_role: Optional[str] = None
@@ -41,6 +57,13 @@ class SystemSettingsGeneralUpdate(SQLModel):
     feature_enable_api_keys: Optional[bool] = None
     feature_jwt_expiration: Optional[str] = None
     feature_enable_community_sharing: Optional[bool] = None
+    
+    # Providers
+    ollama_enabled: Optional[bool] = None
+    ollama_base_url: Optional[str] = None
+    openrouter_enabled: Optional[bool] = None
+    openrouter_api_key: Optional[str] = None
+    openrouter_base_url: Optional[str] = None
 
 
 # --- API Models for Document Settings ---

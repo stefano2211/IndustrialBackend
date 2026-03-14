@@ -43,7 +43,6 @@ async def register_user(
     First registered user automatically becomes admin.
     """
     from app.persistence.repositories.settings_repository import SettingsRepository
-    
     settings_repo = SettingsRepository(session)
     system_settings = await settings_repo.get_settings()
     
@@ -66,5 +65,8 @@ async def register_user(
     if len(existing_users) == 0:
         user_in.is_superuser = True
 
-    user = await user_service.create_user(user_in=user_in)
-    return user
+    try:
+        user = await user_service.create_user(user_in=user_in)
+        return user
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

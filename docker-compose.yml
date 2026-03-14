@@ -59,7 +59,7 @@ services:
           devices:
             - driver: nvidia
               count: 1
-              capabilities: [gpu]
+              capabilities: [ gpu ]
 
   ollama-pull:
     image: curlimages/curl:latest
@@ -72,8 +72,8 @@ services:
         while ! curl -s http://ollama:11434/api/tags > /dev/null; do
           sleep 2
         done
-        echo "Ollama is ready! Pulling llama3.1:8b model..."
-        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"llama3.1:8b\"}"
+        echo "Ollama is ready! Pulling qwen3.5:4b model..."
+        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"qwen3.5:4b\"}"
         echo "Pulling nomic-embed-text model for embeddings..."
         curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"nomic-embed-text\"}"
         echo "Pull complete."
@@ -96,8 +96,6 @@ services:
     restart: unless-stopped
     depends_on:
       - ollama
-
-
 
 volumes:
   minio_data:

@@ -58,6 +58,18 @@ async def update_prompt(
     return prompt
 
 
+@router.patch("/{prompt_id}/active")
+async def set_active_prompt(
+    prompt_id: uuid.UUID,
+    repo: PromptRepository = Depends(get_prompt_repo),
+):
+    """Mark a specific prompt as active and others as inactive."""
+    prompt = await repo.set_active(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    return prompt
+
+
 @router.delete("/{prompt_id}")
 async def delete_prompt(
     prompt_id: uuid.UUID,

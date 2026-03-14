@@ -28,8 +28,8 @@ class ConversationService:
         )
         return await self.repository.create(conversation)
 
-    async def list_conversations(self, user_id: uuid.UUID) -> List[Conversation]:
-        return await self.repository.list_by_user(user_id)
+    async def list_conversations(self, user_id: uuid.UUID, include_archived: bool = False) -> List[Conversation]:
+        return await self.repository.list_by_user(user_id, include_archived=include_archived)
 
     async def get_conversation(
         self, thread_id: str, user_id: uuid.UUID
@@ -51,6 +51,14 @@ class ConversationService:
         conversation = await self.get_conversation(thread_id, user_id)
         await self.repository.delete_messages(thread_id)
         await self.repository.delete(conversation)
+
+    async def archive_conversation(
+        self, thread_id: str, user_id: uuid.UUID, archive: bool = True
+    ) -> Conversation:
+        conversation = await self.get_conversation(thread_id, user_id)
+        conversation.is_archived = archive
+        conversation.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        return await self.repository.update(conversation)
 
     async def get_or_create_conversation(
         self, thread_id: str, user_id: uuid.UUID, title: str = "New Chat"

@@ -27,12 +27,16 @@ class ConversationRepository:
         result = await self.session.execute(statement)
         return result.scalars().first()
 
-    async def list_by_user(self, user_id: uuid.UUID) -> List[Conversation]:
+    async def list_by_user(self, user_id: uuid.UUID, include_archived: bool = False) -> List[Conversation]:
         statement = (
             select(Conversation)
             .where(Conversation.user_id == user_id)
-            .order_by(Conversation.updated_at.desc())
         )
+        if not include_archived:
+            statement = statement.where(Conversation.is_archived == False)
+            
+        statement = statement.order_by(Conversation.updated_at.desc())
+        
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 

@@ -12,6 +12,7 @@ from app.persistence.db import get_session
 from app.domain.schemas.user import User, UserRead
 from app.domain.schemas.conversation import Conversation, ChatMessage
 from app.domain.services.user_service import UserService
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -245,8 +246,13 @@ async def get_analytics(
         for i, row in enumerate(user_rows)
     ]
 
-    # Model usage — we use the default model for now
-    model_name = "qwen/qwen3-vl-30b-a3b-thinking"
+    # Model usage: Use the current default configuration
+    from app.core.llm import LLMFactory
+    try:
+        model_name = settings.default_llm_model or "Unified-LLM"
+    except Exception:
+        model_name = "Unified-LLM"
+        
     model_usage = []
     if total_messages > 0:
         model_usage.append(

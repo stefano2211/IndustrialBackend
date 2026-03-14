@@ -32,19 +32,15 @@ class Settings(BaseSettings):
     # Edge / Local Model configuration
     ollama_base_url: str = "http://ollama:11434"
 
+    # OpenRouter configuration
+    openrouter_api_key: Optional[str] = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
     # Defaults
     default_llm_provider: str = "ollama"
     default_llm_model: Optional[str] = "llama3.1:8b" # Will use this if none provided
 
     
-    # Orchestrator specific
-    orchestrator_llm_provider: Optional[str] = None
-    orchestrator_llm_model: Optional[str] = None
-    
-    # Subagent specific
-    subagent_llm_provider: Optional[str] = None
-    subagent_llm_model: Optional[str] = None
-
     # LLM Resilience
     llm_max_retries: int = 10
     llm_request_timeout: int = 120
@@ -53,10 +49,6 @@ class Settings(BaseSettings):
     ner_batch_size: int = 5          # Chunks grouped per LLM call (reduces total calls)
     ner_max_concurrency: int = 3     # Max parallel batch requests to the LLM
     ner_retry_max_attempts: int = 5  # Max retries on rate-limit (429) errors
-    
-    # Extractor specific (Local Extraction)
-    extractor_llm_provider: str = "ollama"
-    extractor_llm_model: str = "llama3.1:8b"
     
     model_config = {"env_file": ".env"}
 

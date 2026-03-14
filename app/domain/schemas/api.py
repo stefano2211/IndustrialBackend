@@ -22,8 +22,9 @@ class ModelParams(BaseModel):
 
 class ChatRequest(BaseModel):
     query: str
-    thread_id: str | None = None
-    knowledge_base_id: str | None = None
+    thread_id: Optional[str] = None
+    knowledge_base_id: Optional[str] = None
+    model_id: Optional[str] = None
     params: Optional[ModelParams] = None
 
 class ChatResponse(BaseModel):

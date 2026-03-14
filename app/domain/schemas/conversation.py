@@ -10,6 +10,7 @@ class Conversation(SQLModel, table=True):
     user_id: uuid.UUID = Field(index=True)
     thread_id: str = Field(unique=True, index=True)
     title: str = Field(default="New Chat")
+    is_archived: bool = Field(default=False)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
@@ -32,6 +33,7 @@ class ConversationRead(SQLModel):
     id: uuid.UUID
     thread_id: str
     title: str
+    is_archived: bool
     created_at: datetime
     updated_at: datetime
 

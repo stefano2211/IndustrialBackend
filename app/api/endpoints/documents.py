@@ -47,7 +47,7 @@ async def status(task_id: str):
     return document_service.get_task_status(task_id)
 
 
-@router.get("/documents/{doc_id}")
+@router.get("/{doc_id}")
 async def get_document_details(
     doc_id: str,
     current_user: User = Depends(deps.get_current_user),
@@ -59,7 +59,7 @@ async def get_document_details(
     return details
 
 
-@router.delete("/documents/{doc_id}")
+@router.delete("/{doc_id}")
 async def delete_document(
     doc_id: str,
     current_user: User = Depends(deps.get_current_user),

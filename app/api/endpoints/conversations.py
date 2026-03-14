@@ -35,10 +35,11 @@ async def create_conversation(
 
 @router.get("", response_model=List[ConversationRead])
 async def list_conversations(
+    include_archived: bool = False,
     current_user: User = Depends(deps.get_current_user),
     service: ConversationService = Depends(get_conversation_service),
 ) -> Any:
-    return await service.list_conversations(user_id=current_user.id)
+    return await service.list_conversations(user_id=current_user.id, include_archived=include_archived)
 
 
 @router.get("/{thread_id}/messages", response_model=List[MessageRead])
@@ -71,3 +72,18 @@ async def delete_conversation(
         raise HTTPException(status_code=404, detail=str(e))
 
     return {"detail": "Conversation deleted"}
+
+
+@router.patch("/{thread_id}/archive", response_model=ConversationRead)
+async def archive_conversation(
+    thread_id: str,
+    archive: bool = True,
+    current_user: User = Depends(deps.get_current_user),
+    service: ConversationService = Depends(get_conversation_service),
+) -> Any:
+    try:
+        return await service.archive_conversation(
+            thread_id=thread_id, user_id=current_user.id, archive=archive
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))

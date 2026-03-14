@@ -1,7 +1,7 @@
 import uuid
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select
+from sqlmodel import select, text
 from app.domain.schemas.prompt import Prompt, PromptUpdate
 
 class PromptRepository:
@@ -33,6 +33,23 @@ class PromptRepository:
         for key, value in prompt_data.items():
             setattr(db_prompt, key, value)
         
+        self.session.add(db_prompt)
+        await self.session.commit()
+        await self.session.refresh(db_prompt)
+        return db_prompt
+
+    async def set_active(self, prompt_id: uuid.UUID) -> Optional[Prompt]:
+        """Mark a prompt as active and others as inactive."""
+        # First, set all prompts to is_active=False
+        await self.session.execute(
+            text("UPDATE prompt SET is_active = FALSE")
+        )
+        
+        db_prompt = await self.get_prompt(prompt_id)
+        if not db_prompt:
+            return None
+            
+        db_prompt.is_active = True
         self.session.add(db_prompt)
         await self.session.commit()
         await self.session.refresh(db_prompt)

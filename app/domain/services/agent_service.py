@@ -15,7 +15,7 @@ from deepagents.backends.utils import create_file_data
 from loguru import logger
 
 from app.core.config import settings
-from app.core.llm import LLMFactory
+from app.core.llm import LLMFactory, LLMProvider
 from app.domain.agent.deep_agent import create_industrial_agent
 from app.domain.agent.prompts import AGENTS_MD_CONTENT
 from app.persistence.repositories.model_repository import ModelRepository
@@ -34,47 +34,22 @@ class AgentService:
         )
     """
 
-    def _apply_params(self, llm, params):
-        """Apply user-specified model parameters to the LLM instance."""
-        if not params:
-            return
-        if params.temperature is not None:
-            llm.temperature = params.temperature
-        if params.max_tokens is not None:
-            llm.max_tokens = params.max_tokens
-        if params.top_p is not None:
-            llm.top_p = params.top_p
-        # top_k and seed are provider-specific, set via model_kwargs
-        kwargs = getattr(llm, 'model_kwargs', {}) or {}
-        if params.top_k is not None:
-            kwargs['top_k'] = params.top_k
-        if params.seed is not None:
-            kwargs['seed'] = params.seed
-        if params.stop_sequence:
-            llm.stop = [params.stop_sequence]
-        if kwargs:
-            llm.model_kwargs = kwargs
-
-    def _apply_model_config(self, llm, model_config):
-        """Apply model-specific configuration from the DB."""
-        if not model_config:
-            return
+    def _extract_params(self, params_obj_or_dict) -> dict:
+        """Extract parameters from a Pydantic model or a dictionary into a clean dict."""
+        if not params_obj_or_dict:
+            return {}
             
-        # 1. Apply system prompt if present in model config
-        # (This can be overridden by request params later)
-        if hasattr(model_config, 'system_prompt') and model_config.system_prompt:
-            # We don't set it directly on llm, but store it for message building
-            pass
+        if isinstance(params_obj_or_dict, dict):
+            return {k: v for k, v in params_obj_or_dict.items() if v is not None}
             
-        # 2. Apply parameters from model config
-        if hasattr(model_config, 'params') and model_config.params:
-            # params in DB is a dict
-            params_dict = model_config.params
-            if 'temperature' in params_dict:
-                llm.temperature = params_dict['temperature']
-            if 'max_tokens' in params_dict:
-                llm.max_tokens = params_dict['max_tokens']
-            # etc. (could add more)
+        # Assume it's an object (SimpleNamespace or Pydantic model)
+        extracted = {}
+        for attr in ['temperature', 'max_tokens', 'top_p', 'top_k', 'seed', 'stop_sequence']:
+            if hasattr(params_obj_or_dict, attr):
+                val = getattr(params_obj_or_dict, attr)
+                if val is not None:
+                    extracted[attr] = val
+        return extracted
 
     def _build_messages(self, query: str, params=None):
         """Build the messages list, optionally prepending a system prompt."""
@@ -107,41 +82,58 @@ class AgentService:
         
         if model_id and session:
             model_repo = ModelRepository(session)
-            db_model = await model_repo.get_model(model_id)
+            db_model = await model_repo.get_by_id(model_id)
             if db_model:
                 # base_model_id is usually "provider:model"
                 if ":" in db_model.base_model_id:
                     provider, model_name = db_model.base_model_id.split(":", 1)
+                elif db_model.base_model_id in [p.value for p in LLMProvider]:
+                    # If it's just a provider name, treat as default model for that provider
+                    provider = db_model.base_model_id
+                    model_name = None
                 else:
                     model_name = db_model.base_model_id
 
-        # 2. Create LLM with resolved config
+        # 2. Collect and merge parameters
+        merged_params = {}
+        if db_model and hasattr(db_model, 'params') and db_model.params:
+            merged_params.update(self._extract_params(db_model.params))
+            
+        if params:
+            merged_params.update(self._extract_params(params))
+
+        # Handle stop sequence mapping
+        if "stop_sequence" in merged_params:
+            stop_val = merged_params.pop("stop_sequence")
+            if stop_val:
+                merged_params["stop"] = [stop_val]
+
+        # 3. Create LLM with resolved config and merged params
         llm = await LLMFactory.get_llm(
             provider=provider,
             model_name=model_name,
-            temperature=0, 
             session=session,
+            **merged_params
         )
         
-        # 3. Apply DB Model specifics (system prompt, params)
-        if db_model:
-            self._apply_model_config(llm, db_model)
-            # If request params don't have a system prompt, use the model's one
-            if params and not params.system_prompt and db_model.system_prompt:
-                params.system_prompt = db_model.system_prompt
-            elif not params and db_model.system_prompt:
-                # Create a mini object/dict to hold the system prompt for build_messages
-                from types import SimpleNamespace
-                params = SimpleNamespace(system_prompt=db_model.system_prompt, temperature=None, max_tokens=None, top_p=None, top_k=None, seed=None, stop_sequence=None)
+        # 4. Apply additional settings
         if hasattr(llm, "max_retries"):
             llm.max_retries = settings.llm_max_retries
         if hasattr(llm, "request_timeout"):
             llm.request_timeout = settings.llm_request_timeout
-        self._apply_params(llm, params)
+        
+        # 5. Handle system prompt composition
+        if params and not params.system_prompt and db_model and db_model.system_prompt:
+            params.system_prompt = db_model.system_prompt
+        elif not params and db_model and db_model.system_prompt:
+            from types import SimpleNamespace
+            params = SimpleNamespace(system_prompt=db_model.system_prompt)
 
         # 2. Build agent
+        custom_prompt = db_model.system_prompt if db_model else None
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
+            custom_system_prompt=custom_prompt
         )
 
         # 3. Invoke with config
@@ -154,6 +146,7 @@ class AgentService:
             }
         }
 
+        logger.info(f"Invoking agent for thread {thread_id} with query: {query}")
         response = await agent.ainvoke(
             {
                 "messages": self._build_messages(query, params),
@@ -162,8 +155,12 @@ class AgentService:
             config=config,
         )
 
-        # 4. Extract final message
-        return response["messages"][-1].content
+        # 4. Extract final message and return with model info
+        last_message = response["messages"][-1]
+        content = last_message.content
+        # Resolved model ID is either from db_model or defaults
+        resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))
+        return content, resolved_model_id
 
     async def stream(
         self,
@@ -179,7 +176,8 @@ class AgentService:
         model_id: str | None = None,
     ):
         """
-        Stream the Deep Agent response, yielding text chunks as they arrive.
+        Stream the Deep Agent response, yielding text chunks as they arrive, 
+        plus a final metadata chunk with model info.
         Uses LangGraph's astream_events v2 API.
         """
         # 1. Resolve Provider and Model Name from DB if model_id is provided
@@ -189,37 +187,55 @@ class AgentService:
         
         if model_id and session:
             model_repo = ModelRepository(session)
-            db_model = await model_repo.get_model(model_id)
+            db_model = await model_repo.get_by_id(model_id)
             if db_model:
                 if ":" in db_model.base_model_id:
                     provider, model_name = db_model.base_model_id.split(":", 1)
+                elif db_model.base_model_id in [p.value for p in LLMProvider]:
+                    provider = db_model.base_model_id
+                    model_name = None
                 else:
                     model_name = db_model.base_model_id
 
-        # 2. Create LLM with resolved config
+        # 2. Collect and merge parameters
+        merged_params = {}
+        if db_model and hasattr(db_model, 'params') and db_model.params:
+            merged_params.update(self._extract_params(db_model.params))
+            
+        if params:
+            merged_params.update(self._extract_params(params))
+
+        # Handle stop sequence mapping
+        if "stop_sequence" in merged_params:
+            stop_val = merged_params.pop("stop_sequence")
+            if stop_val:
+                merged_params["stop"] = [stop_val]
+
+        # 3. Create LLM with resolved config and merged params
         llm = await LLMFactory.get_llm(
             provider=provider,
             model_name=model_name,
-            temperature=0, 
             session=session,
+            **merged_params
         )
         
-        # 3. Apply DB Model specifics
-        if db_model:
-            self._apply_model_config(llm, db_model)
-            if params and not params.system_prompt and db_model.system_prompt:
-                params.system_prompt = db_model.system_prompt
-            elif not params and db_model.system_prompt:
-                from types import SimpleNamespace
-                params = SimpleNamespace(system_prompt=db_model.system_prompt, temperature=None, max_tokens=None, top_p=None, top_k=None, seed=None, stop_sequence=None)
+        # 4. Apply additional settings
         if hasattr(llm, "max_retries"):
             llm.max_retries = settings.llm_max_retries
         if hasattr(llm, "request_timeout"):
             llm.request_timeout = settings.llm_request_timeout
-        self._apply_params(llm, params)
 
+        # 5. Handle system prompt composition
+        if params and not params.system_prompt and db_model and db_model.system_prompt:
+            params.system_prompt = db_model.system_prompt
+        elif not params and db_model and db_model.system_prompt:
+            from types import SimpleNamespace
+            params = SimpleNamespace(system_prompt=db_model.system_prompt)
+
+        custom_prompt = db_model.system_prompt if db_model else None
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
+            custom_system_prompt=custom_prompt
         )
 
         config = {
@@ -231,6 +247,7 @@ class AgentService:
             }
         }
 
+        any_token_yielded = False
         async for event in agent.astream_events(
             {
                 "messages": self._build_messages(query, params),
@@ -240,8 +257,49 @@ class AgentService:
             version="v2",
         ):
             kind = event.get("event", "")
-            # Only yield actual text content from the LLM stream
-            if kind == "on_chat_model_stream":
-                chunk = event.get("data", {}).get("chunk")
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    yield chunk.content
+            
+            if kind == "on_chat_model_start":
+                any_token_yielded = False
+
+            if kind in ["on_chat_model_stream", "on_llm_stream"]:
+                data = event.get("data", {})
+                chunk = data.get("chunk")
+                
+                text = ""
+                if hasattr(chunk, "content"): text = chunk.content
+                elif hasattr(chunk, "text"): text = chunk.text
+                elif isinstance(chunk, dict): text = chunk.get("content", "")
+                
+                if text:
+                    any_token_yielded = True
+                    yield text
+                continue
+
+            if kind == "on_chat_model_end":
+                # If this turn finished and yielded no tokens (e.g. filtered, tool call preamble omitted),
+                # we check if there's content we should send.
+                data = event.get("data", {})
+                output = data.get("output")
+                if output:
+                    text = ""
+                    if hasattr(output, "content"): text = output.content
+                    elif hasattr(output, "text"): text = output.text
+                    
+                    # If it's a tool call turn, we usually don't want to yield the tool arguments as text 
+                    # unless they are part of a thought process. For now, we yield visible content.
+                    if text and not (hasattr(output, "tool_calls") and output.tool_calls and not text):
+                        # Yield the full content as a fallback if no tokens were streamed
+                        yield text
+
+            # Robust fallback for token extraction from chunks
+            chunk = event.get("data", {}).get("chunk")
+            if chunk and kind not in ["on_chat_model_end"]: # avoided repeated content
+                text = ""
+                if hasattr(chunk, "content"): text = chunk.content
+                elif hasattr(chunk, "text"): text = chunk.text
+                if text:
+                    yield text
+
+        # Yield metadata about the resolved model at the end
+        resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))
+        yield {"model_id": resolved_model_id}

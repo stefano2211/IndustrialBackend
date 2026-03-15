@@ -21,6 +21,8 @@ class ModelParams(BaseModel):
     stop_sequence: Optional[str] = None
 
 class ChatRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    
     query: str
     thread_id: Optional[str] = None
     knowledge_base_id: Optional[str] = None

@@ -28,27 +28,57 @@ class LLMProvider(str, Enum):
 
 
 def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
+    # Set a larger context window (num_ctx) to avoid truncation (default is usually 4k)
+    if "num_ctx" not in kwargs:
+        kwargs["num_ctx"] = 16384
+    
+    # Map max_tokens to num_predict for ChatOllama
+    if "max_tokens" in kwargs:
+        if kwargs["max_tokens"] is not None:
+            kwargs["num_predict"] = kwargs.pop("max_tokens")
+        else:
+            kwargs.pop("max_tokens")
+        
     return ChatOllama(
         base_url=base_url or settings.ollama_base_url,
-        model=model_name or "llama3.1:8b",
+        model=model_name or "qwen3.5:9b",
         temperature=temperature,
+        streaming=True,
         **kwargs,
     )
 
 
 def _create_openrouter(model_name: str, temperature: float, api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
     # Set a reasonable default max_tokens to avoid OpenRouter credit check failures (402)
-    # If the user doesn't provide one, we default to 4096.
     if "max_tokens" not in kwargs or kwargs["max_tokens"] is None:
         kwargs["max_tokens"] = 4096
         
+    # OpenRouter/OpenAI-client compatibility: remove parameters not supported by ChatOpenAI
+    # top_k is common in Ollama but not in OpenAI standard completions API
+    top_k = kwargs.pop("top_k", None)
+    
+    logger.info(f"Creating OpenRouter chat model: {model_name} at {base_url or settings.openrouter_base_url}")
+    
+    # If top_k is provided, we can pass it in extra_body for OpenRouter to handle natively
+    extra_body = {}
+    if top_k is not None:
+        extra_body["top_k"] = top_k
+
     return ChatOpenAI(
         openai_api_key=api_key or settings.openrouter_api_key,
         openai_api_base=base_url or settings.openrouter_base_url,
         model=model_name or "openai/gpt-4o",
         temperature=temperature,
+        streaming=True,
+        default_headers={
+            "HTTP-Referer": "https://industrial-backend.ai",
+            "X-Title": "Industrial Backend",
+        },
+        model_kwargs={"extra_body": extra_body} if extra_body else {},
         **kwargs,
     )
+
+
 
 
 _PROVIDER_REGISTRY: Dict[str, Any] = {
@@ -86,15 +116,38 @@ class LLMFactory:
                 provider = provider or db_config["provider"]
                 model_name = model_name or db_config["model_name"]
 
-        # 2. Global fallback (No more role defaults)
-        provider = provider or settings.default_llm_provider
-        if not model_name:
+        # 2. Provider Prioritization from System Settings
+        if not provider:
+            # Auto-detect OpenRouter if model name contains a slash (e.g. "qwen/...")
+            if model_name and "/" in str(model_name):
+                provider = LLMProvider.OPENROUTER
+            elif session:
+                settings_repo = SettingsRepository(session)
+                sys_settings = await settings_repo.get_settings()
+                
+                if sys_settings.ollama_enabled:
+                    provider = LLMProvider.OLLAMA
+                elif sys_settings.openrouter_enabled:
+                    provider = LLMProvider.OPENROUTER
+                else:
+                    provider = settings.default_llm_provider
+            else:
+                provider = settings.default_llm_provider
+
+
+        # 3. Model Name Resolution
+        # If model_name is None OR matches a provider name, treat as "want default for this provider"
+        if not model_name or model_name.lower() in ["ollama", "openrouter"]:
             if provider == LLMProvider.OLLAMA:
-                model_name = settings.default_llm_model or "llama3.1:8b"
+                # If the global default looks like an OpenRouter model (contains /), use a safe Ollama fallback
+                if settings.default_llm_model and "/" in settings.default_llm_model:
+                    model_name = "qwen3.5:9b"
+                else:
+                    model_name = settings.default_llm_model or "qwen3.5:9b"
             else:
                 model_name = settings.default_llm_model
 
-        # 3. Load provider settings from DB if possible
+        # 4. Load provider configuration from DB
         factory_kwargs = {}
         if session:
             settings_repo = SettingsRepository(session)
@@ -107,7 +160,7 @@ class LLMFactory:
 
         logger.info(f"Initializing Unified LLM: provider={provider}, model={model_name} (requested role={role})")
 
-        # 4. Create via registry
+        # 5. Create via registry
         factory_fn = _PROVIDER_REGISTRY.get(provider)
         if not factory_fn:
             raise ValueError(f"Unsupported LLM provider: {provider}")

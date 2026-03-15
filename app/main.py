@@ -5,10 +5,14 @@ Initializes the app, middleware, database, and LangGraph memory.
 """
 
 import os
+import warnings
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Suppress Pydantic UserWarning about typing.NotRequired from external libraries
+warnings.filterwarnings("ignore", category=UserWarning, message=".*typing.NotRequired is not a Python type.*")
 
 from app.api.router import api_router
 from app.persistence.db import init_db

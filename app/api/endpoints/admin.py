@@ -11,6 +11,7 @@ from app.api import deps
 from app.persistence.db import get_session
 from app.domain.schemas.user import User, UserRead
 from app.domain.schemas.conversation import Conversation, ChatMessage
+from app.domain.schemas.model import Model
 from app.domain.services.user_service import UserService
 from app.core.config import settings
 
@@ -131,6 +132,8 @@ class DailyMessages(BaseModel):
 
 
 class ModelUsageItem(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    
     rank: int
     model: str
     messages: int
@@ -147,6 +150,8 @@ class UserActivityItem(BaseModel):
 
 
 class AnalyticsResponse(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    
     total_messages: int
     total_tokens: int
     total_chats: int
@@ -246,15 +251,43 @@ async def get_analytics(
         for i, row in enumerate(user_rows)
     ]
 
-    # Model usage: Use the current default configuration
-    from app.core.llm import LLMFactory
-    try:
-        model_name = settings.default_llm_model or "Unified-LLM"
-    except Exception:
-        model_name = "Unified-LLM"
-        
+    # Model usage: Group assistant messages by model_id
+    model_usage_rows = (
+        await session.execute(
+            select(
+                ChatMessage.model_id,
+                func.count(ChatMessage.id).label("msg_count"),
+                func.coalesce(func.sum(func.length(ChatMessage.content)), 0).label("content_len"),
+            )
+            .where(ChatMessage.role == "assistant", ChatMessage.created_at >= cutoff)
+            .group_by(ChatMessage.model_id)
+            .order_by(func.count(ChatMessage.id).desc())
+        )
+    ).all()
+
     model_usage = []
-    if total_messages > 0:
+    for i, row in enumerate(model_usage_rows):
+        m_id = row.model_id or "unknown"
+        # Try to find a human-readable name for the model
+        m_name = m_id
+        if m_id != "unknown":
+            db_m = await session.get(Model, m_id)
+            if db_m:
+                m_name = db_m.name
+                
+        model_usage.append(
+            ModelUsageItem(
+                rank=i + 1,
+                model=m_name,
+                messages=row.msg_count,
+                tokens=row.content_len // 4,
+                percentage=(row.msg_count / total_messages * 100) if total_messages > 0 else 0,
+            )
+        )
+
+    # Fallback if no records have model_id yet but there are messages
+    if not model_usage and total_messages > 0:
+        model_name = settings.default_llm_model or "Unified-LLM"
         model_usage.append(
             ModelUsageItem(
                 rank=1,

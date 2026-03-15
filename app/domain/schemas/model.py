@@ -3,7 +3,7 @@ from sqlmodel import SQLModel, Field, JSON
 
 class ModelBase(SQLModel):
     model_config = {"protected_namespaces": ()}
-    id: str = Field(primary_key=True, description="Slug-based identifier for the model")
+    id: Optional[str] = Field(default=None, primary_key=True, description="Slug-based identifier for the model. Generated if not provided.")
     name: str = Field(index=True, description="Display name of the model")
     base_model_id: str = Field(description="Underlying provider and model name (e.g., openai:gpt-4o)")
     description: Optional[str] = Field(default=None, description="Short description of the model")
@@ -25,6 +25,7 @@ class ModelBase(SQLModel):
     builtin_tools: Dict[str, bool] = Field(default={}, sa_type=JSON, description="Enabled built-in tools")
     
     tts_voice: Optional[str] = Field(default=None, description="Selected TTS voice")
+    enabled: bool = Field(default=True, description="Whether the model is active and can be used")
 
 class Model(ModelBase, table=True):
     pass
@@ -49,3 +50,4 @@ class ModelUpdate(SQLModel):
     default_features: Optional[Dict[str, bool]] = None
     builtin_tools: Optional[Dict[str, bool]] = None
     tts_voice: Optional[str] = None
+    enabled: Optional[bool] = None

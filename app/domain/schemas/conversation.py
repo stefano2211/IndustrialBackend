@@ -6,6 +6,8 @@ from sqlmodel import SQLModel, Field, Relationship
 
 class Conversation(SQLModel, table=True):
     """Tracks chat threads per user."""
+    model_config = {"protected_namespaces": ()}
+    
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(index=True)
     thread_id: str = Field(unique=True, index=True)
@@ -17,11 +19,14 @@ class Conversation(SQLModel, table=True):
 
 class ChatMessage(SQLModel, table=True):
     """Persists each message in a conversation thread."""
+    model_config = {"protected_namespaces": ()}
+    
     __tablename__ = "chatmessage"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     thread_id: str = Field(index=True)
     role: str  # 'user' or 'assistant'
     content: str
+    model_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 

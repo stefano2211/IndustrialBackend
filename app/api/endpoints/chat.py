@@ -45,13 +45,13 @@ async def chat_endpoint(
             title=request.query[:80] if request.query else "New Chat",
         )
 
-        session.add(ChatMessage(thread_id=thread_id, role="user", content=request.query))
+        session.add(ChatMessage(thread_id=thread_id, role="user", content=request.query, model_id=request.model_id))
         await session.commit()
 
         checkpointer = getattr(fastapi_request.app.state, "checkpointer", None)
         store = getattr(fastapi_request.app.state, "store", None)
 
-        answer = await _agent_service.invoke(
+        answer, resolved_model_id = await _agent_service.invoke(
             user_id=user_id,
             thread_id=thread_id,
             query=request.query,
@@ -63,7 +63,7 @@ async def chat_endpoint(
             model_id=request.model_id,
         )
 
-        session.add(ChatMessage(thread_id=thread_id, role="assistant", content=answer))
+        session.add(ChatMessage(thread_id=thread_id, role="assistant", content=answer, model_id=resolved_model_id))
         await session.commit()
 
         return ChatResponse(answer=answer, sources=[], thread_id=thread_id)
@@ -100,7 +100,7 @@ async def chat_stream_endpoint(
             title=request.query[:80] if request.query else "New Chat",
         )
 
-        session.add(ChatMessage(thread_id=thread_id, role="user", content=request.query))
+        session.add(ChatMessage(thread_id=thread_id, role="user", content=request.query, model_id=request.model_id))
         await session.commit()
     except Exception as e:
         logger.error(f"Error setting up stream: {e}")
@@ -114,6 +114,7 @@ async def chat_stream_endpoint(
         try:
             yield f"data: {json.dumps({'type': 'meta', 'thread_id': thread_id})}\n\n"
 
+            resolved_model_id = "default"
             async for chunk in _agent_service.stream(
                 user_id=user_id,
                 thread_id=thread_id,
@@ -125,10 +126,14 @@ async def chat_stream_endpoint(
                 params=request.params,
                 model_id=request.model_id,
             ):
+                if isinstance(chunk, dict) and "model_id" in chunk:
+                    resolved_model_id = chunk["model_id"]
+                    continue
+                    
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
 
-            session.add(ChatMessage(thread_id=thread_id, role="assistant", content=full_content))
+            session.add(ChatMessage(thread_id=thread_id, role="assistant", content=full_content, model_id=resolved_model_id))
             await session.commit()
 
             yield f"data: {json.dumps({'type': 'done', 'full_content': full_content})}\n\n"

@@ -72,8 +72,8 @@ services:
         while ! curl -s http://ollama:11434/api/tags > /dev/null; do
           sleep 2
         done
-        echo "Ollama is ready! Pulling qwen3.5:4b model..."
-        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"qwen3.5:4b\"}"
+        echo "Ollama is ready! Pulling qwen3.5:9b model..."
+        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"qwen3.5:9b\"}"
         echo "Pulling nomic-embed-text model for embeddings..."
         curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"nomic-embed-text\"}"
         echo "Pull complete."

@@ -50,11 +50,20 @@ class SemanticSearcher:
             filter_dict=filter_dict
         )
 
+        from loguru import logger
+        logger.debug(f"Search results for query '{query}': {len(results)} hits found.")
+        for i, hit in enumerate(results):
+            source = hit.payload.get("metadata", {}).get("source", "unknown")
+            logger.debug(f"Hit {i}: score={hit.score:.4f}, source={source}")
+
         return [
             {
                 "text": hit.payload["text"],
                 "score": float(hit.score),
-                "metadata": hit.payload["metadata"],  
+                "metadata": {
+                    **hit.payload.get("metadata", {}),
+                    "source": hit.payload.get("metadata", {}).get("source", "documento")
+                },
             }
             for hit in results
         ]

@@ -1,262 +1,244 @@
-# Technical Report - Scalable Document Analysis System
+﻿# IA Industrial Backend (Edge AI + RAG)
 
-## 1. System Architecture
+Backend para analisis industrial con agente LLM, RAG para documentos y base para edge AI. El objetivo es operar en tiempo real con datos vivos (hot path) y mantener conocimiento historico con adapters LoRA por empresa/fuente/periodo (cold path), sin depender de RAG pesado para datos numericos.
 
-### 1.1 High-Level Architecture
-The system follows a **Microservices Event-Driven Architecture** designed for scalability and fault tolerance.
+## Estado actual (codigo)
+
+### Componentes principales
+- **API**: FastAPI con endpoints de auth, usuarios, conversaciones, documentos, chat, prompts, modelos y admin.
+- **LLM**: LLMFactory con proveedores Ollama y OpenRouter.
+- **Agente**: DeepAgents + LangGraph con herramienta `ask_knowledge_agent` para RAG.
+- **Persistencia**:
+  - Postgres: usuarios, conversaciones, prompts, modelos y settings.
+  - Qdrant: embeddings de documentos.
+  - MinIO: archivos originales.
+  - Postgres (LangGraph): checkpointer y store.
+
+### Flujo actual de documentos (RAG)
+1. `POST /documents/upload` guarda el archivo en MinIO.
+2. `DocumentProcessor` carga el archivo, hace split y embeddings.
+3. Los embeddings se guardan en Qdrant con metadata.
+4. `ask_knowledge_agent` consulta Qdrant por `user_id` y `knowledge_base_id`.
+
+### Flujo actual de chat
+1. `POST /chat/chat` crea o reutiliza conversacion.
+2. `AgentService` resuelve modelo y parametros.
+3. DeepAgent llama a `ask_knowledge_agent` si hay Knowledge Base activa.
+4. Se persiste el mensaje en Postgres.
+
+### Docker (servicios actuales)
+- `minio`, `qdrant`, `postgres`, `ollama`, `api`.
+
+
+## Vision del sistema (real world)
+
+### Objetivo
+- **Hot path**: datos vivos en tiempo real con baja latencia.
+- **Cold path**: datos historicos consolidados con LoRA por empresa/fuente/periodo.
+- **RAG**: solo para documentos y texto, no para series numericas crudas.
+
+### Principios
+- **Escalable entre industrias**: por tipo de dato, no por industria.
+- **Adapters por fuente**: cada fuente se normaliza a un schema canonico.
+- **Adapters LoRA por periodo**: versionado semestral y rollback.
+- **Minimo de tokens**: pasar resúmenes compactos (features) al LLM.
+
+
+## TSDB (Time-Series Database)
+
+Los registros crudos de sensores deben guardarse en un **TSDB** (Time-Series DataBase). Esto permite:
+- Consultas por rango de tiempo de forma eficiente.
+- Agregaciones rapidas (semanales/mensuales) para el entrenamiento.
+- Escalabilidad para millones de registros.
+
+Ejemplos: TimescaleDB, InfluxDB.
+
+
+## Diseno propuesto (Roadmap)
+
+### 1) Data Adapters (por fuente)
+Normalizan cualquier fuente al schema canonico:
+```
+empresa, source_type, asset_id, timestamp, metrics, events
+```
+Ejemplo `source_type`: `manufactura_linea`, `maquinaria_pesada`, `energia`, `calidad`.
+
+### 2) Streaming -> Registros -> Ventanas
+- El streaming llega como registros crudos (time series).
+- Se almacenan como **registros** en el TSDB.
+- Cada ventana (5-30 min) genera **resúmenes compactos** para analisis.
+
+### 3) Feature Window Builder
+Convierte series numericas en resúmenes compactos:
+- Promedios, std, min, max, p95, tendencia
+- Eventos: `spike`, `drift_up`, `shutdown`, `out_of_range`
+
+### 4) Historical Compact Store (sin RAG pesado)
+Agregados por maquina/periodo:
+- Mensual o semanal
+- KPIs y conteos de eventos
+- Consultable con pocas filas
+
+### 5) LoRA por empresa/fuente/periodo
+Id sugerido:
+```
+{empresa}:{source_type}:{YYYY-H1/H2}
+```
+El adapter aprende patrones y estilo de analisis, no datos exactos.
+
+### 6) Adapter Registry + Router
+- Seleccion dinamica del adapter segun `empresa`, `source_type` y rango temporal.
+- Cache local en edge + descarga bajo demanda.
+- Canary y rollback.
+
+
+## Diagrama Hot Path (datos vivos)
 
 ```mermaid
 graph TD
-    Client[Client / Frontend] -->|HTTP/REST| API[FastAPI Gateway]
-    
-    subgraph "Core Services"
-        API -->|Upload| MinIO[MinIO Object Storage]
-        API -->|Search/RAG| Qdrant[Qdrant Vector Store]
-        API -->|Async Task| Redis[Redis Broker]
-        API -->|Agent| LangGraph[LangGraph Agent]
-    end
-    
-    subgraph "Agent Layer"
-        LangGraph -->|Retrieve| Qdrant
-        LangGraph -->|Finance| YFinance[yfinance API]
-        LangGraph -->|LLM| OpenRouter[OpenRouter/LLM]
-    end
-    
-    subgraph "Worker Layer"
-        Redis -->|Consume| Worker[Celery Worker]
-        Worker -->|Fetch Doc| MinIO
-        Worker -->|Store Embeddings| Qdrant
-    end
-    
-    subgraph "AI Services (Embedded in Worker)"
-        Worker -->|Extract| PDFLib[PDFPlumber]
-        Worker -->|NER/Classify| GLiNER[GLiNER Model]
-        Worker -->|Embed| HF[HuggingFace Embeddings]
-    end
+    Stream[Stream de sensores] -->|Registros crudos| TSDB[Store de series]
+    TSDB -->|Ventanas 5-30m| Window[Feature Window Builder]
+    Window --> Compact[Resumen compacto]
+    Compact --> LLM[LLM + Adapter activo]
+    LLM --> Resp[Respuesta al usuario]
 ```
 
-### 1.2 Docker Services Overview
-The system is composed of the following containerized services defined in `docker-compose.yml`:
+## Diagrama Cold Path (entrenamiento)
 
-| Service | Role | Description |
-| :--- | :--- | :--- |
-| **api** | Gateway | FastAPI application handling HTTP requests, validation, and task dispatching. |
-| **worker** | Processing | Celery worker that executes heavy background tasks (PDF parsing, AI inference). |
-| **redis** | Broker | Message broker for Celery task queues and result backend. |
-| **minio** | Storage | S3-compatible object storage for raw document files (PDF, DOCX). |
-| **qdrant** | Vector DB | Vector database for storing document embeddings and metadata for semantic search. |
-| **flower** | Monitoring | Web UI for monitoring Celery workers and task progress (Port 5555). |
-| **cadvisor** | Metrics | Google's cAdvisor for monitoring container resource usage (CPU/RAM). |
-
-### 1.3 Project Structure
-The codebase is organized to separate concerns and promote modularity:
-
-```
-aura-core-ai-test/
-├── app/                        # Core application source code
-│   ├── api/                    # API Layer
-│   │   ├── endpoints/          # Route handlers (documents, search, system)
-│   │   └── router.py           # Main API router configuration
-│   ├── agent/                  # Agentic AI Layer
-│   │   ├── finance/            # Finance Subgraph
-│   │   │   ├── graph.py        # Subgraph definition
-│   │   │   ├── nodes.py        # Subgraph nodes (LLM, Tools)
-│   │   │   └── state.py        # Subgraph state definition
-│   │   ├── nodes.py            # Main agent nodes
-│   │   ├── state.py            # Main agent state
-│   │   ├── tools.py            # Agent tools (RAG, Finance)
-│   │   └── workflow.py         # Main agent workflow definition
-│   ├── core/                   # Core infrastructure
-│   │   ├── config.py           # Environment configuration (Pydantic settings)
-│   │   └── vector_store.py     # Qdrant client wrapper
-│   ├── ingestion/              # Document Processing Pipeline
-│   │   ├── document_loader.py  # PDF/DOCX parsing logic
-│   │   ├── pipeline.py         # Main processing orchestration
-│   │   └── text_splitter.py    # Intelligent text chunking
-│   ├── models/                 # AI/ML Models
-│   │   └── ner.py              # GLiNER wrapper for NER and Classification
-│   ├── retrieval/              # Search & RAG Logic
-│   │   ├── rag.py              # RAG chain implementation
-│   │   └── searcher.py         # Semantic search logic
-│   ├── services/               # Business Logic Layer
-│   │   └── document_service.py # Coordinator for uploads and document management
-│   ├── storage/                # Storage Clients
-│   │   └── minio_client.py     # MinIO wrapper
-│   ├── main.py                 # FastAPI application entry point
-│   └── tasks.py                # Celery task definitions
-├── data/                       # Persistent data storage (mapped to Docker volumes)
-├── docs/                       # Project documentation
-├── test/                       # Unit and integration tests
-├── Dockerfile                  # Multi-stage Docker build definition
-├── docker-compose.yml          # Local development environment orchestration
-└── requirements.txt            # Python dependencies
+```mermaid
+graph TD
+    TSDB2[Store de series] -->|Periodo 6 meses| Prep[Preprocesamiento compacto]
+    Prep --> Dataset[Dataset LoRA]
+    Dataset --> Train[Entrenamiento LoRA]
+    Train --> Registry[Adapter Registry]
+    Registry --> Edge[Edge Cache + Ollama]
 ```
 
-### 1.4 Configuration
-The application relies on environment variables for configuration. A `.env` file must be present in the root directory for the system to function correctly. This file defines connection strings, credentials, and model parameters.
+## Diagrama Router (seleccion de adapters)
 
-**Required Environment Variables:**
-
-| Category | Variable | Description |
-| :--- | :--- | :--- |
-| **Qdrant** | `QDRANT_HOST` | Hostname of the Qdrant service (e.g., `qdrant`). |
-| | `QDRANT_PORT` | Port for Qdrant API (e.g., `6333`). |
-| | `QDRANT_COLLECTION` | Name of the vector collection. |
-| | `EMBEDDING_MODEL` | Name of the embedding model to use. |
-| **OpenRouter** | `OPENROUTER_API_KEY` | API Key for OpenRouter (LLM access). |
-| | `OPENROUTER_MODEL` | Model ID to use (e.g., `openai/gpt-4o`). |
-| **Celery** | `CELERY_BROKER_URL` | Redis connection string for the broker. |
-| | `CELERY_RESULT_BACKEND` | Redis connection string for results. |
-| **MinIO** | `MINIO_ENDPOINT` | Hostname/IP of the MinIO service. |
-| | `MINIO_ACCESS_KEY` | Access key (username) for MinIO. |
-| | `MINIO_SECRET_KEY` | Secret key (password) for MinIO. |
-| | `MINIO_BUCKET` | Name of the bucket to store documents. |
-| | `MINIO_SECURE` | Boolean (`true`/`false`) for SSL/TLS. |
-
-### 1.4.1 Example Configuration
-
-```bash
-# Qdrant
-QDRANT_HOST=qdrant
-QDRANT_PORT=6333
-QDRANT_COLLECTION=documents
-EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-
-# OpenRouter
-OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL=openai/gpt-4o
-
-# Celery
-CELERY_BROKER_URL=redis://redis:6379/0
-CELERY_RESULT_BACKEND=redis://redis:6379/0
-
-# MinIO
-MINIO_ENDPOINT=minio:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET=aura-docs
-MINIO_SECURE=false
+```mermaid
+graph TD
+    Q[Pregunta usuario] --> Detect[Detectar empresa/fuente/periodo]
+    Detect --> Cache{Adapter en cache?}
+    Cache -->|Si| Use[Usar adapter]
+    Cache -->|No| Pull[Descargar del registry]
+    Pull --> Create[Ollama create + Modelfile]
+    Create --> Use
+    Use --> LLM2[Responder]
 ```
 
-### 1.5 Sample Data
-The `data/samples` directory contains example files that can be used to test the system's ingestion and processing capabilities:
+## Diagrama CI/CD de Adapters
 
-- **`DatosFinancieros.pdf`**: A sample financial document to test table extraction and financial entity recognition.
-- **`contrato.pdf`**: A sample legal contract to test classification and entity extraction in a legal context.
-- **`DataPrueba.json`**: A JSON file containing sample data for testing purposes.
+```mermaid
+graph TD
+    Hist[Historico 6 meses] --> Prep2[Preprocesamiento y compactado]
+    Prep2 --> Train2[Entrenamiento LoRA]
+    Train2 --> Eval[Evaluacion y validacion]
+    Eval -->|OK| Registry2[Adapter Registry]
+    Registry2 --> Canary[Canary en edge]
+    Canary -->|OK| Rollout[Rollout completo]
+    Canary -->|Fail| Rollback[Rollback]
+    Rollout --> Monitor[Monitoreo y metricas]
+```
 
-## 2. API Endpoints
 
-The API is organized into three main modules:
+## Plan paso a paso (end-to-end)
 
-### 2.1 Documents (`/documents`)
-- **POST `/upload`**: Uploads a file (PDF/DOCX/JSON). It saves the file to MinIO and triggers an asynchronous processing task. Returns a `task_id`.
-- **GET `/status/{task_id}`**: Checks the progress of a processing task (e.g., "processing", "completed").
-- **GET `/documents/{doc_id}`**: Retrieves details of a processed document, including its classification, extracted entities, and metadata.
-- **DELETE `/documents/{doc_id}`**: Removes a document and its associated vector embeddings from the system.
+### A) Ingesta en vivo (hot path)
+1. **Ingesta streaming**: registros numericos llegan a un endpoint de stream.
+2. **TSDB**: se guardan como registros crudos (time series).
+3. **Ventanas**: cada 5-30 min se calculan features compactas.
+4. **Resumen**: el LLM recibe solo el resumen (no la serie cruda).
 
-### 2.2 Search & RAG (`/search`, `/chat`)
-- **GET `/search`**: Performs semantic search on the document collection. Supports filtering by:
-    - `q`: Query text.
-    - `entity_filter`: Filter by presence of specific entities (e.g., "money").
-    - `category_filter`: Filter by document type (e.g., "contract").
-- **POST `/chat`**: RAG (Retrieval-Augmented Generation) endpoint. Accepts a natural language question, retrieves relevant context from Qdrant, and generates an answer using the LLM (OpenRouter).
+### B) Entrenamiento semestral (cold path)
+1. **Seleccion de periodo**: ultimos 6 meses por empresa/fuente.
+2. **Preprocesamiento**: se compacta el historico en ventanas y eventos.
+3. **Dataset LoRA**: se generan pares (resumen + pregunta) -> (analisis).
+4. **Entrenamiento**: se entrena el adapter LoRA.
+5. **Registro**: se publica en el Adapter Registry.
 
-### 2.3 Finance Agent (Subgraph)
-The system includes a specialized **Finance Agent** integrated into the main LangGraph workflow.
+### C) Despliegue al edge
+1. **Descarga**: el edge obtiene el adapter segun necesidad.
+2. **Ollama**: se crea un modelo con `Modelfile` + `ADAPTER`.
+3. **Cache**: se guardan las ultimas N versiones.
+4. **Activacion**: router usa el adapter correcto.
 
-- **Functionality:**
-    - **Natural Language Processing:** Uses an LLM node to analyze user queries and extract stock ticker symbols (e.g., "AAPL" from "What is the price of Apple?").
-    - **Data Retrieval:** Fetches real-time stock market data (price, market cap, currency, etc.) using the `yfinance` library.
-    - **Integration:** Acts as a tool within the main agent, allowing the orchestrator to dynamically switch between document retrieval (RAG) and external financial data based on the user's intent.
 
-- **Technologies:**
-    - **LangGraph:** For orchestrating the stateful agent workflow and subgraphs.
-    - **yfinance:** For accessing open stock market data.
-    - **OpenRouter/OpenAI:** For the LLM reasoning capabilities.
+## Comportamiento del LLM (casos de uso)
 
-### 2.3 System (`/health`)
-- **GET `/health`**: Simple health check to verify the API is running and responsive.
+### Caso 1: Consulta reciente (< 6 meses)
+- Router detecta rango reciente.
+- Usa adapter activo del semestre actual.
+- LLM recibe resumen vivo de la ventana.
 
-## 3. Document Processing Pipeline
+### Caso 2: Consulta historica (> 6 meses)
+- Router detecta periodo historico.
+- Selecciona adapter del periodo (ej. 2024-H1).
+- Si no esta en cache, se descarga y se carga.
+- LLM recibe resumen historico compacto.
 
-The document processing flow is designed to be robust and asynchronous:
+### Caso 3: Documento + datos
+- `ask_knowledge_agent` consulta Qdrant.
+- En paralelo, se agrega resumen numerico.
+- LLM responde con ambos contextos.
 
-1.  **Ingestion (API):**
-    - User uploads a file via `POST /upload`.
-    - API saves the raw file to **MinIO**.
-    - API pushes a `process_document` task to **Redis**.
-    - API returns a `task_id` immediately (non-blocking).
 
-2.  **Processing (Worker):**
-    - **Celery Worker** picks up the task from Redis.
-    - **Download:** Worker downloads the file from MinIO to local temporary storage.
-    - **Loading:** `DocumentLoader` parses the file.
-        - *PDFs:* Uses `pdfplumber` to extract text and **tables** (converted to Markdown).
-    - **Classification:** The full text is passed to **GLiNER** to classify the document type (e.g., "invoice", "contract").
-    - **Splitting:** `HierarchicalSplitter` chunks the text, respecting document headers/sections.
-    - **Enrichment (NER):** Each chunk is processed by **GLiNER** to extract entities (Persons, Dates, Money, etc.).
-    - **Embedding:** Chunks are converted to vectors using **HuggingFace Embeddings**.
-    - **Indexing:** Vectors + Metadata (Entities, Category, Source) are upserted to **Qdrant**.
+## Actualizacion de modelos con Ollama (practico)
 
-3.  **Completion:**
-    - Worker updates task status to "SUCCESS".
-    - Temporary files are cleaned up.
+### Modelo base
+- Ollama mantiene el **modelo base** (ej. `qwen3.5:9b`).
+- Actualizacion tipica:
+```
+ollama pull qwen3.5:9b
+```
 
-## 4. Model Selection Justification
+### Adapters LoRA
+- Los LoRA se generan en el core y se publican en un **Model Registry**.
+- El edge descarga el adapter correcto y lo activa segun el router.
+- Mantener ultimas 3-4 versiones por fuente/periodo.
 
-### 4.1 Named Entity Recognition (NER) & Classification
-**Selected Model:** `fastino/gliner2-base-v1` (GLiNER)
+> Nota: el codigo actual no carga LoRA aun. Esto entra en el roadmap.
 
-**Justification:**
-- **Zero-Shot Capabilities:** Unlike traditional BERT-based NER models that require training on specific labels, GLiNER allows us to define arbitrary entity types (e.g., "financial_metric", "fiscal_period") at runtime without retraining.
-- **Performance/Size Balance:** The "base" version offers an excellent trade-off between inference speed and accuracy, suitable for CPU inference in cost-effective workers.
-- **Unified Architecture:** We use the same model instance for both Entity Extraction and Document Classification, reducing memory footprint.
 
-### 4.2 Embeddings
-**Selected Model:** `sentence-transformers/all-MiniLM-L6-v2`
+## Buenas practicas (hot path + cold path)
 
-**Justification:**
-- **Efficiency:** This is a lightweight model optimized for speed and low memory usage, making it ideal for local execution in a containerized environment.
-- **Flexibility:** The system is designed to be model-agnostic; other HuggingFace models can be easily swapped in by updating the configuration if higher accuracy or different language support is needed.
-- **Local Execution:** Runs entirely locally, ensuring data privacy and zero latency from external API calls.
-- **Compatibility:** Fully compatible with Qdrant's cosine distance metric.
+### Hot path (tiempo real)
+- Nunca pasar series crudas al LLM.
+- Generar resúmenes de ventana (features) y eventos.
+- Enviar al LLM solo el contexto minimo.
 
-## 5. Scalability & Performance
+### Cold path (historico)
+- Usar agregados compactos (no RAG pesado).
+- El adapter LoRA aporta patrones y razonamiento.
+- Para datos exactos: agregar resumen historico en pocas filas.
 
-### 5.1 Horizontal Scaling
-- **Stateless API:** The FastAPI layer is stateless. We can scale it horizontally (add more replicas) behind a Load Balancer to handle increased HTTP traffic.
-- **Decoupled Workers:** The heavy lifting (PDF parsing, Inference) happens in Celery workers. We can scale the number of worker containers independently based on queue depth (Redis) and CPU utilization.
+### Versionado
+- Semestral (H1/H2) o rolling.
+- Canary antes de produccion.
+- Registro de performance por planta/linea.
 
-### 5.2 Database Scaling
-- **Qdrant:** Supports distributed deployment with sharding. As the vector index grows, we can add more Qdrant nodes.
-- **MinIO/S3:** Object storage is inherently scalable for massive amounts of document data.
 
-## 6. Deployment & CI/CD (AWS EC2 + Terraform)
-The project includes an automated deployment pipeline to an AWS EC2 instance using **Terraform** and **GitHub Actions**.
+## API (resumen)
+- `POST /auth/login`
+- `POST /auth/register`
+- `GET /users/me`
+- `POST /documents/upload`
+- `GET /documents/{doc_id}`
+- `POST /chat/chat`
+- `POST /chat/chat/stream`
+- `GET /knowledge/*`
+- `GET /admin/*`
 
-### 6.1 Prerequisites
-1. **AWS Account** with an IAM User that has programmatic access (Access Key & Secret).
-2. **GitHub Repository** (this code pushed to GitHub).
 
-### 6.2 GitHub Secrets
-You must configure the following Secrets in your GitHub Repository (`Settings > Secrets and variables > Actions`):
+## Configuracion
+Requiere `.env` con:
+- `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `EMBEDDING_MODEL`
+- `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`
+- `POSTGRES_*`
+- `SECRET_KEY`
+- `OLLAMA_BASE_URL`, `OPENROUTER_*`
 
-| Secret Name | Description |
-| :--- | :--- |
-| `AWS_ACCESS_KEY_ID` | Your AWS IAM User Access Key |
-| `AWS_SECRET_ACCESS_KEY` | Your AWS IAM User Secret Key |
-| `SSH_PRIVATE_KEY` | Private SSH Key (RSA/Ed25519) to access the EC2 instance |
-| `SSH_PUBLIC_KEY` | Public SSH Key (paired with the private key) injected by Terraform |
-| `OPENROUTER_API_KEY` | (Optional) Your OpenRouter API Key for the RAG agent |
-| `GEMINI_API_KEY` | (Optional) Your Gemini API Key for the Extractor agent |
 
-*Note: You can generate an SSH key pair locally using `ssh-keygen -t ed25519 -C "deploy@aura" -f ./deploy_key_ec2`.*
-
-### 6.3 Deployment Pipeline
-The pipeline (`.github/workflows/deploy.yml`) has two jobs:
-1. **`test`**: Runs on any Pull Request or Push to `main`. Validates dependencies using `uv`.
-2. **`deploy`**: Runs **only** on a Push/Merge to `main`. 
-   - Uses Terraform (`terraform/` folder) to provision an AWS EC2 `t3.medium` instance and configure a Security Group (ports 22, 8000, 5555).
-   - Copies the repository to the EC2 via SCP.
-   - SSHs into the instance, injects the basic `.env` file, and runs `docker compose up -d --build`.
+## Nota importante
+Este README refleja el estado real del codigo y el roadmap acordado para edge AI.
+El pipeline asinc con Celery/Redis y el NER avanzado no estan activos en el codigo actual.

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.persistence.db import get_session
 from app.domain.schemas.tool_config import ToolConfigCreate, ToolConfigRead, ToolConfigUpdate
 from app.domain.services.tool_config_service import ToolConfigService
+from app.domain.services.mcp_service import MCPService
 from app.domain.exceptions import NotFoundError
 
 router = APIRouter()
@@ -68,3 +69,17 @@ async def delete_tool(
     if not success:
         raise HTTPException(status_code=404, detail="Tool not found")
     return {"status": "success"}
+
+
+@router.get("/mcp/discover")
+async def discover_mcp_tools(
+    url: str,
+    is_stdio: bool = False,
+    is_resource: bool = False,
+):
+    """Dynamically discover tools from an MCP server."""
+    service = MCPService()
+    try:
+        return await service.discover_tools(url, is_stdio=is_stdio, is_resource=is_resource)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

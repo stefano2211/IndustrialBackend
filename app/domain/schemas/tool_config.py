@@ -1,5 +1,9 @@
-from sqlmodel import SQLModel, Field
-from typing import Optional, Dict, Any
+from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional, Dict, Any, TYPE_CHECKING
+import uuid
+
+if TYPE_CHECKING:
+    from app.domain.schemas.mcp_source import MCPSource
 from sqlalchemy import Column, JSON
 
 class ToolConfigBase(SQLModel):
@@ -11,9 +15,13 @@ class ToolConfigBase(SQLModel):
     auth_config: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
     system_prompt: str
     parameter_schema: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
+    config: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
+    source_id: Optional[uuid.UUID] = Field(default=None, foreign_key="mcpsource.id", index=True)
 
 class ToolConfig(ToolConfigBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    
+    source: Optional["MCPSource"] = Relationship(back_populates="tools")
 
 class ToolConfigCreate(ToolConfigBase):
     pass
@@ -25,6 +33,7 @@ class ToolConfigUpdate(SQLModel):
     method: Optional[str] = None
     headers: Optional[Dict[str, Any]] = None
     auth_config: Optional[Dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None
     system_prompt: Optional[str] = None
     parameter_schema: Optional[Dict[str, Any]] = None
 

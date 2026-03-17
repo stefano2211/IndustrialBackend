@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
     query: str
     thread_id: Optional[str] = None
     knowledge_base_id: Optional[str] = None
+    mcp_source_id: Optional[str] = None
     model_id: Optional[str] = None
     params: Optional[ModelParams] = None
 

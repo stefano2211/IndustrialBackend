@@ -11,6 +11,7 @@ Add new sub-agents here without modifying the agent factory (Open-Closed).
 """
 
 from app.domain.agent.tools.knowledge_tool import ask_knowledge_agent
+from app.domain.agent.tools.mcp_tool import call_dynamic_mcp
 
 
 KNOWLEDGE_SUBAGENT = {
@@ -46,7 +47,28 @@ GENERAL_SUBAGENT = {
     "tools": [],
 }
 
+MCP_SUBAGENT = {
+    "name": "mcp-orchestrator",
+    "description": (
+        "Specialized in real-time data retrieval from industrial sensors, "
+        "PLCs, Scada systems, and external APIs. Use this for ANY request "
+        "asking for current metrics, history of points, or device status."
+    ),
+    "system_prompt": (
+        "You are an Industrial Data Orchestrator. Your mission is to "
+        "connect to various MCP sources to retrieve real-time figures. "
+        "When a user asks for 'metrics', 'status', or 'values', identify "
+        "the correct tool name from your descriptions and call `call_dynamic_mcp`. "
+        "\n\n**AVAILABLE DYNAMIC TOOLS:**\n"
+        "{dynamic_tools_context}"
+        "\n\nAlways present data normalized: Key Figures for numbers, "
+        "Key Values for states. If multiple sources are needed, aggregate "
+        "the results before responding."
+    ),
+    "tools": [call_dynamic_mcp],
+}
+
 
 def get_all_subagents() -> list[dict]:
     """Returns the list of all configured sub-agents."""
-    return [KNOWLEDGE_SUBAGENT, GENERAL_SUBAGENT]
+    return [KNOWLEDGE_SUBAGENT, MCP_SUBAGENT, GENERAL_SUBAGENT]

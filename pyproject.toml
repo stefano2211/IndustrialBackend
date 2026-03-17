@@ -33,6 +33,9 @@ dependencies = [
     "email-validator",
     "deepagents",
     "langchain-openai",
+    "mcp",
+    "langchain-mcp-adapters",
+    "httpx",
 ]
 
 [tool.uv]

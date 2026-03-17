@@ -10,6 +10,8 @@ Encapsulates the logic of:
 This isolates the chat endpoint from agent internals (Dependency Inversion).
 """
 
+import uuid
+from typing import Any, AsyncGenerator, Dict, Optional, List
 from langchain_core.messages import HumanMessage, SystemMessage
 from deepagents.backends.utils import create_file_data
 from loguru import logger
@@ -65,13 +67,14 @@ class AgentService:
         user_id: str,
         thread_id: str,
         query: str,
-        knowledge_base_id: str | None,
-        session,
+        knowledge_base_id: str | None = None,
+        mcp_source_id: str | None = None,
+        session: Any = None,
         checkpointer=None,
         store=None,
         params=None,
         model_id: str | None = None,
-    ) -> str:
+    ) -> tuple[str, str]:
         """
         Invoke the Deep Agent and return the assistant's response text.
         """
@@ -129,11 +132,35 @@ class AgentService:
             from types import SimpleNamespace
             params = SimpleNamespace(system_prompt=db_model.system_prompt)
 
-        # 2. Build agent
+        # 2. Build agent with dynamic tools context
+        from app.persistence.repositories.tool_config_repository import ToolConfigRepository
+        tool_repo = ToolConfigRepository(session)
+        
+        # Filter by source_id if provided
+        if mcp_source_id == "none":
+             all_tools = []
+        elif mcp_source_id:
+             # Fetch tools for specific source (implicitly verified by source_id lookups usually, 
+             # but here we should ideally double check ownership if we were strict)
+             all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id))
+        else:
+             # Default: Use all tools OWNED by the user
+             all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
+        
+        dynamic_tools_list = []
+        import json
+        for t in all_tools:
+            # Include name, description, and schema to guide the agent dynamically
+            schema_str = json.dumps(t.parameter_schema) if t.parameter_schema else "{}"
+            dynamic_tools_list.append(f"- Name: {t.name}\n  Description: {t.description}\n  Parameters schema: {schema_str}")
+        
+        tools_context = "\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
+        
         custom_prompt = db_model.system_prompt if db_model else None
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
-            custom_system_prompt=custom_prompt
+            custom_system_prompt=custom_prompt,
+            mcp_tools_context=tools_context
         )
 
         # 3. Invoke with config
@@ -168,8 +195,9 @@ class AgentService:
         user_id: str,
         thread_id: str,
         query: str,
-        knowledge_base_id: str | None,
-        session,
+        knowledge_base_id: str | None = None,
+        mcp_source_id: str | None = None,
+        session: Any = None,
         checkpointer=None,
         store=None,
         params=None,
@@ -232,10 +260,32 @@ class AgentService:
             from types import SimpleNamespace
             params = SimpleNamespace(system_prompt=db_model.system_prompt)
 
+        # 2. Build agent with dynamic tools context
+        from app.persistence.repositories.tool_config_repository import ToolConfigRepository
+        tool_repo = ToolConfigRepository(session)
+        
+        # Filter by source_id if provided
+        if mcp_source_id == "none":
+             all_tools = []
+        elif mcp_source_id:
+             all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id))
+        else:
+             all_tools = await tool_repo.get_all()
+        
+        dynamic_tools_list = []
+        import json
+        for t in all_tools:
+            # Include name, description, and schema to guide the agent dynamically
+            schema_str = json.dumps(t.parameter_schema) if t.parameter_schema else "{}"
+            dynamic_tools_list.append(f"- Name: {t.name}\n  Description: {t.description}\n  Parameters schema: {schema_str}")
+        
+        tools_context = "\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
+        
         custom_prompt = db_model.system_prompt if db_model else None
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
-            custom_system_prompt=custom_prompt
+            custom_system_prompt=custom_prompt,
+            mcp_tools_context=tools_context
         )
 
         config = {

@@ -30,7 +30,7 @@ class LLMProvider(str, Enum):
 def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
     # Set a larger context window (num_ctx) to avoid truncation (default is usually 4k)
     if "num_ctx" not in kwargs:
-        kwargs["num_ctx"] = 16384
+        kwargs["num_ctx"] = 50000 # Increased to 128k
     
     # Map max_tokens to num_predict for ChatOllama
     if "max_tokens" in kwargs:
@@ -39,11 +39,13 @@ def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] 
         else:
             kwargs.pop("max_tokens")
         
+    streaming = kwargs.pop("streaming", True)
+    
     return ChatOllama(
         base_url=base_url or settings.ollama_base_url,
         model=model_name or "qwen3.5:9b",
         temperature=temperature,
-        streaming=True,
+        streaming=streaming,
         **kwargs,
     )
 
@@ -51,7 +53,7 @@ def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] 
 def _create_openrouter(model_name: str, temperature: float, api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
     # Set a reasonable default max_tokens to avoid OpenRouter credit check failures (402)
     if "max_tokens" not in kwargs or kwargs["max_tokens"] is None:
-        kwargs["max_tokens"] = 4096
+        kwargs["max_tokens"] = 2048 # Reduced from 4096
         
     # OpenRouter/OpenAI-client compatibility: remove parameters not supported by ChatOpenAI
     # top_k is common in Ollama but not in OpenAI standard completions API
@@ -64,12 +66,14 @@ def _create_openrouter(model_name: str, temperature: float, api_key: Optional[st
     if top_k is not None:
         extra_body["top_k"] = top_k
 
+    streaming = kwargs.pop("streaming", True)
+
     return ChatOpenAI(
         openai_api_key=api_key or settings.openrouter_api_key,
-        openai_api_base=base_url or settings.openrouter_base_url,
+        openai_api_base=base_url or settings.openrouter_api_base_url if hasattr(settings, 'openrouter_api_base_url') else (base_url or settings.openrouter_base_url),
         model=model_name or "openai/gpt-4o",
         temperature=temperature,
-        streaming=True,
+        streaming=streaming,
         default_headers={
             "HTTP-Referer": "https://industrial-backend.ai",
             "X-Title": "Industrial Backend",
@@ -109,6 +113,9 @@ class LLMFactory:
         session: Optional[AsyncSession] = None,
         **kwargs,
     ) -> Any:
+        # Gracefully handle callers passing 'model' instead of 'model_name'
+        model_from_kwargs = kwargs.pop("model", None)
+        model_name = model_name or model_from_kwargs
         # 1. Try DB config first (optional, matches role if provided)
         if session and role and not (provider and model_name):
             db_config = await LLMFactory.get_db_config(session, role)

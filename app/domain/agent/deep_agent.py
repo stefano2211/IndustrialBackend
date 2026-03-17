@@ -18,9 +18,16 @@ from app.domain.agent.subagents import get_all_subagents
 from app.domain.agent.middleware import get_all_middleware
 from app.domain.agent.memory import create_composite_backend
 from app.domain.agent.tools.knowledge_tool import ask_knowledge_agent
+from app.domain.agent.tools.mcp_tool import call_dynamic_mcp
 
 
-def create_industrial_agent(model=None, checkpointer=None, store=None, custom_system_prompt: str = None):
+def create_industrial_agent(
+    model=None, 
+    checkpointer=None, 
+    store=None, 
+    custom_system_prompt: str = None,
+    mcp_tools_context: str = "No dynamic tools currently registered."
+):
     """
     Creates a Deep Agent configured for Industrial Safety & Compliance.
 
@@ -29,19 +36,32 @@ def create_industrial_agent(model=None, checkpointer=None, store=None, custom_sy
         checkpointer: LangGraph checkpointer for conversation persistence.
         store: LangGraph store for long-term memory.
         custom_system_prompt: Optional custom instructions to append to the base prompt.
+        mcp_tools_context: A string-formatted list of dynamic tools and their descriptions.
 
     Returns:
         A compiled LangGraph graph (Deep Agent).
     """
-    full_prompt = INDUSTRIAL_SYSTEM_PROMPT
+    full_prompt = INDUSTRIAL_SYSTEM_PROMPT.format(
+        dynamic_tools_context=mcp_tools_context
+    )
     if custom_system_prompt:
         full_prompt += f"\n\n## ADICIONAL USER INSTRUCTIONS:\n{custom_system_prompt}"
 
+    # Prepare sub-agents with dynamic context
+    subagents = []
+    for sa in get_all_subagents():
+        sa_copy = sa.copy()
+        if sa_copy["name"] == "mcp-orchestrator":
+            sa_copy["system_prompt"] = sa_copy["system_prompt"].format(
+                dynamic_tools_context=mcp_tools_context
+            )
+        subagents.append(sa_copy)
+
     return create_deep_agent(
         model=model,
-        tools=[ask_knowledge_agent],
+        tools=[ask_knowledge_agent, call_dynamic_mcp],
         system_prompt=full_prompt,
-        subagents=get_all_subagents(),
+        subagents=subagents,
         backend=create_composite_backend,
         middleware=get_all_middleware(),
         memory=["/AGENTS.md"],

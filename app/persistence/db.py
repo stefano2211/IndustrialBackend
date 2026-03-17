@@ -13,6 +13,7 @@ from app.domain.schemas.knowledge import KnowledgeBase, KnowledgeDocument  # noq
 from app.domain.schemas.prompt import Prompt  # noqa: F401
 from app.domain.schemas.llm_config import LLMConfig  # noqa: F401
 from app.domain.schemas.model import Model  # noqa: F401
+from app.domain.schemas.mcp_source import MCPSource  # noqa: F401
 
 DATABASE_URL = (
     f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}"

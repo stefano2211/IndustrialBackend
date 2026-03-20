@@ -42,7 +42,6 @@ class DocumentProcessor:
         self.splitter = splitter or HierarchicalSplitter()
         self.embedder = embedder or Embedder()
         self.vector_store = vector_store or QdrantManager()
-        self.vector_store = vector_store or QdrantManager()
 
     async def process_file(
         self,
@@ -79,30 +78,27 @@ class DocumentProcessor:
         doc_category = "document" # Default category since we removed classification
         logger.info(f"Document category set to default: {doc_category}")
 
-        # 3. Split
-        # The original code used self.splitter.split_documents(docs)
-        # The new snippet introduces RecursiveCharacterTextSplitter.
-        # Let's use the new splitter with dynamic chunk sizes.
+        # 3. Split — Two-stage: Hierarchical (section detection) → Recursive (size enforcement)
+        # Stage 1: the HierarchicalSplitter adds section metadata to each chunk
+        hierarchical_chunks = self.splitter.split_documents(docs)
+
+        # Stage 2: enforce chunk_size limits using RecursiveCharacterTextSplitter
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             length_function=len,
         )
-        # Assuming the splitter takes the full_text and returns Document objects
-        # or we need to convert the original docs to text for this splitter.
-        # For consistency with the new splitter, let's split the full_text.
-        # We'll need to re-add metadata to these new chunks.
-        split_texts = text_splitter.create_documents([full_text])
+        split_chunks = text_splitter.split_documents(hierarchical_chunks)
         chunks = []
-        for i, split_doc in enumerate(split_texts):
-            # Re-apply original document metadata and add chunk-specific metadata
+        for i, split_doc in enumerate(split_chunks):
             new_metadata = {
                 "doc_id": doc_id,
                 "user_id": user_id,
                 "chunk_index": i,
                 "knowledge_base_id": knowledge_base_id,
-                "doc_category": doc_category, # Add category here for early access
-                **docs[0].metadata # Inherit other metadata from the first original doc
+                "doc_category": doc_category,
+                "section": split_doc.metadata.get("section", "No section"),
+                **{k: v for k, v in split_doc.metadata.items() if k not in ("doc_id", "user_id", "chunk_index", "knowledge_base_id", "doc_category")},
             }
             chunks.append(Document(page_content=split_doc.page_content, metadata=new_metadata))
 

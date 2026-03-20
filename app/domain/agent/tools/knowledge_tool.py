@@ -70,10 +70,15 @@ async def ask_knowledge_agent(
     formatted_docs = []
     for res in results:
         source = res["metadata"].get("source", "unknown")
+        section = res["metadata"].get("section", "")
         text = res["text"]
         score = res["score"]
+        section_str = f" › {section}" if section and section != "No section" else ""
+        # Trim excessively long chunks to save tokens (max ~800 chars)
+        if len(text) > 800:
+            text = text[:800] + "…"
         formatted_docs.append(
-            f"--- Documento: {source} (score: {score:.2f}) ---\n{text}\n"
+            f"--- [{source}{section_str}] (relevancia: {score:.0%}) ---\n{text}\n"
         )
 
     if not formatted_docs:

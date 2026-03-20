@@ -69,14 +69,13 @@ async def delete_source(
 @router.get("/{source_id}/discover")
 async def discover_source_tools(
     source_id: uuid.UUID,
+    method: str = "GET",
     current_user: User = Depends(deps.get_current_user),
     service: MCPSourceService = Depends(get_source_service),
 ):
     source = await service.get_by_id(source_id=source_id, user_id=current_user.id)
     mcp_service = MCPService()
     try:
-        # For now, we reuse the discovery logic with the source's URL
-        # We assume for now it's not stdio since it's a URL-based source
-        return await mcp_service.discover_tools(source.url, is_stdio=(source.type == "stdio"))
+        return await mcp_service.discover_tools(source.url, is_stdio=(source.type == "stdio"), method=method)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

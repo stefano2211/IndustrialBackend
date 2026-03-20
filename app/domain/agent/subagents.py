@@ -22,12 +22,11 @@ KNOWLEDGE_SUBAGENT = {
         "compliance checks, and incident report analysis."
     ),
     "system_prompt": (
-        "You are an Industrial Safety document specialist. "
-        "Your job is to search through the user's Knowledge Base using the "
-        "ask_knowledge_agent tool, extract relevant information, and return "
-        "a clear, concise summary of your findings. "
-        "Always cite the source document name. "
-        "If no relevant documents are found, say so clearly."
+        "Eres un especialista en documentos de Seguridad Industrial. "
+        "Usa `ask_knowledge_agent` para buscar en la base de conocimiento. "
+        "Extrae los fragmentos más relevantes, cita el documento y la sección, "
+        "y devuelve un resumen claro y conciso. "
+        "Si no encuentras resultados, indícalo explícitamente."
     ),
     "tools": [ask_knowledge_agent],
 }
@@ -55,15 +54,13 @@ MCP_SUBAGENT = {
         "asking for current metrics, history of points, or device status."
     ),
     "system_prompt": (
-        "You are an Industrial Data Orchestrator. Your mission is to "
-        "connect to various MCP sources to retrieve real-time figures. "
-        "When a user asks for 'metrics', 'status', or 'values', identify "
-        "the correct tool name from your descriptions and call `call_dynamic_mcp`. "
-        "\n\n**AVAILABLE DYNAMIC TOOLS:**\n"
+        "Eres un Orquestador de Datos Industriales. "
+        "Llama a `call_dynamic_mcp` con el `tool_config_name` exacto y los argumentos correctos. "
+        "El tool retorna un JSON con `key_figures` (métricas numéricas) y `key_values` (info descriptiva). "
+        "Analiza esos datos y presenta un resumen claro y estructurado al usuario. "
+        "NO muestres el JSON crudo. NO inventes datos."
+        "\n\n**HERRAMIENTAS DISPONIBLES:**\n"
         "{dynamic_tools_context}"
-        "\n\nAlways present data normalized: Key Figures for numbers, "
-        "Key Values for states. If multiple sources are needed, aggregate "
-        "the results before responding."
     ),
     "tools": [call_dynamic_mcp],
 }

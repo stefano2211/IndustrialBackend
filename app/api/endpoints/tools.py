@@ -76,10 +76,11 @@ async def discover_mcp_tools(
     url: str,
     is_stdio: bool = False,
     is_resource: bool = False,
+    method: str = "GET",
 ):
-    """Dynamically discover tools from an MCP server."""
+    """Dynamically discover tools from an MCP server or REST API endpoint."""
     service = MCPService()
     try:
-        return await service.discover_tools(url, is_stdio=is_stdio, is_resource=is_resource)
+        return await service.discover_tools(url, is_stdio=is_stdio, is_resource=is_resource, method=method)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

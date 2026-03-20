@@ -10,6 +10,8 @@ Encapsulates the logic of:
 This isolates the chat endpoint from agent internals (Dependency Inversion).
 """
 
+import json
+import re
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional, List
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -52,6 +54,83 @@ class AgentService:
                 if val is not None:
                     extracted[attr] = val
         return extracted
+
+    @staticmethod
+    def _build_tool_context(t) -> str:
+        """
+        Build a rich, structured context block for a single ToolConfig so the LLM
+        knows exactly how to invoke it via call_dynamic_mcp.
+
+        Extracts:
+          - HTTP method and full URL pattern
+          - Path parameters (from {param} in the URL)
+          - Query / body parameters from parameter_schema
+          - Response field hints from parameter_schema["response"]
+        """
+        config_data: dict = t.config or {}
+
+        # ── URL & Method ────────────────────────────────────────────────────
+        effective_url = config_data.get("url") or t.api_url or "(unknown url)"
+        effective_method = (config_data.get("method") or t.method or "GET").upper()
+        transport = config_data.get("transport", "rest")
+
+        # ── Path parameters (from {curly_braces} in the URL) ────────────────
+        path_params: list[str] = re.findall(r'\{(.*?)\}', effective_url)
+
+        # ── Parameter schema breakdown ───────────────────────────────────────
+        schema: dict = t.parameter_schema or {}
+        properties: dict = schema.get("properties", {})
+        required_fields: list = schema.get("required", [])
+        response_fields: dict = schema.get("response", {})  # optional hint
+
+        lines = [
+            f"━━━ TOOL: {t.name} ━━━",
+            f"  Description : {t.description}",
+            f"  Transport   : {transport.upper()}",
+            f"  Method      : {effective_method}",
+            f"  URL pattern : {effective_url}",
+        ]
+
+        # ── Path params summary ──────────────────────────────────────────────
+        if path_params:
+            lines.append(f"  Path params : {', '.join(path_params)}  ← required, embedded in the URL")
+
+        # ── Input parameters ─────────────────────────────────────────────────
+        if properties:
+            lines.append("  Parameters:")
+            for param_name, param_def in properties.items():
+                p_type = param_def.get("type", "any")
+                p_desc = param_def.get("description", "")
+                p_enum = param_def.get("enum")
+                p_default = param_def.get("default")
+                is_required = param_name in required_fields or param_name in path_params
+                req_tag = "[required]" if is_required else "[optional]"
+                enum_hint = f"  choices: {p_enum}" if p_enum else ""
+                default_hint = f"  default: {p_default}" if p_default is not None else ""
+                lines.append(
+                    f"    - {param_name} ({p_type}) {req_tag}: {p_desc}{enum_hint}{default_hint}"
+                )
+        elif path_params:
+            # Fallback when schema is empty but path params exist
+            lines.append("  Parameters:")
+            for pp in path_params:
+                lines.append(f"    - {pp} (string) [required]: Path parameter for the URL")
+        else:
+            placement = "body" if effective_method in ("POST", "PUT", "PATCH") else "query string"
+            lines.append(f"  Parameters  : none — send an empty dict {{}} as arguments ({placement})")
+
+        # ── Response hints ───────────────────────────────────────────────────
+        if response_fields:
+            lines.append("  Expected response fields:")
+            for field, field_def in response_fields.items():
+                f_type = field_def.get("type", "any") if isinstance(field_def, dict) else str(field_def)
+                f_unit = field_def.get("unit", "") if isinstance(field_def, dict) else ""
+                f_desc = field_def.get("description", "") if isinstance(field_def, dict) else ""
+                unit_str = f" [{f_unit}]" if f_unit else ""
+                desc_str = f" — {f_desc}" if f_desc else ""
+                lines.append(f"    - {field} ({f_type}){unit_str}{desc_str}")
+
+        return "\n".join(lines)
 
     def _build_messages(self, query: str, params=None):
         """Build the messages list, optionally prepending a system prompt."""
@@ -147,14 +226,10 @@ class AgentService:
              # Default: Use all tools OWNED by the user
              all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
         
-        dynamic_tools_list = []
-        import json
-        for t in all_tools:
-            # Include name, description, and schema to guide the agent dynamically
-            schema_str = json.dumps(t.parameter_schema) if t.parameter_schema else "{}"
-            dynamic_tools_list.append(f"- Name: {t.name}\n  Description: {t.description}\n  Parameters schema: {schema_str}")
-        
-        tools_context = "\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
+        dynamic_tools_list = [
+            self._build_tool_context(t) for t in all_tools
+        ]
+        tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
         custom_prompt = db_model.system_prompt if db_model else None
         agent = create_industrial_agent(
@@ -272,14 +347,10 @@ class AgentService:
         else:
              all_tools = await tool_repo.get_all()
         
-        dynamic_tools_list = []
-        import json
-        for t in all_tools:
-            # Include name, description, and schema to guide the agent dynamically
-            schema_str = json.dumps(t.parameter_schema) if t.parameter_schema else "{}"
-            dynamic_tools_list.append(f"- Name: {t.name}\n  Description: {t.description}\n  Parameters schema: {schema_str}")
-        
-        tools_context = "\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
+        dynamic_tools_list = [
+            self._build_tool_context(t) for t in all_tools
+        ]
+        tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
         custom_prompt = db_model.system_prompt if db_model else None
         agent = create_industrial_agent(
@@ -298,6 +369,9 @@ class AgentService:
         }
 
         any_token_yielded = False
+        # Track which model turns had tool_calls so we can suppress their text in fallback
+        last_output_had_tool_calls = False
+
         async for event in agent.astream_events(
             {
                 "messages": self._build_messages(query, params),
@@ -307,49 +381,50 @@ class AgentService:
             version="v2",
         ):
             kind = event.get("event", "")
-            
+
+            # Reset per-model-turn counters when a new LLM call starts
             if kind == "on_chat_model_start":
                 any_token_yielded = False
+                last_output_had_tool_calls = False
 
+            # --- Primary: stream tokens as they arrive ---
             if kind in ["on_chat_model_stream", "on_llm_stream"]:
                 data = event.get("data", {})
                 chunk = data.get("chunk")
-                
+
                 text = ""
-                if hasattr(chunk, "content"): text = chunk.content
-                elif hasattr(chunk, "text"): text = chunk.text
-                elif isinstance(chunk, dict): text = chunk.get("content", "")
-                
+                if hasattr(chunk, "content"):
+                    text = chunk.content
+                elif hasattr(chunk, "text"):
+                    text = chunk.text
+                elif isinstance(chunk, dict):
+                    text = chunk.get("content", "")
+
                 if text:
                     any_token_yielded = True
                     yield text
                 continue
 
+            # --- Fallback: emit content if Ollama returned it without streaming ---
             if kind == "on_chat_model_end":
-                # If this turn finished and yielded no tokens (e.g. filtered, tool call preamble omitted),
-                # we check if there's content we should send.
                 data = event.get("data", {})
                 output = data.get("output")
                 if output:
-                    text = ""
-                    if hasattr(output, "content"): text = output.content
-                    elif hasattr(output, "text"): text = output.text
-                    
-                    # If it's a tool call turn, we usually don't want to yield the tool arguments as text 
-                    # unless they are part of a thought process. For now, we yield visible content.
-                    if text and not (hasattr(output, "tool_calls") and output.tool_calls and not text):
-                        # Yield the full content as a fallback if no tokens were streamed
-                        yield text
-
-            # Robust fallback for token extraction from chunks
-            chunk = event.get("data", {}).get("chunk")
-            if chunk and kind not in ["on_chat_model_end"]: # avoided repeated content
-                text = ""
-                if hasattr(chunk, "content"): text = chunk.content
-                elif hasattr(chunk, "text"): text = chunk.text
-                if text:
-                    yield text
+                    # Track whether this turn requested a tool call
+                    last_output_had_tool_calls = bool(
+                        hasattr(output, "tool_calls") and output.tool_calls
+                    )
+                    # Only emit via fallback if (a) no tokens were streamed AND (b) it's NOT a pure tool call turn
+                    if not any_token_yielded and not last_output_had_tool_calls:
+                        text = ""
+                        if hasattr(output, "content"):
+                            text = output.content
+                        elif hasattr(output, "text"):
+                            text = output.text
+                        if text:
+                            yield text
 
         # Yield metadata about the resolved model at the end
         resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))
         yield {"model_id": resolved_model_id}
+

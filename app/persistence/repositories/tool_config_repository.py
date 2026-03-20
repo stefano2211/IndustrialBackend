@@ -10,12 +10,16 @@ class ToolConfigRepository:
 
     async def get_all_by_user(self, user_id: uuid.UUID) -> List[ToolConfig]:
         from app.domain.schemas.mcp_source import MCPSource
-        statement = select(ToolConfig).join(MCPSource).where(MCPSource.user_id == user_id)
+        statement = select(ToolConfig).join(MCPSource).where(
+            MCPSource.user_id == user_id,
+            MCPSource.is_enabled == True
+        )
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
     async def get_all(self) -> List[ToolConfig]:
-        statement = select(ToolConfig)
+        from app.domain.schemas.mcp_source import MCPSource
+        statement = select(ToolConfig).join(MCPSource).where(MCPSource.is_enabled == True)
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 

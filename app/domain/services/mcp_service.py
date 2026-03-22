@@ -13,24 +13,212 @@ from app.core.llm import LLMFactory
 class MCPService:
     """
     Service for dynamic MCP tool discovery and execution.
-    Implements the 'Zero-Config' pattern.
+    Implements the 'Zero-Config' pattern with intelligent pre-filtering.
     """
 
     def __init__(self):
         pass
 
+    # -------------------------------------------------------------------------
+    # Schema extraction: discover filterable fields from a list of records
+    # -------------------------------------------------------------------------
+
+    def _extract_filterable_schema(self, data: list) -> dict:
+        """
+        Scans a list of records and returns:
+          {
+            "key_figures": ["field1", ...],            # numeric fields
+            "key_values": {"field": ["v1","v2"], ...}  # categorical fields + all unique values
+          }
+        This schema is injected into the agent's tool context so the LLM knows
+        EXACTLY which fields and values it can use as filters.
+        """
+        figures: set = set()
+        values: dict = {}
+
+        def _scan(record: dict, prefix: str = ""):
+            for key, val in record.items():
+                full_key = f"{prefix}{key}" if prefix else key
+                if isinstance(val, dict):
+                    _scan(val, f"{full_key}.")
+                elif isinstance(val, list):
+                    if val and isinstance(val[0], dict):
+                        _scan(val[0], f"{full_key}[].")
+                    elif val and all(isinstance(v, str) for v in val):
+                        existing = values.setdefault(full_key, set())
+                        existing.update(val)
+                elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                    figures.add(full_key)
+                elif isinstance(val, str) and val:
+                    existing = values.setdefault(full_key, set())
+                    existing.add(val)
+
+        for record in data:
+            if isinstance(record, dict):
+                _scan(record)
+
+        return {
+            "key_figures": sorted(figures),
+            "key_values": {k: sorted(v) for k, v in values.items() if v},
+        }
+
+    # -------------------------------------------------------------------------
+    # Filter application: pure Python, no LLM, applied before mapping
+    # -------------------------------------------------------------------------
+
+    def _get_nested_value(self, record: dict, key: str):
+        """Retrieve a value from a dot-notated nested path (supports [] notation)."""
+        keys = key.replace("[]", "").split(".")
+        current = record
+        for k in keys:
+            if isinstance(current, list):
+                current = current[0] if current else None
+            if isinstance(current, dict):
+                current = current.get(k)
+            else:
+                return None
+        return current
+
+    def _apply_filters(
+        self,
+        data: list,
+        key_values_filter: Optional[Dict[str, List[str]]] = None,
+        key_figures_filter: Optional[List[Dict]] = None,
+    ) -> list:
+        """
+        Applies categorical and numeric range filters to a list of records BEFORE
+        mapping to key_figures / key_values.
+
+        Args:
+            data: list of raw records from the API
+            key_values_filter: {"FieldName": ["v1", "v2"]} — keep records where
+                               record[FieldName] is in the list (case-insensitive)
+            key_figures_filter: [{"field": "FieldName", "min": X, "max": Y}] — keep
+                               records where the numeric value is within [min, max]
+
+        Returns:
+            Filtered list. If no filters provided, returns data unchanged.
+        """
+        if not data:
+            return data
+
+        # Normalise: remove empty / None filters
+        kv_filters = {k: [str(v).lower() for v in vs] for k, vs in (key_values_filter or {}).items() if vs}
+        kf_filters = [f for f in (key_figures_filter or []) if f.get("field")]
+
+        if not kv_filters and not kf_filters:
+            return data
+
+        filtered = []
+        for record in data:
+            match = True
+
+            # Categorical filters
+            for field, allowed_values in kv_filters.items():
+                val = self._get_nested_value(record, field)
+                if val is None:
+                    match = False
+                    break
+                val_str = str(val).lower()
+                if val_str not in allowed_values:
+                    match = False
+                    break
+
+            if not match:
+                continue
+
+            # Numeric range filters
+            for flt in kf_filters:
+                field = flt["field"]
+                val = self._get_nested_value(record, field)
+                if val is None or not isinstance(val, (int, float)):
+                    match = False
+                    break
+                min_val = flt.get("min")
+                max_val = flt.get("max")
+                if min_val is not None and val < min_val:
+                    match = False
+                    break
+                if max_val is not None and val > max_val:
+                    match = False
+                    break
+
+            if match:
+                filtered.append(record)
+
+        logger.info(
+            f"[MCP Service] Filters applied: {len(data)} → {len(filtered)} records "
+            f"(kv_filters={list(kv_filters.keys())}, "
+            f"kf_filters={[f['field'] for f in kf_filters]})"
+        )
+        return filtered
+
+    # -------------------------------------------------------------------------
+    # Response mapping
+    # -------------------------------------------------------------------------
+
     async def _auto_map_response(self, source: str, data: Any, schema_hints: dict = None) -> MCPResponse:
         """
-        Maps a JSON payload to KeyFigures and KeyValues using pure deterministic logic.
-        1. Recursively maps all scalar fields from the raw JSON.
-        2. If schema_hints are provided (from parameter_schema.response), filters to only relevant fields.
+        Maps a JSON payload to KeyFigures and KeyValues.
+        Handles both single-dict and list-of-dicts responses correctly.
         """
         response = MCPResponse(source=source)
+
+        # --- Normalise lists of objects into a single merged dict for mapping ---
+        if isinstance(data, list):
+            if not data:
+                response.key_values.append(KeyValue(name="raw_data", value="[]"))
+                return response
+
+            if all(isinstance(item, dict) for item in data):
+                # Aggregate all records: collect all numeric values and all string values
+                figures_acc: Dict[str, List[float]] = {}
+                values_acc: Dict[str, set] = {}
+
+                def _scan_record(record: dict, prefix: str = "", depth: int = 0):
+                    for key, val in record.items():
+                        name = f"{prefix}{key}" if prefix else key
+                        if isinstance(val, (int, float)) and not isinstance(val, bool):
+                            figures_acc.setdefault(name, []).append(float(val))
+                        elif isinstance(val, dict) and depth < 3:
+                            _scan_record(val, f"{name}.", depth + 1)
+                        elif isinstance(val, list) and val:
+                            if isinstance(val[0], dict) and depth < 2:
+                                _scan_record(val[0], f"{name}[].", depth + 1)
+                            elif all(isinstance(v, (str, int, float)) for v in val):
+                                values_acc.setdefault(name, set()).update(str(v) for v in val[:20])
+                        elif isinstance(val, str) and val:
+                            values_acc.setdefault(name, set()).add(val)
+
+                for item in data:
+                    _scan_record(item)
+
+                # Emit key_figures: one entry per field with the aggregated values summary
+                for field_name, nums in figures_acc.items():
+                    # If all values are identical, emit a single value; otherwise emit range
+                    if len(set(nums)) == 1:
+                        response.key_figures.append(KeyFigure(name=field_name, value=nums[0]))
+                    else:
+                        # Emit min / max as separate entries so LLM can reason about ranges
+                        response.key_figures.append(KeyFigure(name=f"{field_name}.min", value=min(nums)))
+                        response.key_figures.append(KeyFigure(name=f"{field_name}.max", value=max(nums)))
+
+                # Emit key_values: unique values per categorical field
+                for field_name, vals in values_acc.items():
+                    sorted_vals = sorted(vals)[:20]
+                    response.key_values.append(KeyValue(name=field_name, value=", ".join(sorted_vals)))
+
+                return response
+            else:
+                # List of scalars
+                response.key_values.append(KeyValue(name="items", value=", ".join(str(v) for v in data[:20])))
+                return response
 
         if not isinstance(data, dict):
             response.key_values.append(KeyValue(name="raw_data", value=str(data)))
             return response
 
+        # --- Single dict ---
         def process_dict(d: dict, prefix: str = "", depth: int = 0):
             for key, val in d.items():
                 name = f"{prefix}{key}" if prefix else key
@@ -41,17 +229,14 @@ class MCPService:
                 elif isinstance(val, list):
                     if len(val) > 0:
                         if isinstance(val[0], (str, int, float)):
-                            # Simple list → join first 15 items
                             response.key_values.append(
                                 KeyValue(name=name, value=", ".join(map(str, val[:15])))
                             )
                         elif isinstance(val[0], dict) and depth < 2:
-                            # List of objects → extract the most useful string value
                             flat = []
                             for item in val[:15]:
                                 if not isinstance(item, dict):
                                     continue
-                                # Prefer 'name', then first string/number value
                                 candidate = item.get("name")
                                 if candidate is None:
                                     for v in item.values():
@@ -62,13 +247,11 @@ class MCPService:
                                     flat.append(str(candidate))
                             if flat:
                                 response.key_values.append(KeyValue(name=name, value=", ".join(flat)))
-
                 elif val is not None and not isinstance(val, bool):
                     response.key_values.append(KeyValue(name=name, value=str(val)))
 
         process_dict(data)
 
-        # Apply schema-based filter if hints are available
         if schema_hints:
             response = self._filter_response(response, schema_hints)
 
@@ -84,12 +267,9 @@ class MCPService:
         if not schema_hints:
             return response
 
-        # Build a set of normalized hint names for matching
         hint_keys = {k.lower().replace("_", "").replace(" ", "") for k in schema_hints.keys()}
 
         def _matches_hint(name: str) -> bool:
-            # Normalize: remove dots, underscores, spaces, lowercase
-            # Also match against any segment of a dotted path (e.g., "damage_relations.double_damage_to")
             parts = name.lower().replace(" ", "").replace("_", "").split(".")
             return any(p in hint_keys or any(h in p for h in hint_keys) for p in parts)
 
@@ -97,7 +277,6 @@ class MCPService:
         filtered.key_figures = [kf for kf in response.key_figures if _matches_hint(kf.name)]
         filtered.key_values = [kv for kv in response.key_values if _matches_hint(kv.name)]
 
-        # Fallback: if filter was too strict and returned nothing, return the top-N unfiltered
         if not filtered.key_figures and not filtered.key_values:
             logger.info(f"[MCP Service] Schema filter removed everything for {response.source}, using top-20 unfiltered.")
             filtered.key_figures = response.key_figures[:10]
@@ -105,53 +284,65 @@ class MCPService:
 
         return filtered
 
+    # -------------------------------------------------------------------------
+    # Tool execution
+    # -------------------------------------------------------------------------
+
     async def execute_tool(
-        self, 
-        base_url: str, 
-        tool_name: str, 
+        self,
+        base_url: str,
+        tool_name: str,
         arguments: Dict[str, Any],
         is_stdio: bool = False,
         transport_type: str = "mcp",
         method: str = "GET",
         schema_hints: Optional[dict] = None,
+        key_values_filter: Optional[Dict[str, List[str]]] = None,
+        key_figures_filter: Optional[List[Dict]] = None,
     ) -> MCPResponse:
         """
         Dynamically connects to an MCP server, calls a tool, and maps the result.
-        schema_hints: Optional dict from parameter_schema["response"] to filter
-                      irrelevant fields before returning to the orchestrator.
+        
+        Args:
+            key_values_filter: Categorical pre-filter {"Field": ["val1", "val2"]}
+            key_figures_filter: Numeric range pre-filter [{"field": "F", "min": X, "max": Y}]
         """
         logger.info(f"[MCP Service] Executing tool '{tool_name}' ({transport_type}) on {base_url} using {method}")
-        
+
         try:
             if transport_type == "rest":
-                # Universal REST Bridge execution
                 async with httpx.AsyncClient() as client:
                     method = method.upper()
                     target_url = base_url
-                    
-                    # 1. URL Parameter Substitution
+
+                    # URL Parameter Substitution
                     url_params = re.findall(r'\{(.*?)\}', target_url)
                     remaining_args = arguments.copy()
-                    
+
                     for p in url_params:
                         if p in remaining_args:
                             val = str(remaining_args.pop(p))
                             target_url = target_url.replace(f"{{{p}}}", val)
                         else:
                             logger.warning(f"[MCP Service] Missing URL parameter '{p}' for {base_url}")
-                    
+
                     logger.info(f"[MCP Service] Final target URL: {target_url}")
 
                     if method == "GET":
                         response = await client.get(target_url, params=remaining_args, timeout=30.0)
                     else:
                         response = await client.request(method, target_url, json=remaining_args, timeout=30.0)
-                    
+
                     response.raise_for_status()
-                    return await self._auto_map_response(tool_name, response.json(), schema_hints=schema_hints)
+                    raw_data = response.json()
+
+                    # ── Pre-filter BEFORE mapping ──────────────────────────────
+                    if isinstance(raw_data, list) and (key_values_filter or key_figures_filter):
+                        raw_data = self._apply_filters(raw_data, key_values_filter, key_figures_filter)
+
+                    return await self._auto_map_response(tool_name, raw_data, schema_hints=schema_hints)
 
             if is_stdio:
-                # Local stdio transport
                 server_params = StdioServerParameters(command="python", args=[base_url])
                 async with stdio_client(server_params) as (read, write):
                     async with ClientSession(read, write) as session:
@@ -159,21 +350,24 @@ class MCPService:
                         result = await session.call_tool(tool_name, arguments)
                         return await self._auto_map_response(tool_name, result.content)
             else:
-                # Remote SSE transport
                 async with sse_client(base_url) as (read, write):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         result = await session.call_tool(tool_name, arguments)
-                        # We extract text content and try to parse it as JSON if it looks like it
                         content = result.content[0].text if result.content else "{}"
                         try:
                             data = json.loads(content)
-                        except:
+                        except Exception:
                             data = {"text": content}
                         return await self._auto_map_response(tool_name, data)
+
         except Exception as e:
             logger.error(f"[MCP Service] Execution failed: {str(e)}")
             return MCPResponse(source=tool_name, error=str(e))
+
+    # -------------------------------------------------------------------------
+    # Tool discovery
+    # -------------------------------------------------------------------------
 
     async def discover_tools(self, base_url: str, is_stdio: bool = False, is_resource: bool = False, method: str = "GET") -> List[Dict[str, Any]]:
         """
@@ -182,14 +376,12 @@ class MCPService:
         """
         method = method.upper()
 
-        # 1. Proactive Handshake for HTTP(S) URLs
         if not is_stdio and "://" in base_url:
             try:
                 async with httpx.AsyncClient() as client:
-                    # We do a GET to see what kind of server it is
                     resp = await client.get(base_url, timeout=10.0)
                     content_type = resp.headers.get("content-type", "").lower()
-                    
+
                     if "text/event-stream" not in content_type:
                         logger.info(f"[MCP Service] URL {base_url} is {content_type}, fallback to AI REST Bridge (method={method}).")
                         try:
@@ -200,7 +392,6 @@ class MCPService:
             except Exception as e:
                 logger.warning(f"[MCP Service] Proactive network check failed for {base_url}: {str(e)}")
 
-        # 2. Native MCP Trace
         try:
             if is_stdio:
                 server_params = StdioServerParameters(command="python", args=[base_url])
@@ -225,63 +416,76 @@ class MCPService:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"[MCP Service] Discovery fatal error: {error_msg}")
-            
+
             if not is_stdio and ("connection" in error_msg.lower() or "timeout" in error_msg.lower()):
                 try:
                     return await self._discover_rest_bridge(base_url, is_resource=is_resource, method=method)
                 except Exception as bridge_err:
                     error_msg = f"Fallo total (MCP y Bridge): {str(bridge_err)}"
-            
+
             raise Exception(error_msg)
 
     async def _discover_rest_bridge(self, url: str, initial_response: Optional[httpx.Response] = None, is_resource: bool = False, method: str = "GET") -> List[Dict[str, Any]]:
         """
-        Smart tool discovery for REST APIs:
-        1. Regex detects path parameters from {curly_braces} in the URL.
-        2. LLM analyzes the URL + sample response and returns structured JSON with:
-             - A human-readable description of the endpoint
-             - Parameter definitions (type, description, example) for each path/query param
-             - Response field hints (type, unit, description) extracted from the sample data
-        3. The final tool definition is assembled deterministically from LLM output.
+        Smart tool discovery for REST APIs.
+        Now also fetches a sample response to extract a filterable schema
+        (key_figures + key_values) that is injected into the tool's parameter_schema.
         """
         try:
-            # 1. Path parameter extraction (always deterministic)
             path_params: list[str] = re.findall(r'\{(.*?)\}', url)
 
-            # 2. Fetch a sample response for context
+            # Fetch sample response for context + schema extraction
             sample_data = ""
+            raw_sample = None
             if initial_response and initial_response.status_code < 400:
                 sample_data = initial_response.text[:1500]
+                try:
+                    raw_sample = initial_response.json()
+                except Exception:
+                    pass
             else:
                 async with httpx.AsyncClient() as client:
                     fetch_url = re.sub(r'\{.*?\}', 'example', url)
                     try:
                         resp = await client.get(fetch_url, timeout=10.0)
                         sample_data = resp.text[:1000]
+                        try:
+                            raw_sample = resp.json()
+                        except Exception:
+                            pass
                     except Exception as fe:
                         sample_data = f"(fetch failed: {fe})"
 
-            # 3. Build resource name deterministically from URL path
+            # Extract filterable schema from the sample data
+            filterable_schema = {}
+            if isinstance(raw_sample, list) and raw_sample:
+                filterable_schema = self._extract_filterable_schema(raw_sample)
+                logger.info(
+                    f"[MCP Service] Extracted filterable schema: "
+                    f"{len(filterable_schema.get('key_figures', []))} key_figures, "
+                    f"{len(filterable_schema.get('key_values', {}))} key_values"
+                )
+            elif isinstance(raw_sample, dict):
+                filterable_schema = self._extract_filterable_schema([raw_sample])
+
+            # Build resource name deterministically
             parts = [p for p in url.split('/') if p and not p.startswith('http') and '{' not in p]
             resource_name = parts[-1] if parts else "resource"
-            # Prefix tool name by method so GET /users and POST /users are distinct
             method_prefix = {"GET": "get", "POST": "create", "PUT": "update", "PATCH": "patch", "DELETE": "delete"}
             tool_name = f"{method_prefix.get(method, 'call')}_{resource_name}"
 
-            # 4. Ask the LLM to analyse the endpoint and return structured JSON
+            # Ask the LLM to analyse the endpoint
             from app.core.llm import LLMProvider
             llm = await LLMFactory.get_llm(
                 provider=LLMProvider.OLLAMA,
                 temperature=0,
-                max_tokens=512,
+                max_tokens=1024,
             )
 
             path_params_hint = (
                 f"The URL has these path parameters (already detected): {path_params}"
                 if path_params else "The URL has no path parameters."
             )
-
-            # Body vs query params hint for the LLM
             param_placement = "JSON request body" if method in ("POST", "PUT", "PATCH") else "URL query string"
 
             analysis_prompt = f"""You are an API analyst. Analyze the following REST endpoint and respond with a valid JSON object ONLY (no markdown, no explanation, no extra text).
@@ -325,20 +529,23 @@ Rules:
             try:
                 res = await llm.ainvoke(analysis_prompt)
                 raw = res.content.strip()
+                # Strip <think>...</think> tags emitted by reasoning models (Qwen, DeepSeek, etc.)
+                raw = re.sub(r'<think>.*?</think>', '', raw, flags=re.DOTALL).strip()
                 # Strip accidental markdown fences
                 raw = re.sub(r'^```(?:json)?\s*', '', raw, flags=re.MULTILINE)
                 raw = re.sub(r'```\s*$', '', raw, flags=re.MULTILINE).strip()
-                llm_result = json.loads(raw)
-                logger.info(f"[MCP Service] LLM analysis succeeded for {url}")
+                if raw:
+                    llm_result = json.loads(raw)
+                    logger.info(f"[MCP Service] LLM analysis succeeded for {url}")
+                else:
+                    logger.warning(f"[MCP Service] LLM returned empty content after stripping think tags")
             except Exception as llm_err:
                 logger.warning(f"[MCP Service] LLM analysis failed, using deterministic fallback: {llm_err}")
 
-            # 5. Build the final parameter_schema from LLM output (with deterministic fallback)
             description = (llm_result or {}).get("description") or f"Access to endpoint {url}"
             llm_params: dict = (llm_result or {}).get("params", {})
             llm_response: dict = (llm_result or {}).get("response_fields", {})
 
-            # Merge: LLM params + any path params the LLM missed
             properties: dict = {}
             for pp in path_params:
                 if pp in llm_params:
@@ -349,8 +556,6 @@ Rules:
                         "description": f"Path parameter '{pp}' embedded in the URL",
                         "example": pp,
                     }
-
-            # Add any extra query params from LLM that aren't path params
             for pname, pdef in llm_params.items():
                 if pname not in properties:
                     properties[pname] = pdef
@@ -360,6 +565,8 @@ Rules:
                 "properties": properties,
                 "required": path_params,
                 "response": llm_response,
+                # ── New: embed real filterable schema for prompt injection ──
+                "filterable_schema": filterable_schema,
             }
 
             tool_def = {
@@ -382,7 +589,6 @@ Rules:
 
         except Exception as e:
             logger.error(f"[MCP Service] Smart Discovery failed for {url}: {e}")
-            # Hard fallback — bare minimum so the tool isn't lost
             try:
                 pp = re.findall(r'\{(.*?)\}', url)
                 return [{
@@ -398,6 +604,7 @@ Rules:
                         "properties": {p: {"type": "string", "description": f"Parameter {p}"} for p in pp},
                         "required": pp,
                         "response": {},
+                        "filterable_schema": {},
                     },
                     "config": {"transport": "rest", "url": url, "method": method},
                 }]

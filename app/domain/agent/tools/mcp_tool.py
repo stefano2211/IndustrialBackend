@@ -26,37 +26,64 @@ async def call_dynamic_mcp(
     """
     Call any registered MCP tool or API endpoint dynamically.
     Use this to get real-time data, sensor readings, or perform external actions.
+
     Input:
-        - tool_config_name: The name of the tool as registered in the system (e.g., 'plant-sensor-api').
+        - tool_config_name: The name of the tool as registered in the system (e.g., 'get_maquinaria').
         - arguments: A dictionary of parameters for the call (filters, IDs, etc.).
+
+    SMART FILTERING — you can include these optional keys in 'arguments' to reduce
+    the data returned to only what the user needs (saves tokens and improves accuracy):
+
+        key_values  : Filter by categorical field values.
+                      Format: {"FieldName": ["value1", "value2"]}
+                      Example: {"Category": ["Thermal"]} — returns only thermal equipment.
+                      Example: {"Status": ["Maintenance_Req"]} — equipment needing maintenance.
+
+        key_figures : Filter by numeric field ranges.
+                      Format: [{"field": "FieldName", "min": X, "max": Y}]
+                      Example: [{"field": "Value", "min": 1000}] — values above 1000.
+                      Example: [{"field": "Value", "min": 0, "max": 50}] — values in 0-50 range.
+
+    Rules:
+        - If the user asks for ALL data, omit key_values and key_figures entirely.
+        - If the user specifies a category, status, or name → use key_values.
+        - If the user specifies a numeric threshold or range → use key_figures.
+        - You can combine both filters in a single call.
+        - The available fields for filtering will be listed in each tool's context under
+          'Filterable fields'. Always use field names exactly as listed there.
+
     Returns structured JSON with key_figures (metrics) and key_values (info).
-    The orchestrator uses this data to compose the final answer.
     """
     logger.info(f"[MCP Tool] Calling dynamic tool: {tool_config_name} with args: {arguments}")
-    
+
     async with async_session_factory() as session:
         repo = ToolConfigRepository(session)
         tool_config = await repo.get_by_name(tool_config_name)
-        
+
         if not tool_config:
             return json.dumps({"error": f"Tool configuration '{tool_config_name}' not found."})
 
         mcp_service = _get_mcp_service()
-        
-        # Determine transport type and execution parameters
+
         config_data = tool_config.config or {}
-        
-        # Priority: explicit config["url"] > tool_config.api_url
         execution_url = config_data.get("url") or tool_config.api_url
         transport_type = config_data.get("transport", "mcp")
         method = config_data.get("method") or tool_config.method or "GET"
-        
-        # Extract schema hints for deterministic response filtering
+
         parameter_schema = tool_config.parameter_schema or {}
         schema_hints = parameter_schema.get("response") or {}
 
-        # --- ROBUST URL RESOLUTION ---
-        # If the execution_url is relative, we join it with the base source URL
+        # ── Extract smart filters from arguments (pop before sending to API) ──
+        clean_arguments = arguments.copy()
+        key_values_filter = clean_arguments.pop("key_values", None)
+        key_figures_filter = clean_arguments.pop("key_figures", None)
+
+        if key_values_filter:
+            logger.info(f"[MCP Tool] Applying key_values filter: {key_values_filter}")
+        if key_figures_filter:
+            logger.info(f"[MCP Tool] Applying key_figures filter: {key_figures_filter}")
+
+        # ── Robust URL resolution ──────────────────────────────────────────────
         if execution_url and "://" not in execution_url:
             source = await session.get(MCPSource, tool_config.source_id)
             if source and source.url:
@@ -65,36 +92,35 @@ async def call_dynamic_mcp(
                 execution_url = f"{base_url}/{path}"
                 logger.info(f"[MCP Tool] Resolved relative URL to: {execution_url}")
 
-        # Normalize double slashes in path (e.g. https://host//path → https://host/path)
         if execution_url and "://" in execution_url:
             scheme, rest = execution_url.split("://", 1)
             while "//" in rest:
                 rest = rest.replace("//", "/")
             execution_url = f"{scheme}://{rest}"
 
-        # Heuristic: Detect if transport type is 'mcp' but it's clearly a REST API (like PokeAPI)
+        # Heuristic: Detect REST transport
         if transport_type == "mcp" and execution_url and "://" in execution_url:
             if any(domain in execution_url for domain in ["pokeapi.co", "api.", "/api/"]):
                 logger.info(f"[MCP Tool] Heuristic detected REST transport for {execution_url}")
                 transport_type = "rest"
 
         logger.info(f"[MCP Tool] Executing {tool_config_name} via {transport_type} at {execution_url}")
-        
+
         response = await mcp_service.execute_tool(
             base_url=execution_url,
             tool_name=tool_config_name,
-            arguments=arguments,
+            arguments=clean_arguments,
             is_stdio=(transport_type == "stdio"),
             transport_type=transport_type,
             method=method,
             schema_hints=schema_hints or None,
+            key_values_filter=key_values_filter,
+            key_figures_filter=key_figures_filter,
         )
 
         if response.error:
             return json.dumps({"error": f"Error from {tool_config_name}: {response.error}"})
 
-        # --- Return structured JSON to the orchestrator ---
-        # The orchestrator (main LLM) is responsible for presenting this data to the user.
         result = {
             "source": response.source,
             "key_figures": [

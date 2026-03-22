@@ -66,6 +66,7 @@ class AgentService:
           - Path parameters (from {param} in the URL)
           - Query / body parameters from parameter_schema
           - Response field hints from parameter_schema["response"]
+          - Filterable fields from parameter_schema["filterable_schema"] (key_figures + key_values)
         """
         config_data: dict = t.config or {}
 
@@ -82,6 +83,7 @@ class AgentService:
         properties: dict = schema.get("properties", {})
         required_fields: list = schema.get("required", [])
         response_fields: dict = schema.get("response", {})  # optional hint
+        filterable_schema: dict = schema.get("filterable_schema", {})  # new: real discoverable fields
 
         lines = [
             f"━━━ TOOL: {t.name} ━━━",
@@ -130,7 +132,26 @@ class AgentService:
                 desc_str = f" — {f_desc}" if f_desc else ""
                 lines.append(f"    - {field} ({f_type}){unit_str}{desc_str}")
 
+        # ── Filterable fields (injected from discovered schema) ──────────────
+        kf_fields: list = filterable_schema.get("key_figures", [])
+        kv_fields: dict = filterable_schema.get("key_values", {})
+
+        if kf_fields or kv_fields:
+            lines.append("  Filterable fields (use in 'arguments' → key_values / key_figures):")
+            if kf_fields:
+                lines.append(f"    [NUMERIC]  — key_figures fields: {', '.join(kf_fields)}")
+                lines.append( "                 Usage: {\"key_figures\": [{\"field\": \"<name>\", \"min\": X, \"max\": Y}]}")
+            if kv_fields:
+                lines.append( "    [CATEGORICAL] — key_values fields and available values:")
+                for kv_field, kv_vals in kv_fields.items():
+                    # Limit to first 15 values to keep context compact
+                    vals_preview = kv_vals[:15]
+                    suffix = f" ...+{len(kv_vals) - 15} more" if len(kv_vals) > 15 else ""
+                    lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
+                lines.append( "                 Usage: {\"key_values\": {\"<field>\": [\"<value1>\", ...]}}")
+
         return "\n".join(lines)
+
 
     def _build_messages(self, query: str, params=None):
         """Build the messages list, optionally prepending a system prompt."""
@@ -235,7 +256,9 @@ class AgentService:
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
             custom_system_prompt=custom_prompt,
-            mcp_tools_context=tools_context
+            mcp_tools_context=tools_context,
+            enable_knowledge=(knowledge_base_id != "none"),
+            enable_mcp=(mcp_source_id != "none")
         )
 
         # 3. Invoke with config
@@ -356,7 +379,9 @@ class AgentService:
         agent = create_industrial_agent(
             model=llm, checkpointer=checkpointer, store=store,
             custom_system_prompt=custom_prompt,
-            mcp_tools_context=tools_context
+            mcp_tools_context=tools_context,
+            enable_knowledge=(knowledge_base_id != "none"),
+            enable_mcp=(mcp_source_id != "none")
         )
 
         config = {
@@ -368,9 +393,12 @@ class AgentService:
             }
         }
 
+        # State for filtering <think>...</think> tokens emitted by reasoning models (Qwen, DeepSeek r1, etc.)
         any_token_yielded = False
-        # Track which model turns had tool_calls so we can suppress their text in fallback
         last_output_had_tool_calls = False
+        inside_think_block = False
+        think_buffer = ""
+
 
         async for event in agent.astream_events(
             {
@@ -381,11 +409,14 @@ class AgentService:
             version="v2",
         ):
             kind = event.get("event", "")
+            name = event.get("name", "")
 
             # Reset per-model-turn counters when a new LLM call starts
             if kind == "on_chat_model_start":
                 any_token_yielded = False
                 last_output_had_tool_calls = False
+                inside_think_block = False
+                think_buffer = ""
 
             # --- Primary: stream tokens as they arrive ---
             if kind in ["on_chat_model_stream", "on_llm_stream"]:
@@ -400,13 +431,58 @@ class AgentService:
                 elif isinstance(chunk, dict):
                     text = chunk.get("content", "")
 
+
+
                 if text:
-                    any_token_yielded = True
-                    yield text
+                    # Filter out <think>...</think> blocks emitted by reasoning models
+                    think_buffer += text
+                    visible = ""
+                    while think_buffer:
+                        if inside_think_block:
+                            end_idx = think_buffer.find("</think>")
+                            if end_idx != -1:
+                                # Found end of think block
+                                think_buffer = think_buffer[end_idx + len("</think>"):]
+                                inside_think_block = False
+                            else:
+                                # Still inside think block. We can discard most of the buffer
+                                # to save memory, but keep the last 7 chars in case they are 
+                                # a partial "</think>" tag.
+                                if len(think_buffer) > 7:
+                                    think_buffer = think_buffer[-7:]
+                                break
+                        else:
+                            start_idx = think_buffer.find("<think>")
+                            if start_idx != -1:
+                                # Found think block start. Emit text before it.
+                                visible += think_buffer[:start_idx]
+                                think_buffer = think_buffer[start_idx + len("<think>"):]
+                                inside_think_block = True
+                            else:
+                                # No think block start found.
+                                # Emit everything EXCEPT the last 6 chars, which might be 
+                                # a partial "<think>" tag.
+                                if len(think_buffer) > 6:
+                                    visible += think_buffer[:-6]
+                                    think_buffer = think_buffer[-6:]
+                                break
+
+                    if visible:
+                        any_token_yielded = True
+                        yield visible
+                    # Note: if only think-content was processed (no visible text),
+                    # we do NOT set any_token_yielded so the on_chat_model_end fallback can still fire.
+
                 continue
 
             # --- Fallback: emit content if Ollama returned it without streaming ---
             if kind == "on_chat_model_end":
+                if not inside_think_block and think_buffer:
+                    yield think_buffer
+                    any_token_yielded = True
+                think_buffer = ""
+                inside_think_block = False
+
                 data = event.get("data", {})
                 output = data.get("output")
                 if output:
@@ -414,15 +490,25 @@ class AgentService:
                     last_output_had_tool_calls = bool(
                         hasattr(output, "tool_calls") and output.tool_calls
                     )
+                    raw_content = getattr(output, "content", None) or getattr(output, "text", "")
                     # Only emit via fallback if (a) no tokens were streamed AND (b) it's NOT a pure tool call turn
                     if not any_token_yielded and not last_output_had_tool_calls:
-                        text = ""
-                        if hasattr(output, "content"):
-                            text = output.content
-                        elif hasattr(output, "text"):
-                            text = output.text
+                        text = raw_content or ""
+                        if text:
+                            import re as _re
+                            # Try to strip think blocks
+                            text_stripped = _re.sub(r'<think>.*?</think>', '', text, flags=_re.DOTALL).strip()
+                            
+                            if not text_stripped and text.strip():
+                                # The model ONLY returned a think block! It forgot to write the actual answer.
+                                # Therefore, yield the contents of the think block minus the tags.
+                                text = _re.sub(r'</?think>', '', text).strip()
+                            else:
+                                text = text_stripped
+
                         if text:
                             yield text
+
 
         # Yield metadata about the resolved model at the end
         resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))

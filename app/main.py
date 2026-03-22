@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 # Suppress Pydantic UserWarning about typing.NotRequired from external libraries
 warnings.filterwarnings("ignore", category=UserWarning, message=".*typing.NotRequired is not a Python type.*")
@@ -18,9 +19,23 @@ from app.api.router import api_router
 from app.persistence.db import init_db
 from app.persistence.memoryAI.checkpointer import get_checkpointer, close_pool
 from app.persistence.memoryAI.store import get_store
+from app.core.llm import LLMFactory, LLMProvider
 
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+async def _warmup_ollama():
+    """Pre-load the LLM model into VRAM during app startup.
+    This eliminates the cold-start delay (~15s) on the first user request.
+    """
+    try:
+        logger.info("🔥 [Warmup] Pre-loading LLM model into VRAM...")
+        llm = await LLMFactory.get_llm(provider=LLMProvider.OLLAMA)
+        await llm.ainvoke("warmup")
+        logger.info("✅ [Warmup] LLM model loaded and ready.")
+    except Exception as e:
+        logger.warning(f"⚠️ [Warmup] Could not pre-load LLM (non-fatal): {e}")
 
 
 @asynccontextmanager
@@ -33,6 +48,8 @@ async def lifespan(app: FastAPI):
 
     app.state.checkpointer = checkpointer
     app.state.store = store
+
+    await _warmup_ollama()
 
     yield
 

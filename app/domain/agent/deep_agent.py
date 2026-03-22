@@ -26,7 +26,9 @@ def create_industrial_agent(
     checkpointer=None, 
     store=None, 
     custom_system_prompt: str = None,
-    mcp_tools_context: str = "No dynamic tools currently registered."
+    mcp_tools_context: str = "No dynamic tools currently registered.",
+    enable_knowledge: bool = True,
+    enable_mcp: bool = True
 ):
     """
     Creates a Deep Agent configured for Industrial Safety & Compliance.
@@ -49,17 +51,31 @@ def create_industrial_agent(
 
     # Prepare sub-agents with dynamic context
     subagents = []
+    active_tools = []
+    
     for sa in get_all_subagents():
         sa_copy = sa.copy()
+        
+        # Filter Knowledge Subagent
+        if sa_copy["name"] == "knowledge-researcher":
+            if not enable_knowledge:
+                continue
+            active_tools.append(ask_knowledge_agent)
+            
+        # Filter MCP Subagent
         if sa_copy["name"] == "mcp-orchestrator":
+            if not enable_mcp:
+                continue
             sa_copy["system_prompt"] = sa_copy["system_prompt"].format(
                 dynamic_tools_context=mcp_tools_context
             )
+            active_tools.append(call_dynamic_mcp)
+            
         subagents.append(sa_copy)
 
     return create_deep_agent(
         model=model,
-        tools=[ask_knowledge_agent, call_dynamic_mcp],
+        tools=active_tools,
         system_prompt=full_prompt,
         subagents=subagents,
         backend=create_composite_backend,

@@ -152,6 +152,62 @@ class AgentService:
 
         return "\n".join(lines)
 
+    def _interpolate_variables(self, text: str, tools: List) -> str:
+        """
+        Parses `{{tool_name.property}}` variables in the text and replaces them 
+        with stringified values from the tool's parameter_schema.
+        """
+        if not text or "{{" not in text:
+            return text
+
+        def replacer(match):
+            var_path = match.group(1).strip()
+            parts = var_path.split('.')
+            if len(parts) < 2:
+                return match.group(0)
+                
+            # Check if this is a deep field reference (e.g. source.tool.key_figures.Temperatura)
+            # Find the keyword index to support field names that contain dots:
+            if len(parts) >= 4:
+                for kw in ['params', 'key_figures', 'key_values']:
+                    try:
+                        idx = parts.index(kw)
+                        if idx >= 2:
+                            return ".".join(parts[idx+1:])
+                    except ValueError:
+                        continue
+            
+            prop = parts[-1]
+            tool_name = parts[-2]
+            
+            # Find the tool
+            tool = next((t for t in tools if t.name == tool_name), None)
+            if not tool:
+                return match.group(0)
+                
+            schema = tool.parameter_schema or {}
+            
+            if prop == 'params':
+                # Return stringified list of required/optional params
+                params_dict = schema.get("properties", {})
+                return ", ".join(params_dict.keys()) if params_dict else "Ninguno"
+                
+            filterable = schema.get("filterable_schema", {})
+            if prop == 'key_figures':
+                figures = filterable.get("key_figures", [])
+                return ", ".join(figures) if figures else "Ninguno"
+            elif prop == 'key_values':
+                values = filterable.get("key_values", {})
+                return ", ".join(values.keys()) if values else "Ninguno"
+                
+            return match.group(0)
+
+        # Regex to find everything inside {{ }}
+        interpolated = re.sub(r'\{\{(.*?)\}\}', replacer, text)
+        if interpolated != text:
+            logger.info(f"[AgentService] Interpolated variables in text. New text: {interpolated}")
+        return interpolated
+
 
     def _build_messages(self, query: str, params=None):
         """Build the messages list, optionally prepending a system prompt."""
@@ -270,6 +326,11 @@ class AgentService:
                 "session": session,
             }
         }
+
+        # Interpolate variables before building messages
+        query = self._interpolate_variables(query, all_tools)
+        if params and hasattr(params, 'system_prompt') and params.system_prompt:
+            params.system_prompt = self._interpolate_variables(params.system_prompt, all_tools)
 
         logger.info(f"Invoking agent for thread {thread_id} with query: {query}")
         response = await agent.ainvoke(
@@ -399,6 +460,10 @@ class AgentService:
         inside_think_block = False
         think_buffer = ""
 
+        # Interpolate variables before building messages
+        query = self._interpolate_variables(query, all_tools)
+        if params and hasattr(params, 'system_prompt') and params.system_prompt:
+            params.system_prompt = self._interpolate_variables(params.system_prompt, all_tools)
 
         async for event in agent.astream_events(
             {

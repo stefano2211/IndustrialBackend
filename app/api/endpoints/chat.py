@@ -128,8 +128,11 @@ async def chat_stream_endpoint(
                 params=request.params,
                 model_id=request.model_id,
             ):
-                if isinstance(chunk, dict) and "model_id" in chunk:
-                    resolved_model_id = chunk["model_id"]
+                if isinstance(chunk, dict):
+                    if "model_id" in chunk:
+                        resolved_model_id = chunk["model_id"]
+                    elif chunk.get("type") == "subagent":
+                        yield f"data: {json.dumps(chunk)}\n\n"
                     continue
                     
                 full_content += chunk
@@ -141,7 +144,7 @@ async def chat_stream_endpoint(
             yield f"data: {json.dumps({'type': 'done', 'full_content': full_content})}\n\n"
 
         except Exception as e:
-            logger.error(f"Stream error: {e}")
+            logger.exception("Stream error:")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
 
     return StreamingResponse(

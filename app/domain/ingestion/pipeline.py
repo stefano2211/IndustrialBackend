@@ -127,7 +127,7 @@ class DocumentProcessor:
             )
             for i, (chunk, vector) in enumerate(zip(chunks, vectors))
         ]
-        self.vector_store.upsert(points)
+        await self.vector_store.upsert(points)
         logger.success(
             f"Document {doc_id} processed: "
             f"{total_chunks} chunks"

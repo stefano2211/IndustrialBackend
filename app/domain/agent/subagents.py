@@ -72,7 +72,7 @@ MCP_SUBAGENT = {
         "  Its value is a dict where each key is the field name and the value is a list of allowed strings.\n"
         "- CRITICAL: If the user provides a direct reference like `Category.Value` (e.g., `Status.Running`, `TagName.BombaA`), "
         "  you MUST interpret it as an exact filter where `Category` equals `Value`. "
-        "  Map it to arguments as `{'key_values': {'Category': ['Value']}}`.\n"
+        "  Map it to arguments as `{{'key_values': {{'Category': ['Value']}}}}`.\n"
         "- To filter by numeric ranges: include the key 'key_figures' in arguments. "
         "  Its value is a list of dicts, each with 'field' (numeric field name), "
         "  and optionally 'min' and/or 'max'.\n"

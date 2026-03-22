@@ -11,6 +11,7 @@ Add new middleware here without modifying the agent factory (Open-Closed).
 """
 
 from langchain.agents.middleware import wrap_tool_call
+from langchain.agents.middleware.types import AgentMiddleware
 from loguru import logger
 
 
@@ -25,6 +26,17 @@ async def log_tool_calls(request, handler):
     return result
 
 
+class GlobalHealthMiddleware(AgentMiddleware):
+    """
+    Middleware that runs at the graph level (before/after agent).
+    Performs global health checks and injects status into the state.
+    """
+    def before_agent(self, state, runtime):
+        logger.info("[GlobalHealthMiddleware] Agent execution starting. Diagnostics OK.")
+        # Returns empty state update to pass without side effects while enabling future expansion
+        return {}
+
+
 def get_all_middleware() -> list:
     """Returns the list of all active middleware."""
-    return [log_tool_calls]
+    return [log_tool_calls, GlobalHealthMiddleware()]

@@ -51,7 +51,7 @@ class SemanticSearcher:
         
         filter_dict = Filter(must=conditions) if conditions else None
         
-        results = self.vector_store.search(
+        results = await self.vector_store.search(
             query_vector, 
             limit=final_limit, 
             filter_dict=filter_dict

@@ -483,6 +483,16 @@ class AgentService:
                 inside_think_block = False
                 think_buffer = ""
 
+            # --- Emit Subagent (Tool) running status ---
+            if kind == "on_tool_start":
+                yield {"type": "subagent", "status": "running", "name": name, "input": event.get("data", {}).get("input", {})}
+
+            if kind == "on_tool_end":
+                yield {"type": "subagent", "status": "complete", "name": name}
+
+            if kind == "on_tool_error":
+                yield {"type": "subagent", "status": "error", "name": name}
+
             # --- Primary: stream tokens as they arrive ---
             if kind in ["on_chat_model_stream", "on_llm_stream"]:
                 data = event.get("data", {})

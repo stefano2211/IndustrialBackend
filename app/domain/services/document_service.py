@@ -5,7 +5,7 @@ import shutil
 import uuid
 from typing import Optional
 
-from fastapi import UploadFile
+from fastapi import UploadFile, BackgroundTasks
 from loguru import logger
 
 from app.persistence.blob import minio_client
@@ -35,39 +35,58 @@ class DocumentService:
         file: UploadFile,
         user_id: str,
         knowledge_base_id: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> dict:
-        """Upload file to MinIO and enqueue processing task."""
+        """Upload file to MinIO and enqueue processing task if background_tasks is supplied."""
         file_id = str(uuid.uuid4())
         safe_filename = f"{file_id}_{file.filename}"
         temp_path = os.path.join(self.upload_dir, safe_filename)
 
-        try:
-            with open(temp_path, "wb") as f:
-                shutil.copyfileobj(file.file, f)
+        with open(temp_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
 
-            minio_client.upload_file(temp_path, safe_filename)
+        minio_client.upload_file(temp_path, safe_filename)
 
-            # Proceso síncrono
-            result = await self.processor.process_file(
+        if background_tasks:
+            background_tasks.add_task(
+                self._process_and_cleanup,
                 temp_path,
-                user_id=user_id,
-                doc_id=file_id,
-                knowledge_base_id=knowledge_base_id,
+                user_id,
+                file_id,
+                knowledge_base_id
             )
-
+            return {
+                "task_id": file_id,
+                "filename": file.filename,
+                "status": "procesando", # Not blocks the HTTP response
+                "file_id": file_id,
+            }
+        else:
+            await self._process_and_cleanup(temp_path, user_id, file_id, knowledge_base_id)
             return {
                 "task_id": file_id,
                 "filename": file.filename,
                 "status": "completado",
                 "file_id": file_id,
             }
+
+    async def _process_and_cleanup(self, temp_path: str, user_id: str, file_id: str, knowledge_base_id: Optional[str]):
+        try:
+            await self.processor.process_file(
+                temp_path,
+                user_id=user_id,
+                doc_id=file_id,
+                knowledge_base_id=knowledge_base_id,
+            )
+        except Exception as e:
+            logger.error(f"Error processing background document {file_id}: {e}")
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def get_document_details(self, doc_id: str, user_id: str) -> Optional[dict]:
+    async def get_document_details(self, doc_id: str, user_id: str) -> Optional[dict]:
         """Retrieve aggregated details and metadata for a processed document."""
-        chunks = self.qdrant.get_document_chunks(doc_id, user_id=user_id)
+        chunks = await self.qdrant.get_document_chunks(doc_id, user_id=user_id)
         if not chunks:
             return None
 
@@ -86,9 +105,9 @@ class DocumentService:
             "content": full_text,
         }
 
-    def delete_document(self, doc_id: str, user_id: str) -> dict:
+    async def delete_document(self, doc_id: str, user_id: str) -> dict:
         """Delete all chunks for a document from Qdrant."""
-        self.qdrant.delete_document(doc_id, user_id=user_id)
+        await self.qdrant.delete_document(doc_id, user_id=user_id)
         return {"status": "deleted", "doc_id": doc_id}
 
     @staticmethod

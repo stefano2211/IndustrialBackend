@@ -14,6 +14,7 @@ import json
 import re
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional, List
+from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from deepagents.backends.utils import create_file_data
 from loguru import logger
@@ -21,7 +22,7 @@ from loguru import logger
 from app.core.config import settings
 from app.core.llm import LLMFactory, LLMProvider
 from app.domain.agent.deep_agent import create_industrial_agent
-from app.domain.agent.prompts import AGENTS_MD_CONTENT
+from app.domain.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTER_PROMPT
 from app.persistence.repositories.model_repository import ModelRepository
 
 
@@ -54,6 +55,29 @@ class AgentService:
                 if val is not None:
                     extracted[attr] = val
         return extracted
+
+    async def _check_temporal_route(self, query: str, llm) -> bool:
+        """Zero-shot router to determine if query is strictly historical (>6 months)."""
+        prompt = TEMPORAL_ROUTER_PROMPT.format(
+            current_date=datetime.now().strftime("%Y-%m-%d"),
+            query=query
+        )
+        try:
+            res = await llm.ainvoke(prompt)
+            content = res.content.strip()
+            import re as _re
+            content = _re.sub(r'<think>.*?</think>', '', content, flags=_re.DOTALL).strip()
+            
+            if content.startswith("```json"):
+                content = content[7:-3].strip()
+            elif content.startswith("```"):
+                content = content[3:-3].strip()
+                
+            data = json.loads(content)
+            return data.get("is_historical_only", False)
+        except Exception as e:
+            logger.warning(f"[TemporalRouter] Failed: {e}. Defaulting to non-historical.")
+            return False
 
     @staticmethod
     def _build_tool_context(t) -> str:
@@ -411,6 +435,14 @@ class AgentService:
             llm.max_retries = settings.llm_max_retries
         if hasattr(llm, "request_timeout"):
             llm.request_timeout = settings.llm_request_timeout
+            
+        # 4.5 Temporal Router
+        is_historical = await self._check_temporal_route(query, llm)
+        if is_historical:
+            logger.info(f"ROUTER: Query is purely historical! Bypassing MCP/RAG tools to save tokens.")
+            # Future improvement: conditionally change model to `-historical`
+            mcp_source_id = "none"
+            knowledge_base_id = "none"
 
         # 5. Handle system prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:

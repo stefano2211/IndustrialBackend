@@ -40,7 +40,11 @@ class Settings(BaseSettings):
     default_llm_provider: str = "ollama"
     default_llm_model: Optional[str] = "llama3.1:8b" # Will use this if none provided
 
-    
+    # MLOps Architecture (Cloud Sync)
+    mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port
+    mothership_api_key: str = "12345678" # Default key for sync
+
+
     # LLM Resilience
     llm_max_retries: int = 10
     llm_request_timeout: int = 120

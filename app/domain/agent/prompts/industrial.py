@@ -45,3 +45,18 @@ AGENTS_MD_CONTENT = """\
 ## Learned Patterns
 (The agent can update this section when learning user preferences)
 """
+
+TEMPORAL_ROUTER_PROMPT = """\
+You are an expert Temporal Router Assistant. Your ONLY job is to determine if the user's query is STRICTLY asking for data or events older than 6 months.
+
+Current Date context: {current_date}
+
+User Query: "{query}"
+
+Analyze the timeframe requested by the user:
+- If the query specifically asks for data strictly older than 6 months from the current date (e.g., "last year", "in 2024", "8 months ago"), return true.
+- If the query asks for recent data, current state, general questions, or compares recent with old data, return false.
+
+Respond ONLY with a valid JSON object in this exact format (no markdown or extra text):
+{{"is_historical_only": true}} or {{"is_historical_only": false}}
+"""

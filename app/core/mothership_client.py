@@ -1,4 +1,5 @@
 import httpx
+import os
 from typing import Optional
 from loguru import logger
 from app.core.config import settings
@@ -19,15 +20,24 @@ class MothershipClient:
             "Accept": "application/json"
         }
 
-    async def upload_dataset(self, file_path: str, tenant_id: str = "aura_tenant_01") -> bool:
+    async def upload_dataset(self, file_path: str, tenant_id: str = "aura_tenant_01", tool_name: Optional[str] = None) -> bool:
         """Sube el archivo .jsonl al DataLake de la Mothership"""
         url = f"{self.base_url}/api/v1/datasets/upload"
         
-        logger.info(f"[Mothership Client] Subiendo Dataset a la nube: {self.base_url} ...")
+        # Nombre de archivo dinámico: {tenant_id}_{tool_name}.jsonl
+        # Si no hay tool_name, cae al tradicional master.jsonl
+        suffix = f"_{tool_name}" if tool_name else "_master"
+        remote_filename = f"{tenant_id}{suffix}.jsonl"
         
+        logger.info(f"[Mothership Client] Subiendo Dataset a la nube ({remote_filename}): {self.base_url} ...")
+        
+        if not os.path.exists(file_path):
+            logger.error(f"[Mothership Client] Archivo no encontrado: {file_path}")
+            return False
+            
         try:
             with open(file_path, "rb") as f:
-                files = {"file": (f"{tenant_id}_master.jsonl", f, "application/jsonlines")}
+                files = {"file": (remote_filename, f, "application/jsonlines")}
                 data = {"tenant_id": tenant_id}
                 
                 async with httpx.AsyncClient(timeout=60.0) as client:

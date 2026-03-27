@@ -20,6 +20,7 @@ from app.persistence.db import init_db
 from app.persistence.memoryAI.checkpointer import get_checkpointer, close_pool
 from app.persistence.memoryAI.store import get_store
 from app.core.llm import LLMFactory, LLMProvider
+from app.domain.db_collector.scheduler import collector_scheduler
 
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -51,8 +52,12 @@ async def lifespan(app: FastAPI):
 
     await _warmup_ollama()
 
+    # Start the DB Collector scheduler (loads all enabled sources as cron jobs)
+    await collector_scheduler.start()
+
     yield
 
+    await collector_scheduler.shutdown()
     await close_pool()
 
 

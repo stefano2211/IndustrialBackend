@@ -36,6 +36,9 @@ dependencies = [
     "mcp",
     "langchain-mcp-adapters",
     "httpx",
+    "apscheduler>=3.10",
+    "aiomysql",
+    "aiosqlite",
 ]
 
 [tool.uv]

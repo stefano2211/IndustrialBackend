@@ -26,8 +26,10 @@ class DatasetCuratorService:
         # 1. Obtener el LLM rápido local
         llm = await LLMFactory.get_llm(
             provider=LLMProvider.OLLAMA,
-            temperature=0.3, # Ligera creatividad para narrativa de curación
-            max_tokens=2048
+            temperature=0.1, # Lower temperature for strictly formatted output
+            max_tokens=2048,
+            num_ctx=32768,   # Solid window for telemetry data
+            streaming=False  # Disable streaming for cleaner sync in background tasks
         )
         
         # 2. Instrucciones personalizadas altamente específicas para la curación
@@ -55,13 +57,20 @@ class DatasetCuratorService:
             mcp_tools_context="Descubre anomalías operacionales usando MCP y conviértelas en JSON de entrenamiento."
         )
 
-        initial_state = {"messages": [("user", "Inicia la curación de la telemetría de las últimas 24 horas y dame el arreglo JSON resultante.")]}
+        initial_state = {"messages": [("user", (
+            "1. Obtén la telemetría de los equipos usando `call_dynamic_mcp`.\n"
+            "2. Analiza los datos de las últimas 24h.\n"
+            "3. Basado en esos datos, genera un array JSON de 3 a 5 historias para fine-tuning.\n"
+            "FORMATO REQUERIDO: Devuelve ÚNICAMENTE el array JSON, sin explicaciones ni markdown:\n"
+            "[{\"conversations\": [{\"from\": \"system\", \"value\": \"...\"}, {\"from\": \"human\", \"value\": \"...\"}, {\"from\": \"gpt\", \"value\": \"...\"}]}]"
+        ))]}
         
         # 4. Invocar el agente (Orquestación Autónoma)
         logger.info("[Dataset Curator] Compilando grafo y despachando al Agente...")
         try:
             result = await agent.ainvoke(initial_state)
             final_message = result['messages'][-1].content
+            logger.debug(f"[Dataset Curator] Respuesta bruta del agente (len={len(final_message)}): {final_message[:200]}...")
         except Exception as e:
             logger.error(f"[Dataset Curator] Falló el agente durante la recolección MCP: {e}")
             return {"status": "error", "detail": str(e)}
@@ -81,23 +90,33 @@ class DatasetCuratorService:
 
     def _parse_json_array(self, text: str) -> list:
         """Intenta extraer de forma segura el array JSON de la respuesta libre del LLM"""
-        # Strip thought blocks (DeepSeek/Qwen style)
+        # 1. Strip thought blocks (DeepSeek/Qwen style)
         text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
         
-        # Try to find array brackets
-        match = re.search(r'\[\s*\{.*\}\s*\]', text, flags=re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group(0))
-                if isinstance(data, list):
-                    return data
-            except json.JSONDecodeError:
-                pass
+        # 2. Strip markdown code fences (```json ... ``` or ``` ... ```)
+        text_stripped = re.sub(r'```(?:json)?\s*', '', text).replace('```', '').strip()
         
-        # Fallback raw parsing
+        # 3. Try direct parse on stripped text
         try:
-            return json.loads(text)
-        except:
-            return []
+            data = json.loads(text_stripped)
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass
+        
+        # 4. Try to find array brackets in original or stripped text
+        for candidate in [text_stripped, text]:
+            match = re.search(r'\[\s*\{.*\}\s*\]', candidate, flags=re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group(0))
+                    if isinstance(data, list):
+                        return data
+                except json.JSONDecodeError:
+                    pass
+        
+        # 5. Log what we got so it's diagnosable
+        logger.debug(f"[Dataset Curator] No se pudo extraer un array JSON válido. Texto recibido (len={len(text)}): {text[:500]}")
+        return []
 
 dataset_curator_service = DatasetCuratorService()

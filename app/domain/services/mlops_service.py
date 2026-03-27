@@ -5,6 +5,7 @@ import httpx
 import os
 import re
 from datetime import datetime, timedelta
+from app.core.config import settings
 from loguru import logger
 from typing import List, Dict, Any
 
@@ -132,27 +133,92 @@ class MLOpsService:
 
         return dataset
 
-    async def process_ota_webhook(self, new_model_tag: str):
+    async def process_ota_webhook(self, new_model_tag: str, tenant_id: str = "aura_tenant_01"):
         """
         Recibe una señal del Hub Central de que el nuevo modelo adaptado está listo.
-        Descarga por Ollama los pesos actualizados OTA.
+        1. Obtiene presigned URLs del modelo (.gguf + Modelfile) desde ApiLLMOps.
+        2. Descarga los artefactos localmente.
+        3. Parchea el Modelfile (FROM apunta al .gguf local).
+        4. Registra el modelo en Ollama con `ollama create` (no `ollama pull`).
         """
         import asyncio
-        logger.info(f"[MLOps OTA] Received instruction to pull new model version: {new_model_tag}")
-        
+        import httpx
+        import re as _re
+        logger.info(f"[MLOps OTA] Iniciando actualización OTA para modelo: {new_model_tag}")
+
+        gguf_path = f"/tmp/{new_model_tag}.gguf"
+        modelfile_path = f"/tmp/{new_model_tag}.Modelfile"
+
         try:
-            process = await asyncio.create_subprocess_shell(
-                f"ollama pull {new_model_tag}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            # --- PASO 1: Obtener presigned URLs del registro de modelos de Mothership ---
+            config_url = f"{mothership_client.base_url}/api/v1/models/{tenant_id}/latest/config"
+            headers = {"x-api-key": mothership_client.api_key}
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(config_url, headers=headers)
+                resp.raise_for_status()
+                config = resp.json()
+
+            gguf_url = config["gguf_url"]
+            modelfile_url = config["modelfile_url"]
+            logger.info(f"[MLOps OTA] URLs de descarga obtenidas correctamente.")
+
+            # --- PASO 2: Descargar .gguf y Modelfile en streaming ---
+            async with httpx.AsyncClient(timeout=3600.0) as client:
+                for url, dest_path, label in [
+                    (gguf_url, gguf_path, "GGUF"),
+                    (modelfile_url, modelfile_path, "Modelfile"),
+                ]:
+                    async with client.stream("GET", url) as r:
+                        r.raise_for_status()
+                        with open(dest_path, "wb") as f:
+                            async for chunk in r.aiter_bytes(chunk_size=1024 * 1024):
+                                f.write(chunk)
+                    logger.info(f"[MLOps OTA] {label} descargado en: {dest_path}")
+
+            # --- PASO 3: Parchear FROM del Modelfile para apuntar al .gguf local ---
+            # Unsloth genera el Modelfile con FROM <nombre_relativo>. Lo sustituimos por la ruta absoluta.
+            with open(modelfile_path, "r", encoding="utf-8") as f:
+                modelfile_content = f.read()
+            modelfile_content = _re.sub(
+                r'^FROM\s+.*$',
+                f'FROM {gguf_path}',
+                modelfile_content,
+                flags=_re.MULTILINE
             )
-            stdout, stderr = await process.communicate()
+            with open(modelfile_path, "w", encoding="utf-8") as f:
+                f.write(modelfile_content)
+            logger.info(f"[MLOps OTA] Modelfile parcheado. FROM apunta a: {gguf_path}")
+
+            # --- PASO 4: Registrar el modelo en Ollama vía API (POST /api/create) ---
+            # Usamos la API REST para evitar depender del CLI instalado en el contenedor.
+            logger.info(f"[MLOps OTA] Registrando modelo '{new_model_tag}' en Ollama vía API...")
             
-            if process.returncode == 0:
-                logger.info(f"[MLOps OTA] Successfully pulled {new_model_tag}")
-            else:
-                logger.error(f"[MLOps OTA] Failed to pull {new_model_tag}. Error: {stderr.decode()}")
+            # Construimos el payload de creación
+            create_payload = {
+                "name": new_model_tag,
+                "modelfile": modelfile_content
+            }
+            
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                # OLLAMA_BASE_URL suele ser http://ollama:11434
+                ollama_url = f"{settings.ollama_base_url}/api/create"
+                resp = await client.post(ollama_url, json=create_payload)
+                
+                if resp.status_code == 200:
+                    # Ollama devuelve una serie de objetos JSON en streaming usualmente, 
+                    # pero si recibimos 200 directo es que se agendó.
+                    logger.success(f"[MLOps OTA] Modelo '{new_model_tag}' registrado exitosamente.")
+                else:
+                    logger.error(f"[MLOps OTA] Falló la creación en Ollama (HTTP {resp.status_code}): {resp.text}")
+                    raise Exception(f"Ollama API Error: {resp.text}")
+
         except Exception as e:
-             logger.error(f"[MLOps OTA] Exception during model pull: {e}")
-        
+            logger.error(f"[MLOps OTA] Excepción durante el proceso OTA: {e}")
+        finally:
+            # Limpiar artefactos temporales en cualquier caso
+            for path in [gguf_path, modelfile_path]:
+                if os.path.exists(path):
+                    os.remove(path)
+            logger.info("[MLOps OTA] Archivos temporales limpiados.")
+
         return {"status": "success", "tag": new_model_tag}

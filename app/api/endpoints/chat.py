@@ -62,6 +62,7 @@ async def chat_endpoint(
             store=store,
             params=request.params,
             model_id=request.model_id,
+            use_generalist=request.use_generalist,
         )
 
         session.add(ChatMessage(thread_id=thread_id, role="assistant", content=answer, model_id=resolved_model_id))
@@ -127,6 +128,7 @@ async def chat_stream_endpoint(
                 store=store,
                 params=request.params,
                 model_id=request.model_id,
+                use_generalist=request.use_generalist,
             ):
                 if isinstance(chunk, dict):
                     if "model_id" in chunk:

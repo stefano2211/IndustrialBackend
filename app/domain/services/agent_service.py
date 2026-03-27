@@ -22,6 +22,7 @@ from loguru import logger
 from app.core.config import settings
 from app.core.llm import LLMFactory, LLMProvider
 from app.domain.agent.deep_agent import create_industrial_agent
+from app.domain.agent.generalist_agent import create_generalist_orchestrator
 from app.domain.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTER_PROMPT
 from app.persistence.repositories.model_repository import ModelRepository
 
@@ -254,6 +255,7 @@ class AgentService:
         store=None,
         params=None,
         model_id: str | None = None,
+        use_generalist: bool = False,
     ) -> tuple[str, str]:
         """
         Invoke the Deep Agent and return the assistant's response text.
@@ -333,13 +335,34 @@ class AgentService:
         tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
         custom_prompt = db_model.system_prompt if db_model else None
-        agent = create_industrial_agent(
-            model=llm, checkpointer=checkpointer, store=store,
-            custom_system_prompt=custom_prompt,
-            mcp_tools_context=tools_context,
-            enable_knowledge=(knowledge_base_id != "none"),
-            enable_mcp=(mcp_source_id != "none")
-        )
+
+        if use_generalist:
+            # ── GENERALIST ORCHESTRATOR MODE (Magentic-One) ──────────────────
+            # Two Ollama models: llama3.1:8b (director) + expert model (specialist)
+            logger.info("[AgentService] Assembling Generalist Orchestrator (invoke)...")
+            generalist_llm = await LLMFactory.get_llm(
+                provider=LLMProvider.OLLAMA,
+                model_name=settings.generalist_llm_model,
+                session=session,
+            )
+            agent = create_generalist_orchestrator(
+                generalist_model=generalist_llm,
+                expert_model=llm,
+                checkpointer=checkpointer,
+                store=store,
+                mcp_tools_context=tools_context,
+                enable_knowledge=(knowledge_base_id != "none"),
+                enable_mcp=(mcp_source_id != "none"),
+            )
+        else:
+            # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────
+            agent = create_industrial_agent(
+                model=llm, checkpointer=checkpointer, store=store,
+                custom_system_prompt=custom_prompt,
+                mcp_tools_context=tools_context,
+                enable_knowledge=(knowledge_base_id != "none"),
+                enable_mcp=(mcp_source_id != "none")
+            )
 
         # 3. Invoke with config
         config = {
@@ -385,6 +408,7 @@ class AgentService:
         store=None,
         params=None,
         model_id: str | None = None,
+        use_generalist: bool = False,
     ):
         """
         Stream the Deep Agent response, yielding text chunks as they arrive, 
@@ -469,13 +493,34 @@ class AgentService:
         tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
         custom_prompt = db_model.system_prompt if db_model else None
-        agent = create_industrial_agent(
-            model=llm, checkpointer=checkpointer, store=store,
-            custom_system_prompt=custom_prompt,
-            mcp_tools_context=tools_context,
-            enable_knowledge=(knowledge_base_id != "none"),
-            enable_mcp=(mcp_source_id != "none")
-        )
+
+        if use_generalist:
+            # ── GENERALIST ORCHESTRATOR MODE (Magentic-One) ──────────────────
+            # Two Ollama models: llama3.1:8b (director) + expert model (specialist)
+            logger.info("[AgentService] Assembling Generalist Orchestrator (stream)...")
+            generalist_llm = await LLMFactory.get_llm(
+                provider=LLMProvider.OLLAMA,
+                model_name=settings.generalist_llm_model,
+                session=session,
+            )
+            agent = create_generalist_orchestrator(
+                generalist_model=generalist_llm,
+                expert_model=llm,
+                checkpointer=checkpointer,
+                store=store,
+                mcp_tools_context=tools_context,
+                enable_knowledge=(knowledge_base_id != "none"),
+                enable_mcp=(mcp_source_id != "none"),
+            )
+        else:
+            # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────
+            agent = create_industrial_agent(
+                model=llm, checkpointer=checkpointer, store=store,
+                custom_system_prompt=custom_prompt,
+                mcp_tools_context=tools_context,
+                enable_knowledge=(knowledge_base_id != "none"),
+                enable_mcp=(mcp_source_id != "none")
+            )
 
         config = {
             "configurable": {

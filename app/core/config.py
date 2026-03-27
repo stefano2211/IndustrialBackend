@@ -38,7 +38,10 @@ class Settings(BaseSettings):
 
     # Defaults
     default_llm_provider: str = "ollama"
-    default_llm_model: Optional[str] = "llama3.1:8b" # Will use this if none provided
+    default_llm_model: Optional[str] = "qwen3.5:9b" # Expert industrial model (fine-tuned via LLMOps)
+
+    # Generalist Orchestrator (Magentic-One layer — also runs on Ollama)
+    generalist_llm_model: str = "llama3.1:8b"  # General-purpose director model
 
     # MLOps Architecture (Cloud Sync)
     mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port

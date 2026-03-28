@@ -12,7 +12,7 @@ Both models run on the same local Ollama container (zero external dependencies).
 """
 
 from deepagents import create_deep_agent
-from deepagents.subagents import CompiledSubAgent
+from deepagents import CompiledSubAgent
 from loguru import logger
 
 from app.domain.agent.deep_agent import create_industrial_agent

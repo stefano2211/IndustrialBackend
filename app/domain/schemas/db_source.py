@@ -82,6 +82,16 @@ class DbSource(SQLModel, table=True):
     last_run_rows: Optional[int] = Field(default=None, description="Number of rows fetched in last run")
     last_error_detail: Optional[str] = Field(default=None)
 
+    # --- MLOps Auto-Trigger ---
+    training_threshold_rows: Optional[int] = Field(
+        default=None, 
+        description="Trigger training when accumulated rows exceed this threshold"
+    )
+    accumulated_rows: int = Field(
+        default=0, 
+        description="Rows collected since last training trigger"
+    )
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
     )
@@ -102,6 +112,8 @@ class DbSourceCreate(SQLModel):
     tenant_id: str = "aura_tenant_01"
     sector: str = "Industrial"
     domain: str = "General"
+    training_threshold_rows: Optional[int] = None
+    accumulated_rows: int = 0
 
 
 class DbSourceUpdate(SQLModel):
@@ -115,6 +127,8 @@ class DbSourceUpdate(SQLModel):
     tenant_id: Optional[str] = None
     sector: Optional[str] = None
     domain: Optional[str] = None
+    training_threshold_rows: Optional[int] = None
+    accumulated_rows: Optional[int] = None
 
 
 class DbSourceRead(SQLModel):
@@ -133,4 +147,6 @@ class DbSourceRead(SQLModel):
     last_run_status: Optional[DbSourceStatus]
     last_run_rows: Optional[int]
     last_error_detail: Optional[str]
+    training_threshold_rows: Optional[int]
+    accumulated_rows: int
     created_at: datetime

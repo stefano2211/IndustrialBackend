@@ -18,6 +18,7 @@ from app.domain.db_collector.formatter import rows_to_sharegpt
 from app.domain.schemas.db_source import DbSource, DbSourceStatus
 from app.persistence.db import async_session_factory
 from app.core.mothership_client import mothership_client
+from app.core.config import settings
 
 
 @dataclass
@@ -75,6 +76,28 @@ class CollectorService:
             # Write to temp file and upload
             success = await self._upload_entries(entries, source)
             result.status = DbSourceStatus.SUCCESS if success else DbSourceStatus.ERROR
+            
+            if success:
+                # Accumulate rows and check if MLOps training should be triggered
+                source.accumulated_rows += result.entries_generated
+                
+                if source.training_threshold_rows and source.accumulated_rows >= source.training_threshold_rows:
+                    logger.info(f"[DbCollector] Threshold reached for '{source.name}' ({source.accumulated_rows}/{source.training_threshold_rows}). Triggering OTA MLOps Training!")
+                    
+                    # Assume Edge URL is available via settings or we default it. 
+                    # The ApiLLMOps will call this webhook back once the training finishes.
+                    webhook_url = f"{settings.backend_url}/mlops/webhook/model-ready" 
+                    
+                    # Trigger training through the mothership client
+                    trigger_success = await mothership_client.trigger_training_job(
+                        tenant_id=source.tenant_id,
+                        epochs=3, # Configurable, Default 3
+                        webhook_url=webhook_url
+                    )
+                    
+                    if trigger_success:
+                        # Reset row accumulator only if the trigger was sent to ApiLLMOps successfully
+                        source.accumulated_rows = 0
 
         except Exception as exc:
             error_msg = (str(exc) + "")[:900]
@@ -161,6 +184,10 @@ class CollectorService:
                     db_source.last_run_status = result.status
                     db_source.last_run_rows = result.rows_fetched
                     db_source.last_error_detail = result.error_detail
+                    
+                    # Also update auto-trigger counters modified during run
+                    db_source.accumulated_rows = source.accumulated_rows
+                    
                     await repo.save(db_source)
         except Exception as exc:
             logger.error(f"[DbCollector] Failed to update metadata for '{source.name}': {exc}")

@@ -1,5 +1,6 @@
 """PostgreSQL async connector using asyncpg (already a project dependency)."""
 
+import re
 from typing import Any, Dict, List
 
 import asyncpg
@@ -15,6 +16,10 @@ class PostgresqlConnector(BaseDbConnector):
     """
 
     async def fetch(self, connection_string: str, query: str) -> List[Dict[str, Any]]:
+        # asyncpg strictly expects "postgresql://" or "postgres://"
+        if connection_string.startswith("postgresql+"):
+            connection_string = re.sub(r"^postgresql\+[a-zA-Z0-9_]+://", "postgresql://", connection_string)
+
         conn = None
         try:
             conn = await asyncpg.connect(connection_string)
@@ -24,3 +29,4 @@ class PostgresqlConnector(BaseDbConnector):
         finally:
             if conn is not None:
                 await conn.close()
+

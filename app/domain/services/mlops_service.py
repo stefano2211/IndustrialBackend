@@ -1,5 +1,6 @@
 import re
 import os
+import json
 import httpx
 from loguru import logger
 
@@ -21,7 +22,8 @@ class MLOpsService:
         1. Obtiene presigned URLs (.gguf + Modelfile) desde ApiLLMOps (MinIO presigned).
         2. Descarga los artefactos al /tmp/ en modo streaming (chunk_size=1MB).
         3. Parchea el Modelfile: FROM <relativa> → FROM /tmp/<tag>.gguf.
-        4. Registra el modelo en Ollama vía API REST POST /api/create.
+        4. Registra el modelo en Ollama vía API REST POST /api/create (streaming NDJSON).
+        5. Limpia archivos temporales después de que Ollama termine.
         """
         import re as _re
         logger.info(f"[MLOps OTA] Iniciando actualización OTA para modelo: {new_model_tag}")
@@ -69,24 +71,45 @@ class MLOpsService:
             logger.info(f"[MLOps OTA] Modelfile parcheado. FROM apunta a: {gguf_path}")
 
             # --- PASO 4: Registrar el modelo en Ollama vía API REST (POST /api/create) ---
+            # CRITICAL: Ollama /api/create ALWAYS returns HTTP 200, even on failure.
+            # Success/failure is only detectable by reading the NDJSON stream body:
+            # each line is a JSON object; if any contains "error", the registration failed.
+            # The GGUF file must remain on disk until Ollama finishes reading it.
             logger.info(f"[MLOps OTA] Registrando modelo '{new_model_tag}' en Ollama...")
             create_payload = {
                 "name": new_model_tag,
                 "modelfile": modelfile_content,
+                "stream": True,
             }
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            ollama_error = None
+            async with httpx.AsyncClient(timeout=600.0) as client:
                 ollama_url = f"{settings.ollama_base_url}/api/create"
-                resp = await client.post(ollama_url, json=create_payload)
-                if resp.status_code == 200:
-                    logger.success(f"[MLOps OTA] Modelo '{new_model_tag}' registrado exitosamente.")
-                else:
-                    logger.error(f"[MLOps OTA] Falló la creación en Ollama (HTTP {resp.status_code}): {resp.text}")
-                    raise Exception(f"Ollama API Error: {resp.text}")
+                async with client.stream("POST", ollama_url, json=create_payload) as r:
+                    r.raise_for_status()
+                    async for line in r.aiter_lines():
+                        if not line.strip():
+                            continue
+                        try:
+                            chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        status_msg = chunk.get("status", "")
+                        if status_msg:
+                            logger.info(f"[MLOps OTA] Ollama: {status_msg}")
+                        if "error" in chunk:
+                            ollama_error = chunk["error"]
+                            break
+
+            if ollama_error:
+                raise Exception(f"Ollama registration failed: {ollama_error}")
+
+            logger.success(f"[MLOps OTA] Modelo '{new_model_tag}' registrado exitosamente en Ollama.")
 
         except Exception as e:
             logger.error(f"[MLOps OTA] Excepción durante el proceso OTA: {e}")
             return {"status": "error", "tag": new_model_tag, "detail": str(e)}
         finally:
+            # Cleanup runs AFTER Ollama has fully ingested the GGUF model (stream completed)
             for path in [gguf_path, modelfile_path]:
                 if os.path.exists(path):
                     os.remove(path)

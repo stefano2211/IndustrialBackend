@@ -7,6 +7,7 @@ from app.core.security import create_access_token
 from app.domain.schemas.token import Token
 from app.domain.schemas.user import UserCreate, UserRead, UserLogin
 from app.domain.services.user_service import UserService
+from app.persistence.repositories.settings_repository import SettingsRepository
 
 router = APIRouter()
 
@@ -42,7 +43,6 @@ async def register_user(
     Create new user.
     First registered user automatically becomes admin.
     """
-    from app.persistence.repositories.settings_repository import SettingsRepository
     settings_repo = SettingsRepository(session)
     system_settings = await settings_repo.get_settings()
     

@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # MLOps Architecture (Cloud Sync)
     mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port
-    mothership_api_key: str = "12345678" # Default key for sync
+    mothership_api_key: str = "default-mothership-secret-key" # Must match ApiLLMOps MOTHERSHIP_API_KEY env
     mlops_tenant_id: str = "aura_tenant_01" # Tenant identifier for this edge node
     edge_public_url: str = "http://localhost:8000" # Public URL of this edge node (for OTA webhook)
 

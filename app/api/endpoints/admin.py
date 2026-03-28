@@ -1,9 +1,11 @@
 """Admin endpoints — user management and system analytics (admin only)."""
 
+from datetime import datetime, timezone, timedelta
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy import cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, func
 
@@ -168,9 +170,6 @@ async def get_analytics(
     session: AsyncSession = Depends(get_session),
 ):
     require_admin(current_user)
-
-    from datetime import datetime, timezone, timedelta
-    from sqlalchemy import cast, Date, text
 
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 

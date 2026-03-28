@@ -85,6 +85,7 @@ class MLOpsService:
 
         except Exception as e:
             logger.error(f"[MLOps OTA] Excepción durante el proceso OTA: {e}")
+            return {"status": "error", "tag": new_model_tag, "detail": str(e)}
         finally:
             for path in [gguf_path, modelfile_path]:
                 if os.path.exists(path):

@@ -7,12 +7,13 @@ import httpx
 
 from app.persistence.db import get_session
 from app.api import deps
+from app.domain.schemas.user import User
 from app.persistence.repositories.model_repository import ModelRepository
 from app.persistence.repositories.settings_repository import SettingsRepository
 from app.domain.schemas.model import Model, ModelCreate, ModelRead, ModelUpdate
 from app.core.config import settings
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(deps.get_current_user)])
 
 async def get_model_repo(
     session: AsyncSession = Depends(get_session),
@@ -40,6 +41,7 @@ async def get_model(
 @router.post("/", response_model=ModelRead, status_code=status.HTTP_201_CREATED)
 async def create_model(
     model_in: ModelCreate,
+    _: User = Depends(deps.get_current_user),
     repo: ModelRepository = Depends(get_model_repo),
 ):
     """Create a new model configuration."""
@@ -72,6 +74,7 @@ async def update_model(
 @router.delete("/{model_id}")
 async def delete_model(
     model_id: str,
+    _: User = Depends(deps.get_current_user),
     repo: ModelRepository = Depends(get_model_repo),
 ):
     """Delete a model configuration."""

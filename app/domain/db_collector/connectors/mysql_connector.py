@@ -23,18 +23,21 @@ class MysqlConnector(BaseDbConnector):
             )
 
         parsed = urlparse(connection_string)
-        conn = await aiomysql.connect(
-            host=parsed.hostname or "localhost",
-            port=parsed.port or 3306,
-            user=parsed.username,
-            password=parsed.password or "",
-            db=parsed.path.lstrip("/"),
-            cursorclass=aiomysql.DictCursor,
-        )
+        conn = None
         try:
+            conn = await aiomysql.connect(
+                host=parsed.hostname or "localhost",
+                port=parsed.port or 3306,
+                user=parsed.username,
+                password=parsed.password or "",
+                db=parsed.path.lstrip("/"),
+                cursorclass=aiomysql.DictCursor,
+            )
             async with conn.cursor() as cursor:
                 await cursor.execute(query)
                 rows = await cursor.fetchall()
                 return list(rows)  # Already dicts due to DictCursor
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
+                await conn.wait_closed()

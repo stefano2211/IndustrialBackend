@@ -70,7 +70,7 @@ def _create_openrouter(model_name: str, temperature: float, api_key: Optional[st
 
     return ChatOpenAI(
         openai_api_key=api_key or settings.openrouter_api_key,
-        openai_api_base=base_url or settings.openrouter_api_base_url if hasattr(settings, 'openrouter_api_base_url') else (base_url or settings.openrouter_base_url),
+        openai_api_base=base_url or settings.openrouter_base_url,
         model=model_name or "openai/gpt-4o",
         temperature=temperature,
         streaming=streaming,

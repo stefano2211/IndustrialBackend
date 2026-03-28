@@ -69,15 +69,24 @@ class QdrantManager:
                 )
             ]
         )
-        
-        results, _ = await self.client.scroll(
-            collection_name=self.collection_name,
-            scroll_filter=filter_dict,
-            limit=100, 
-            with_payload=True,
-            with_vectors=False
-        )
-        return results
+
+        # Paginate through all chunks (hardcoded 100 would silently truncate large docs)
+        all_results = []
+        offset = None
+        while True:
+            results, next_offset = await self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=filter_dict,
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False
+            )
+            all_results.extend(results)
+            if next_offset is None:
+                break
+            offset = next_offset
+        return all_results
 
     async def delete_document(self, doc_id: str, user_id: str):
         await self._ensure_collection()

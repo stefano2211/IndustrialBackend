@@ -14,7 +14,7 @@ import json
 import re
 import uuid
 from typing import Any, AsyncGenerator, Dict, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage, SystemMessage
 from deepagents.backends.utils import create_file_data
 from loguru import logger
@@ -60,20 +60,22 @@ class AgentService:
     async def _check_temporal_route(self, query: str, llm) -> bool:
         """Zero-shot router to determine if query is strictly historical (>6 months)."""
         prompt = TEMPORAL_ROUTER_PROMPT.format(
-            current_date=datetime.now().strftime("%Y-%m-%d"),
+            current_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             query=query
         )
         try:
             res = await llm.ainvoke(prompt)
             content = res.content.strip()
-            import re as _re
-            content = _re.sub(r'<think>.*?</think>', '', content, flags=_re.DOTALL).strip()
-            
-            if content.startswith("```json"):
-                content = content[7:-3].strip()
-            elif content.startswith("```"):
-                content = content[3:-3].strip()
-                
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+
+            if content.startswith("```json") and len(content) > 10:
+                content = content[7:].rstrip("`").strip()
+            elif content.startswith("```") and len(content) > 6:
+                content = content[3:].rstrip("`").strip()
+
+            if not content:
+                return False
+
             data = json.loads(content)
             return data.get("is_historical_only", False)
         except Exception as e:
@@ -314,7 +316,7 @@ class AgentService:
             from types import SimpleNamespace
             params = SimpleNamespace(system_prompt=db_model.system_prompt)
 
-        # 2. Build agent with dynamic tools context
+        # 6. Build agent with dynamic tools context
         from app.persistence.repositories.tool_config_repository import ToolConfigRepository
         tool_repo = ToolConfigRepository(session)
         
@@ -475,17 +477,18 @@ class AgentService:
             from types import SimpleNamespace
             params = SimpleNamespace(system_prompt=db_model.system_prompt)
 
-        # 2. Build agent with dynamic tools context
+        # 6. Build agent with dynamic tools context
         from app.persistence.repositories.tool_config_repository import ToolConfigRepository
         tool_repo = ToolConfigRepository(session)
         
         # Filter by source_id if provided
         if mcp_source_id == "none":
-             all_tools = []
+            all_tools = []
         elif mcp_source_id:
-             all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id))
+            all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id))
         else:
-             all_tools = await tool_repo.get_all()
+            # BUG-01 FIX: must filter by user to avoid cross-user tool exposure
+            all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
         
         dynamic_tools_list = [
             self._build_tool_context(t) for t in all_tools

@@ -1,5 +1,6 @@
 """Document service — Business logic for document upload, retrieval, and deletion."""
 
+import asyncio
 import os
 import shutil
 import uuid
@@ -11,6 +12,12 @@ from loguru import logger
 from app.persistence.blob import minio_client
 from app.persistence.vector import QdrantManager
 from app.domain.ingestion.pipeline import DocumentProcessor
+
+
+def _write_bytes(path: str, data: bytes) -> None:
+    """Synchronous helper for writing bytes to disk, intended for asyncio.to_thread."""
+    with open(path, "wb") as f:
+        f.write(data)
 
 
 class DocumentService:
@@ -42,8 +49,9 @@ class DocumentService:
         safe_filename = f"{file_id}_{file.filename}"
         temp_path = os.path.join(self.upload_dir, safe_filename)
 
-        with open(temp_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        # Read async, then write in thread to avoid blocking the event loop
+        content = await file.read()
+        await asyncio.to_thread(_write_bytes, temp_path, content)
 
         minio_client.upload_file(temp_path, safe_filename)
 

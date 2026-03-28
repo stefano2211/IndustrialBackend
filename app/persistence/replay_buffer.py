@@ -13,9 +13,11 @@ class ReplayBuffer:
     def __init__(self, file_path: str = "data/dataset_replay.jsonl", max_size: int = 5000):
         self.file_path = file_path
         self.max_size = max_size
-        
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+
+        # Ensure directory exists (guard against empty dirname when path has no dir component)
+        dir_name = os.path.dirname(self.file_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
 
     def append_events(self, new_events: List[Dict]):
         """

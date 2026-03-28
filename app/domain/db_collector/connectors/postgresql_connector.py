@@ -15,10 +15,12 @@ class PostgresqlConnector(BaseDbConnector):
     """
 
     async def fetch(self, connection_string: str, query: str) -> List[Dict[str, Any]]:
-        conn = await asyncpg.connect(connection_string)
+        conn = None
         try:
+            conn = await asyncpg.connect(connection_string)
             rows = await conn.fetch(query)
             # asyncpg Row objects are dict-like; convert to plain dicts
             return [dict(row) for row in rows]
         finally:
-            await conn.close()
+            if conn is not None:
+                await conn.close()

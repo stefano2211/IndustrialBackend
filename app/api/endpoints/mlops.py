@@ -1,11 +1,9 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Header
-from typing import Any
 import re
 from app.domain.services.mlops_service import MLOpsService
-from app.api.deps import get_current_user
-from app.domain.schemas.user import User
 from app.core.config import settings
 from pydantic import BaseModel
+
 
 router = APIRouter()
 
@@ -20,25 +18,8 @@ async def verify_mothership_key(x_api_key: str = Header(...)):
     if x_api_key != settings.mothership_api_key:
         raise HTTPException(status_code=401, detail="Invalid Mothership API Key")
 
-@router.post("/export-historical")
-async def export_historical_data(
-    bg_tasks: BackgroundTasks,
-    service: MLOpsService = Depends(get_mlops_service),
-    current_user: User = Depends(get_current_user)
-) -> Any:
-    """
-    Inicia la recopilación de datos de orígenes MCP mayores a 6 meses
-    y genera un JSONL para Fine-Tuning (Hub and Spoke pattern).
-    Solo puede ser ejecutado por administradores.
-    """
-    if not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Only admins can trigger historical exports")
-    # Ejecutamos asíncronamente porque el escaneo a múltiples fuentes MCP puede ser lento
-    bg_tasks.add_task(service.export_historical_jsonl, 180)
-    return {
-        "status": "processing",
-        "message": "Extracción histórica iniciada. El archivo JSONL será generado en background."
-    }
+
+
 
 @router.post("/webhook/model-ready")
 async def ota_model_update(
@@ -46,7 +27,8 @@ async def ota_model_update(
     bg_tasks: BackgroundTasks,
     service: MLOpsService = Depends(get_mlops_service),
     _: str = Depends(verify_mothership_key)
-) -> Any:
+) -> dict:
+
     """
     Webhook Endpoint: La Nube (Mothership) llama aquí cuando el entrenamiento de los 
     nuevos datos finaliza, para que el Edge actualice su modelo (Over The Air).

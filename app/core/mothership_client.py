@@ -57,6 +57,10 @@ class MothershipClient:
         """Dispara el job de Fine-Tuning de Qwen en los workers de la nube"""
         url = f"{self.base_url}/api/v1/training/job"
         
+        # Si no se provee un webhook específico, autogeneramos la ruta hacia este nodo Edge
+        if not webhook_url:
+            webhook_url = f"{settings.edge_public_url.rstrip('/')}/mlops/webhook/model-ready"
+            
         payload = {
             "tenant_id": tenant_id,
             "base_model": "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit",

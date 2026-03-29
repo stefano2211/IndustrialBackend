@@ -1,8 +1,13 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Header
 import re
+from typing import Optional
 from app.domain.services.mlops_service import MLOpsService
 from app.core.config import settings
 from pydantic import BaseModel
+
+from app.api.deps import get_current_user
+from app.domain.schemas.user import User
+from app.core.mothership_client import mothership_client
 
 
 router = APIRouter()
@@ -47,3 +52,30 @@ async def ota_model_update(
         "status": "accepted",
         "message": f"Actualización OTA para modelo {payload.model_tag} agendada."
     }
+
+class TrainingLaunchRequest(BaseModel):
+    tenant_id: str = "aura_tenant_01"
+    epochs: int = 3
+    webhook_url: Optional[str] = None
+
+@router.post("/training/launch")
+async def launch_training_on_cloud(
+    req: TrainingLaunchRequest,
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """
+    Desencadena el proceso de Fine-Tuning de MLOps en la Mothership (Nube).
+    Solo accesible por superusuarios en el Edge.
+    """
+    if not getattr(current_user, "is_superuser", False):
+        raise HTTPException(status_code=403, detail="Superuser access required.")
+        
+    success = await mothership_client.trigger_training_job(
+        tenant_id=req.tenant_id,
+        epochs=req.epochs,
+        webhook_url=req.webhook_url
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="Error al intentar lanzar el entrenamiento en la nube.")
+    
+    return {"status": "success", "message": "Entrenamiento MLOps iniciado en la nube exitosamente."}

@@ -59,7 +59,7 @@ class MothershipClient:
         
         payload = {
             "tenant_id": tenant_id,
-            "base_model": "unsloth/qwen2.5-7b-bnb-4bit",
+            "base_model": "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit",
             "epochs": epochs,
             "webhook_url": webhook_url
         }

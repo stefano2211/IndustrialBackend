@@ -78,26 +78,8 @@ class CollectorService:
             result.status = DbSourceStatus.SUCCESS if success else DbSourceStatus.ERROR
             
             if success:
-                # Accumulate rows and check if MLOps training should be triggered
+                # Seguimiento metadata: acumular cuántas filas hemos enviado históricamente a la nube
                 source.accumulated_rows += result.entries_generated
-                
-                if source.training_threshold_rows and source.accumulated_rows >= source.training_threshold_rows:
-                    logger.info(f"[DbCollector] Threshold reached for '{source.name}' ({source.accumulated_rows}/{source.training_threshold_rows}). Triggering OTA MLOps Training!")
-                    
-                    # Assume Edge URL is available via settings or we default it. 
-                    # The ApiLLMOps will call this webhook back once the training finishes.
-                    webhook_url = f"{settings.backend_url}/mlops/webhook/model-ready" 
-                    
-                    # Trigger training through the mothership client
-                    trigger_success = await mothership_client.trigger_training_job(
-                        tenant_id=source.tenant_id,
-                        epochs=3, # Configurable, Default 3
-                        webhook_url=webhook_url
-                    )
-                    
-                    if trigger_success:
-                        # Reset row accumulator only if the trigger was sent to ApiLLMOps successfully
-                        source.accumulated_rows = 0
 
         except Exception as exc:
             error_msg = (str(exc) + "")[:900]

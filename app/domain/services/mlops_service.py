@@ -2,6 +2,9 @@ import re
 import os
 import json
 import httpx
+import hashlib
+import asyncio
+import re as _re
 from loguru import logger
 
 from app.core.config import settings
@@ -57,34 +60,64 @@ class MLOpsService:
                                 f.write(chunk)
                     logger.info(f"[MLOps OTA] {label} descargado en: {dest_path}")
 
-            # --- PASO 3: Parchear FROM del Modelfile para apuntar al .gguf local ---
-            with open(modelfile_path, "r", encoding="utf-8") as f:
-                modelfile_content = f.read()
-            modelfile_content = _re.sub(
-                r'^FROM\s+.*$',
-                f'FROM {gguf_path}',
-                modelfile_content,
-                flags=_re.MULTILINE
-            )
-            with open(modelfile_path, "w", encoding="utf-8") as f:
-                f.write(modelfile_content)
-            logger.info(f"[MLOps OTA] Modelfile parcheado. FROM apunta a: {gguf_path}")
+            # --- PASO 3: Calcular SHA256 para el Blob API (Requisito estricto Ollama 0.5+) ---
+            logger.info(f"[MLOps OTA] Exponiendo GGUF interno vía Blob API a Ollama...")
+            def _calc_sha():
+                h = hashlib.sha256()
+                with open(gguf_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        h.update(chunk)
+                return f"sha256:{h.hexdigest()}"
+            
+            digest = await asyncio.to_thread(_calc_sha)
+            
+            async with httpx.AsyncClient() as client:
+                # Comprobar si ya existe el blob
+                res_head = await client.head(f"{settings.ollama_base_url}/api/blobs/{digest}", timeout=10.0)
+                if res_head.status_code != 200:
+                    logger.info(f"[MLOps OTA] GGUF no cacheado en VRAM. Subiendo Blob {digest}...")
+                    
+                    # Generador async para streaming y evitar saturar RAM con 3GB
+                    async def file_streamer():
+                        with open(gguf_path, "rb") as f:
+                            while chunk := f.read(8192):
+                                yield chunk
+                                
+                    res_blob = await client.post(
+                        f"{settings.ollama_base_url}/api/blobs/{digest}", 
+                        content=file_streamer(), 
+                        timeout=1800.0
+                    )
+                    res_blob.raise_for_status()
 
-            # --- PASO 4: Registrar el modelo en Ollama vía API REST (POST /api/create) ---
-            # CRITICAL: Ollama /api/create ALWAYS returns HTTP 200, even on failure.
-            # Success/failure is only detectable by reading the NDJSON stream body:
-            # each line is a JSON object; if any contains "error", the registration failed.
-            # The GGUF file must remain on disk until Ollama finishes reading it.
-            logger.info(f"[MLOps OTA] Registrando modelo '{new_model_tag}' en Ollama...")
-            create_payload = {
-                "name": new_model_tag,
-                "modelfile": modelfile_content,
-                "stream": True,
-            }
-            ollama_error = None
-            async with httpx.AsyncClient(timeout=600.0) as client:
+                # --- PASO 4: Registrar el modelo en Ollama vía API REST (POST /api/create) ---
+                logger.info(f"[MLOps OTA] Preparando registro de modelo con metadata original...")
+                
+                # Leemos el Modelfile original (que contiene el TEMPLATE y PARAMETERS de Unsloth)
+                # y lo parcheamos para que apunte al alias 'model.gguf' definido en 'files'
+                with open(modelfile_path, "r", encoding="utf-8") as f:
+                    rich_modelfile = f.read()
+                
+                rich_modelfile = _re.sub(
+                    r'^FROM\s+.*$',
+                    'FROM model.gguf',
+                    rich_modelfile,
+                    flags=_re.MULTILINE
+                )
+
+                logger.info(f"[MLOps OTA] Registrando modelo '{new_model_tag}' en Ollama...")
+                create_payload = {
+                    "name": new_model_tag,
+                    "files": {
+                        "model.gguf": digest
+                    },
+                    "modelfile": rich_modelfile,
+                    "stream": True,
+                }
+                
+                ollama_error = None
                 ollama_url = f"{settings.ollama_base_url}/api/create"
-                async with client.stream("POST", ollama_url, json=create_payload) as r:
+                async with client.stream("POST", ollama_url, json=create_payload, timeout=600.0) as r:
                     r.raise_for_status()
                     async for line in r.aiter_lines():
                         if not line.strip():

@@ -66,8 +66,8 @@ class DbSource(SQLModel, table=True):
 
     # --- Scheduling ---
     cron_expression: str = Field(
-        default="0 */6 * * *",
-        description="Standard 5-field cron expression for APScheduler (e.g. '0 */6 * * *' = every 6h).",
+        default="0 0 * * *",
+        description="Standard 5-field cron expression for APScheduler (e.g. '0 0 * * *' = daily).",
     )
     is_enabled: bool = Field(default=True)
 
@@ -107,7 +107,7 @@ class DbSourceCreate(SQLModel):
     db_type: DbSourceType
     connection_string: str  # Plain text — encrypted before storage
     query: str
-    cron_expression: str = "0 */6 * * *"
+    cron_expression: str = "0 0 * * *"
     is_enabled: bool = True
     tenant_id: str = "aura_tenant_01"
     sector: str = "Industrial"

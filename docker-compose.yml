@@ -52,6 +52,8 @@ services:
       - OLLAMA_KEEP_ALIVE=24h
     volumes:
       - ollama_data:/root/.ollama
+      - ./tmp:/tmp
+      - ./tmp:/tmp
     restart: unless-stopped
     deploy:
       resources:

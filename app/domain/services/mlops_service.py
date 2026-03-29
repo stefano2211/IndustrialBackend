@@ -91,27 +91,71 @@ class MLOpsService:
                     res_blob.raise_for_status()
 
                 # --- PASO 4: Registrar el modelo en Ollama vía API REST (POST /api/create) ---
-                logger.info(f"[MLOps OTA] Preparando registro de modelo con metadata original...")
+                logger.info(f"[MLOps OTA] Preparando registro con Template Oficial de Tool Calling (Qwen2.5)...")
                 
-                # Leemos el Modelfile original (que contiene el TEMPLATE y PARAMETERS de Unsloth)
-                # y lo parcheamos para que apunte al alias 'model.gguf' definido en 'files'
-                with open(modelfile_path, "r", encoding="utf-8") as f:
-                    rich_modelfile = f.read()
-                
-                rich_modelfile = _re.sub(
-                    r'^FROM\s+.*$',
-                    'FROM model.gguf',
-                    rich_modelfile,
-                    flags=_re.MULTILINE
-                )
+                # Inyectamos el template avanzado de Tools que Unsloth omitió
+                QWEN_TOOL_TEMPLATE = """{{- if .Messages }}
+{{- if or .System .Tools }}<|im_start|>system
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
 
-                logger.info(f"[MLOps OTA] Registrando modelo '{new_model_tag}' en Ollama...")
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {{ .Function }}}
+{{- end }}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <json-args>}
+</tool_call>
+{{- end }}<|im_end|>
+{{- end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 -}}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{- else if eq .Role "assistant" }}<|im_start|>assistant
+{{- if .Content }}
+{{ .Content }}
+{{- end }}
+{{- if .ToolCalls }}
+<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}<|im_end|>
+{{- else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{- end }}
+{{- if and (ne .Role "assistant") $last }}<|im_start|>assistant
+{{- end }}
+{{- end }}
+{{- else }}
+{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{- end }}
+{{- if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{- end }}
+<|im_start|>assistant
+{{- end }}"""
+
+                logger.info(f"[MLOps OTA] Registrando modelo '{new_model_tag}' en Ollama (Fase 1: Ingestión de Pesos GGUF)...")
                 create_payload = {
                     "name": new_model_tag,
                     "files": {
                         "model.gguf": digest
                     },
-                    "modelfile": rich_modelfile,
+                    "modelfile": "FROM model.gguf\n",
                     "stream": True,
                 }
                 
@@ -133,10 +177,26 @@ class MLOpsService:
                             ollama_error = chunk["error"]
                             break
 
-            if ollama_error:
-                raise Exception(f"Ollama registration failed: {ollama_error}")
+                if ollama_error:
+                    raise Exception(f"Ollama registration failed: {ollama_error}")
 
-            logger.success(f"[MLOps OTA] Modelo '{new_model_tag}' registrado exitosamente en Ollama.")
+                logger.info(f"[MLOps OTA] Fase 1 completa. Forzando Override de Template Tool-Calling (Fase 2) vía Ollama SDK...")
+                
+                # Usamos el SDK oficial de Python para evitar el bug de borrado de Modelfile de la REST API (v0.5+)
+                import ollama
+                ollama_client = ollama.Client(host=settings.ollama_base_url)
+                
+                def _compile_tools_template():
+                    ollama_client.create(
+                        model=new_model_tag,
+                        from_=new_model_tag,
+                        template=QWEN_TOOL_TEMPLATE,
+                        parameters={"stop": ["<|im_start|>", "<|im_end|>"]}
+                    )
+                
+                await asyncio.to_thread(_compile_tools_template)
+                
+                logger.success(f"[MLOps OTA] Modelo '{new_model_tag}' compilado con Tools Support Exitosamente.")
 
         except Exception as e:
             logger.error(f"[MLOps OTA] Excepción durante el proceso OTA: {e}")

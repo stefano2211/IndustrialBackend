@@ -147,7 +147,7 @@ async def list_provider_models(
                             })
                     return models
         except Exception as e:
-            return [{"id": "qwen3.5:9b", "name": "qwen3.5:9b (Offline)", "error": str(e)}]
+            return [{"id": settings.default_llm_model, "name": f"{settings.default_llm_model} (Offline)", "error": str(e)}]
 
     if provider_id == "openrouter":
         # Dynamic fetch would be better, but sticking to requested models

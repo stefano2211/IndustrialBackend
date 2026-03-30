@@ -28,9 +28,9 @@ class LLMProvider(str, Enum):
 
 
 def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
-    # Set a larger context window (num_ctx) to avoid truncation (default is usually 4k)
+    # Set a balanced context window to avoid VRAM OOM on 8GB cards
     if "num_ctx" not in kwargs:
-        kwargs["num_ctx"] = 50000 # Increased to 128k
+        kwargs["num_ctx"] = 16384 # 16k total, ensuring 8k per slot for stable 8GB VRAM performance
     
     # Map max_tokens to num_predict for ChatOllama
     if "max_tokens" in kwargs:
@@ -41,9 +41,13 @@ def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] 
         
     streaming = kwargs.pop("streaming", True)
     
+    # Ensure stop tokens are always present to avoid infinite loops
+    if "stop" not in kwargs:
+        kwargs["stop"] = ["<|im_end|>", "<|endoftext|>", "Assistant:", "User:"]
+
     return ChatOllama(
         base_url=base_url or settings.ollama_base_url,
-        model=model_name or "qwen3.5:9b",
+        model=model_name or settings.default_llm_model,
         temperature=temperature,
         streaming=streaming,
         **kwargs,
@@ -148,9 +152,9 @@ class LLMFactory:
             if provider == LLMProvider.OLLAMA:
                 # If the global default looks like an OpenRouter model (contains /), use a safe Ollama fallback
                 if settings.default_llm_model and "/" in settings.default_llm_model:
-                    model_name = "qwen3.5:9b"
+                    model_name = "llama3.1:8b" # Safe local fallback
                 else:
-                    model_name = settings.default_llm_model or "qwen3.5:9b"
+                    model_name = settings.default_llm_model
             else:
                 model_name = settings.default_llm_model
 

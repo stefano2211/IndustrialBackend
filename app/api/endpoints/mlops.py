@@ -13,6 +13,7 @@ from app.core.mothership_client import mothership_client
 router = APIRouter()
 
 class WebhookPayload(BaseModel):
+    model_config = {"protected_namespaces": ()}
     model_tag: str
 
 def get_mlops_service() -> MLOpsService:

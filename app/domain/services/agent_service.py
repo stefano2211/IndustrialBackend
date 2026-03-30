@@ -132,13 +132,9 @@ class AgentService:
                 p_desc = param_def.get("description", "")
                 p_enum = param_def.get("enum")
                 p_default = param_def.get("default")
-                is_required = param_name in required_fields or param_name in path_params
-                req_tag = "[required]" if is_required else "[optional]"
-                enum_hint = f"  choices: {p_enum}" if p_enum else ""
-                default_hint = f"  default: {p_default}" if p_default is not None else ""
-                lines.append(
-                    f"    - {param_name} ({p_type}) {req_tag}: {p_desc}{enum_hint}{default_hint}"
-                )
+                is_required = "[req]" if (param_name in required_fields or param_name in path_params) else "[opt]"
+                p_desc_short = (p_desc[:60] + "..") if len(p_desc) > 60 else p_desc
+                lines.append(f"    - {param_name} ({p_type}) {is_required}: {p_desc_short}")
         elif path_params:
             # Fallback when schema is empty but path params exist
             lines.append("  Parameters:")
@@ -171,11 +167,10 @@ class AgentService:
             if kv_fields:
                 lines.append( "    [CATEGORICAL] — key_values fields and available values:")
                 for kv_field, kv_vals in kv_fields.items():
-                    # Limit to first 15 values to keep context compact
-                    vals_preview = kv_vals[:15]
-                    suffix = f" ...+{len(kv_vals) - 15} more" if len(kv_vals) > 15 else ""
-                    lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
-                lines.append( "                 Usage: {\"key_values\": {\"<field>\": [\"<value1>\", ...]}}")
+                    # Limit to first 5 values to keep context compact
+                    vals_preview = kv_vals[:5]
+                    suffix = f" (tot:{len(kv_vals)})" if len(kv_vals) > 5 else ""
+                lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
 
         return "\n".join(lines)
 
@@ -295,19 +290,34 @@ class AgentService:
             if stop_val:
                 merged_params["stop"] = [stop_val]
 
-        # 3. Create LLM with resolved config and merged params
-        llm = await LLMFactory.get_llm(
+        # 3. Create Orchestrator LLM with resolved config and merged params from UI
+        ui_generalist_llm = await LLMFactory.get_llm(
             provider=provider,
             model_name=model_name,
             session=session,
             **merged_params
         )
         
-        # 4. Apply additional settings
-        if hasattr(llm, "max_retries"):
-            llm.max_retries = settings.llm_max_retries
-        if hasattr(llm, "request_timeout"):
-            llm.request_timeout = settings.llm_request_timeout
+        # 4. Apply additional settings to Orchestrator
+        if hasattr(ui_generalist_llm, "max_retries"):
+            ui_generalist_llm.max_retries = settings.llm_max_retries
+        if hasattr(ui_generalist_llm, "request_timeout"):
+            ui_generalist_llm.request_timeout = settings.llm_request_timeout
+            
+        # 4.5 Create Fixed Expert LLM (siempre el mismo para conectarse a Data/RAG)
+        expert_llm = await LLMFactory.get_llm(
+            provider=LLMProvider.OLLAMA,
+            model_name=settings.default_llm_model,
+            session=session,
+        )
+        
+        # 4.6 Create Dedicated Worker LLM (Now uses the same UI model as the orchestrator)
+        worker_llm = await LLMFactory.get_llm(
+            provider=provider,
+            model_name=model_name,
+            session=session,
+            **merged_params
+        )
         
         # 5. Handle system prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:
@@ -336,30 +346,46 @@ class AgentService:
         ]
         tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
+        # 3. Create Orchestrator and reuse for worker
+        ui_generalist_llm = await LLMFactory.get_llm(
+            provider=provider,
+            model_name=model_name,
+            session=session,
+            **merged_params
+        )
+        worker_llm = ui_generalist_llm
+
+        # 4. Expert Factory (Lazy)
+        expert_llm_factory = lambda: LLMFactory.get_llm(
+            provider=LLMProvider.OLLAMA,
+            model_name=settings.default_llm_model,
+            session=session,
+        )
+
         custom_prompt = db_model.system_prompt if db_model else None
 
+        # 5. Assemble and run
         if use_generalist:
             # ── GENERALIST ORCHESTRATOR MODE (Magentic-One) ──────────────────
-            # Two Ollama models: llama3.1:8b (director) + expert model (specialist)
             logger.info("[AgentService] Assembling Generalist Orchestrator (invoke)...")
-            generalist_llm = await LLMFactory.get_llm(
-                provider=LLMProvider.OLLAMA,
-                model_name=settings.generalist_llm_model,
-                session=session,
-            )
             agent = create_generalist_orchestrator(
-                generalist_model=generalist_llm,
-                expert_model=llm,
+                generalist_model=ui_generalist_llm,
+                expert_model=expert_llm_factory,
+                worker_model=worker_llm,
                 checkpointer=checkpointer,
                 store=store,
                 mcp_tools_context=tools_context,
                 enable_knowledge=(knowledge_base_id != "none"),
                 enable_mcp=(mcp_source_id != "none"),
+                enable_satellite=True,
             )
         else:
-            # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────
+            # ── EXPERT DIRECT MODE ──────────────────
+            # Re-initialize expert here if needed for direct mode
+            expert_llm = await expert_llm_factory()
             agent = create_industrial_agent(
-                model=llm, checkpointer=checkpointer, store=store,
+                model=expert_llm, worker_model=worker_llm, 
+                checkpointer=checkpointer, store=store,
                 custom_system_prompt=custom_prompt,
                 mcp_tools_context=tools_context,
                 enable_knowledge=(knowledge_base_id != "none"),
@@ -448,8 +474,8 @@ class AgentService:
             if stop_val:
                 merged_params["stop"] = [stop_val]
 
-        # 3. Create LLM with resolved config and merged params
-        llm = await LLMFactory.get_llm(
+        # 3. Create Orchestrator LLM
+        ui_generalist_llm = await LLMFactory.get_llm(
             provider=provider,
             model_name=model_name,
             session=session,
@@ -457,18 +483,28 @@ class AgentService:
         )
         
         # 4. Apply additional settings
-        if hasattr(llm, "max_retries"):
-            llm.max_retries = settings.llm_max_retries
-        if hasattr(llm, "request_timeout"):
-            llm.request_timeout = settings.llm_request_timeout
+        if hasattr(ui_generalist_llm, "max_retries"):
+            ui_generalist_llm.max_retries = settings.llm_max_retries
+        if hasattr(ui_generalist_llm, "request_timeout"):
+            ui_generalist_llm.request_timeout = settings.llm_request_timeout
             
-        # 4.5 Temporal Router
-        is_historical = await self._check_temporal_route(query, llm)
+        # 4.2 Use a single instance for Orchestrator and Worker to save VRAM and eliminate duplicate logs
+        worker_llm = ui_generalist_llm
+
+        # 4.3 Temporal Router (Reusing the same generalist instance)
+        is_historical = await self._check_temporal_route(query, ui_generalist_llm)
         if is_historical:
             logger.info(f"ROUTER: Query is purely historical! Bypassing MCP/RAG tools to save tokens.")
-            # Future improvement: conditionally change model to `-historical`
             mcp_source_id = "none"
             knowledge_base_id = "none"
+
+        # 4.4 Expert Loader: Defer to generalist_agent factory
+        # We pass the session and params instead of a pre-initialized LLM to allow lazy loading
+        expert_llm_factory = lambda: LLMFactory.get_llm(
+            provider=LLMProvider.OLLAMA,
+            model_name=settings.default_llm_model, # aura_tenant_01-v2
+            session=session,
+        )
 
         # 5. Handle system prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:
@@ -499,26 +535,24 @@ class AgentService:
 
         if use_generalist:
             # ── GENERALIST ORCHESTRATOR MODE (Magentic-One) ──────────────────
-            # Two Ollama models: llama3.1:8b (director) + expert model (specialist)
             logger.info("[AgentService] Assembling Generalist Orchestrator (stream)...")
-            generalist_llm = await LLMFactory.get_llm(
-                provider=LLMProvider.OLLAMA,
-                model_name=settings.generalist_llm_model,
-                session=session,
-            )
             agent = create_generalist_orchestrator(
-                generalist_model=generalist_llm,
-                expert_model=llm,
+                generalist_model=ui_generalist_llm,
+                expert_model=expert_llm_factory, # Passing the factory for lazy init
+                worker_model=worker_llm,
                 checkpointer=checkpointer,
                 store=store,
                 mcp_tools_context=tools_context,
                 enable_knowledge=(knowledge_base_id != "none"),
                 enable_mcp=(mcp_source_id != "none"),
+                enable_satellite=True,
             )
         else:
             # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────
+            expert_llm = await expert_llm_factory()
             agent = create_industrial_agent(
-                model=llm, checkpointer=checkpointer, store=store,
+                model=expert_llm, worker_model=worker_llm, 
+                checkpointer=checkpointer, store=store,
                 custom_system_prompt=custom_prompt,
                 mcp_tools_context=tools_context,
                 enable_knowledge=(knowledge_base_id != "none"),

@@ -11,7 +11,7 @@ Assembles the agent from dedicated modules:
 The factory has ONE responsibility: assembling the agent (SRP).
 """
 
-from deepagents import create_deep_agent
+from deepagents import create_deep_agent, CompiledSubAgent
 
 from app.domain.agent.prompts import INDUSTRIAL_SYSTEM_PROMPT, AGENTS_MD_CONTENT
 from app.domain.agent.subagents import get_all_subagents
@@ -23,6 +23,7 @@ from app.domain.agent.tools.mcp_tool import call_dynamic_mcp
 
 def create_industrial_agent(
     model=None, 
+    worker_model=None,
     checkpointer=None, 
     store=None, 
     custom_system_prompt: str = None,
@@ -51,36 +52,54 @@ def create_industrial_agent(
 
     # Prepare sub-agents with dynamic context
     subagents = []
-    active_tools = []
     
     for sa in get_all_subagents():
         sa_copy = sa.copy()
         
+        sa_tools = []
         # Filter Knowledge Subagent
         if sa_copy["name"] == "knowledge-researcher":
             if not enable_knowledge:
                 continue
-            active_tools.append(ask_knowledge_agent)
+            sa_tools.append(ask_knowledge_agent)
             
         # Filter MCP Subagent
-        if sa_copy["name"] == "mcp-orchestrator":
+        elif sa_copy["name"] == "mcp-orchestrator":
             if not enable_mcp:
                 continue
             sa_copy["system_prompt"] = sa_copy["system_prompt"].format(
                 dynamic_tools_context=mcp_tools_context
             )
-            active_tools.append(call_dynamic_mcp)
+            sa_tools.append(call_dynamic_mcp)
             
-        subagents.append(sa_copy)
+        if sa_tools and worker_model:
+            sa_graph = create_deep_agent(
+                model=worker_model,
+                tools=sa_tools,
+                system_prompt=sa_copy["system_prompt"],
+                subagents=[]
+            )
+            compiled_sa = CompiledSubAgent(
+                name=sa_copy["name"],
+                description=sa_copy["description"],
+                graph=sa_graph
+            )
+            compiled_sa["system_prompt"] = sa_copy.get("system_prompt", "")
+            subagents.append(compiled_sa)
+        else:
+            if "tools" in sa_copy:
+                sa_copy["tools"] = sa_tools
+            subagents.append(sa_copy)
 
     return create_deep_agent(
         model=model,
-        tools=active_tools,
+        tools=[],  # Tools are now encapsulated in the CompiledSubAgents
         system_prompt=full_prompt,
         subagents=subagents,
         backend=create_composite_backend,
         middleware=get_all_middleware(),
         memory=["/AGENTS.md"],
+        skills=["/skills/industrial_safety/"], # Virtual path pointing to our new SKILL.md
         checkpointer=checkpointer,
         store=store,
     )

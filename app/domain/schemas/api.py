@@ -30,8 +30,8 @@ class ChatRequest(BaseModel):
     model_id: Optional[str] = None
     params: Optional[ModelParams] = None
     # Generalist Orchestrator mode (Magentic-One pattern):
-    # True  → llama3.1:8b director routes to qwen3.5:9b expert as needed
-    # False → qwen3.5:9b expert is called directly (default, backward compatible)
+    # True  → User-selected model (director) routes to Aura expert
+    # False → Aura expert is called directly (default, backward compatible)
     use_generalist: bool = False
 
 class ChatResponse(BaseModel):

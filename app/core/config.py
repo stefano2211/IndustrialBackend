@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # Defaults
     default_llm_provider: str = "ollama"
-    default_llm_model: Optional[str] = "qwen3.5:9b" # Expert industrial model (fine-tuned via LLMOps)
+    default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert industrial model (fine-tuned via LLMOps)
 
     # Generalist Orchestrator (Magentic-One layer — also runs on Ollama)
     generalist_llm_model: str = "llama3.1:8b"  # General-purpose director model

@@ -28,15 +28,23 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 async def _warmup_ollama():
     """Pre-load the LLM model into VRAM during app startup.
-    This eliminates the cold-start delay (~15s) on the first user request.
+    This runs in the background so it doesn't block FastAPI startup.
     """
     try:
         logger.info("🔥 [Warmup] Pre-loading LLM model into VRAM...")
-        llm = await LLMFactory.get_llm(provider=LLMProvider.OLLAMA)
-        await llm.ainvoke("warmup")
-        logger.info("✅ [Warmup] LLM model loaded and ready.")
+        import asyncio
+        
+        async def _do_warmup():
+            try:
+                llm = await LLMFactory.get_llm(provider=LLMProvider.OLLAMA)
+                await llm.ainvoke("warmup")
+                logger.info("✅ [Warmup] LLM model loaded and ready.")
+            except Exception as e:
+                logger.warning(f"⚠️ [Warmup] Failed background LLM load (non-fatal): {e}")
+
+        asyncio.create_task(_do_warmup())
     except Exception as e:
-        logger.warning(f"⚠️ [Warmup] Could not pre-load LLM (non-fatal): {e}")
+        logger.warning(f"⚠️ [Warmup] Could not initiate LLM pre-load: {e}")
 
 
 @asynccontextmanager
@@ -50,7 +58,7 @@ async def lifespan(app: FastAPI):
     app.state.checkpointer = checkpointer
     app.state.store = store
 
-    await _warmup_ollama()
+    # await _warmup_ollama()
 
     # Start the DB Collector scheduler (loads all enabled sources as cron jobs)
     await collector_scheduler.start()

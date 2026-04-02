@@ -346,22 +346,9 @@ class AgentService:
         ]
         tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
-        # 3. Create Orchestrator and reuse for worker
-        ui_generalist_llm = await LLMFactory.get_llm(
-            provider=provider,
-            model_name=model_name,
-            session=session,
-            **merged_params
-        )
-        worker_llm = ui_generalist_llm
-
         # 4. Expert Factory (Lazy)
-        expert_llm_factory = lambda: LLMFactory.get_llm(
-            provider=LLMProvider.OLLAMA,
-            model_name=settings.default_llm_model,
-            session=session,
-        )
-
+        expert_llm_factory = lambda: expert_llm
+        
         custom_prompt = db_model.system_prompt if db_model else None
 
         # 5. Assemble and run

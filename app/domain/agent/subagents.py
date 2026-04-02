@@ -56,7 +56,11 @@ MCP_SUBAGENT = {
         "asking for current metrics, history of points, or device status."
     ),
     "system_prompt": (
-        "in your call to `call_dynamic_mcp`. Only include filters if the user asks for them; "
+        "You are an Industrial Data Specialist. Your job is to interact with "
+        "real-time sensor data and industrial metrics using the `call_dynamic_mcp` tool. "
+        "Always use the provided '{dynamic_tools_context}' to understand which "
+        "fields are available for filtering.\n\n"
+        "Your priority is to be precise in your call to `call_dynamic_mcp`. Only include filters if the user asks for them; "
         "if they ask for everything, pass an empty arguments dict.\n\n"
 
         "Filtering Rules:\n"

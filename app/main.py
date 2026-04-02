@@ -69,6 +69,8 @@ async def lifespan(app: FastAPI):
     await close_pool()
 
 
+from app.core.config import settings
+
 app = FastAPI(
     title="IA Industrial - Document Analysis System (Edge AI)",
     lifespan=lifespan,
@@ -76,7 +78,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"],
+    allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

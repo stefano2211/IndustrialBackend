@@ -27,24 +27,6 @@ AGENTS_MD_CONTENT = """\
 
 ## Preferences
 - Cite exact section/page of the found regulation
-- Reports: findings, risks and recommendations
-- Always reply in the user's language (Spanish by default)
-
-## Learned Patterns
-(The agent can update this section when learning user preferences)
-
-##    "system_prompt": (
-        "Industrial Data Orchestrator. "
-        "Use `call_dynamic_mcp` for metrics. Synthesize JSON into summary. "
-        "Match user language.\n\n"
-        "Available:\n{dynamic_tools_context}"
-    ),
-"""
-
-TEMPORAL_ROUTER_PROMPT = """\
-You are an expert Temporal Router Assistant. Your ONLY job is to determine if the user's query is STRICTLY asking for data or events older than 6 months.
-
-Current Date context: {current_date}
 
 User Query: "{query}"
 

@@ -56,88 +56,99 @@ async def call_dynamic_mcp(
     """
     logger.info(f"[MCP Tool] Calling dynamic tool: {tool_config_name} with args: {arguments}")
 
+    provided_session = config.get("configurable", {}).get("session")
+    if provided_session:
+        return await _do_call_dynamic_mcp(provided_session, tool_config_name, arguments)
+    
     async with async_session_factory() as session:
-        repo = ToolConfigRepository(session)
-        tool_config = await repo.get_by_name(tool_config_name)
+        return await _do_call_dynamic_mcp(session, tool_config_name, arguments)
 
-        if not tool_config:
-            return json.dumps({"error": f"Tool configuration '{tool_config_name}' not found."})
+async def _do_call_dynamic_mcp(
+    session,
+    tool_config_name: str,
+    arguments: dict = {},
+) -> str:
+    repo = ToolConfigRepository(session)
+    tool_config = await repo.get_by_name(tool_config_name)
 
-        mcp_service = _get_mcp_service()
+    if not tool_config:
+        return json.dumps({"error": f"Tool configuration '{tool_config_name}' not found."})
 
-        config_data = tool_config.config or {}
-        execution_url = config_data.get("url") or tool_config.api_url
-        transport_type = config_data.get("transport", "mcp")
-        method = config_data.get("method") or tool_config.method or "GET"
+    mcp_service = _get_mcp_service()
 
-        parameter_schema = tool_config.parameter_schema or {}
-        schema_hints = parameter_schema.get("response") or {}
+    config_data = tool_config.config or {}
+    execution_url = config_data.get("url") or tool_config.api_url
+    transport_type = config_data.get("transport", "mcp")
+    method = config_data.get("method") or tool_config.method or "GET"
 
-        # ── Extract smart filters from arguments (pop before sending to API) ──
-        clean_arguments = arguments.copy()
-        key_values_filter = clean_arguments.pop("key_values", None)
-        key_figures_filter = clean_arguments.pop("key_figures", None)
+    parameter_schema = tool_config.parameter_schema or {}
+    schema_hints = parameter_schema.get("response") or {}
 
-        if key_values_filter:
-            logger.info(f"[MCP Tool] Applying key_values filter: {key_values_filter}")
-        if key_figures_filter:
-            logger.info(f"[MCP Tool] Applying key_figures filter: {key_figures_filter}")
+    # ── Extract smart filters from arguments (pop before sending to API) ──
+    clean_arguments = arguments.copy()
+    key_values_filter = clean_arguments.pop("key_values", None)
+    key_figures_filter = clean_arguments.pop("key_figures", None)
 
-        # ── Robust URL resolution ──────────────────────────────────────────────
-        if execution_url and "://" not in execution_url:
-            source = await session.get(MCPSource, tool_config.source_id)
-            if source and source.url:
-                base_url = source.url.rstrip("/")
-                path = execution_url.lstrip("/")
-                execution_url = f"{base_url}/{path}"
-                logger.info(f"[MCP Tool] Resolved relative URL to: {execution_url}")
+    if key_values_filter:
+        logger.info(f"[MCP Tool] Applying key_values filter: {key_values_filter}")
+    if key_figures_filter:
+        logger.info(f"[MCP Tool] Applying key_figures filter: {key_figures_filter}")
 
-        if execution_url and "://" in execution_url:
-            scheme, rest = execution_url.split("://", 1)
-            while "//" in rest:
-                rest = rest.replace("//", "/")
-            execution_url = f"{scheme}://{rest}"
+    # ── Robust URL resolution ──────────────────────────────────────────────
+    if execution_url and "://" not in execution_url:
+        source = await session.get(MCPSource, tool_config.source_id)
+        if source and source.url:
+            base_url = source.url.rstrip("/")
+            path = execution_url.lstrip("/")
+            execution_url = f"{base_url}/{path}"
+            logger.info(f"[MCP Tool] Resolved relative URL to: {execution_url}")
 
-        # Heuristic: Detect REST transport
-        if transport_type == "mcp" and execution_url and "://" in execution_url:
-            if any(domain in execution_url for domain in ["pokeapi.co", "api.", "/api/"]):
-                logger.info(f"[MCP Tool] Heuristic detected REST transport for {execution_url}")
-                transport_type = "rest"
+    if execution_url and "://" in execution_url:
+        scheme, rest = execution_url.split("://", 1)
+        while "//" in rest:
+            rest = rest.replace("//", "/")
+        execution_url = f"{scheme}://{rest}"
 
-        logger.info(f"[MCP Tool] Executing {tool_config_name} via {transport_type} at {execution_url}")
+    # Heuristic: Detect REST transport
+    if transport_type == "mcp" and execution_url and "://" in execution_url:
+        if any(domain in execution_url for domain in ["pokeapi.co", "api.", "/api/"]):
+            logger.info(f"[MCP Tool] Heuristic detected REST transport for {execution_url}")
+            transport_type = "rest"
 
-        response = await mcp_service.execute_tool(
-            base_url=execution_url,
-            tool_name=tool_config_name,
-            arguments=clean_arguments,
-            is_stdio=(transport_type == "stdio"),
-            transport_type=transport_type,
-            method=method,
-            schema_hints=schema_hints or None,
-            key_values_filter=key_values_filter,
-            key_figures_filter=key_figures_filter,
-        )
+    logger.info(f"[MCP Tool] Executing {tool_config_name} via {transport_type} at {execution_url}")
 
-        if response.error:
-            return json.dumps({"error": f"Error from {tool_config_name}: {response.error}"})
+    response = await mcp_service.execute_tool(
+        base_url=execution_url,
+        tool_name=tool_config_name,
+        arguments=clean_arguments,
+        is_stdio=(transport_type == "stdio"),
+        transport_type=transport_type,
+        method=method,
+        schema_hints=schema_hints or None,
+        key_values_filter=key_values_filter,
+        key_figures_filter=key_figures_filter,
+    )
 
-        result = {
-            "source": response.source,
-            "key_figures": [
-                {"name": kf.name, "value": kf.value, "unit": kf.unit}
-                for kf in response.key_figures
-            ],
-            "key_values": [
-                {"name": kv.name, "value": kv.value}
-                for kv in response.key_values
-            ],
-        }
+    if response.error:
+        return json.dumps({"error": f"Error from {tool_config_name}: {response.error}"})
 
-        if not response.key_figures and not response.key_values:
-            result["warning"] = "No structured data could be extracted from the response."
+    result = {
+        "source": response.source,
+        "key_figures": [
+            {"name": kf.name, "value": kf.value, "unit": kf.unit}
+            for kf in response.key_figures
+        ],
+        "key_values": [
+            {"name": kv.name, "value": kv.value}
+            for kv in response.key_values
+        ],
+    }
 
-        logger.info(
-            f"[MCP Tool] Returning {len(result['key_figures'])} key figures "
-            f"and {len(result['key_values'])} key values for {tool_config_name}"
-        )
-        return json.dumps(result, ensure_ascii=False)
+    if not response.key_figures and not response.key_values:
+        result["warning"] = "No structured data could be extracted from the response."
+
+    logger.info(
+        f"[MCP Tool] Returning {len(result['key_figures'])} key figures "
+        f"and {len(result['key_values'])} key values for {tool_config_name}"
+    )
+    return json.dumps(result, ensure_ascii=False)

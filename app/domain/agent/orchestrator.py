@@ -4,14 +4,15 @@ Generalist Orchestrator Factory.
 Routes queries to the appropriate specialist via a flat 2-level hierarchy:
 
   Orchestrator (generalist_model — Qwen 32b)
-    ├── Sistema1Subagent (vision_model — VL fine-tuned)   ← historical + vision
-    └── IndustrialExpert (expert_model — Aura fine-tuned) ← RAG + MCP real-time
+    ├── Sistema1Subagent   (vision_model — VL fine-tuned)   ← historical + vision
+    ├── ComputerUseAgent   (vision_model — VL fine-tuned)   ← Observe-Think-Act loop
+    └── IndustrialExpert   (expert_model — Aura fine-tuned) ← RAG + MCP real-time
 
 Design principles:
   - Sistema 1 handles knowledge BAKED INTO ITS WEIGHTS (historical, fine-tuned patterns).
+  - ComputerUseAgent handles GUI interaction tasks (Macrohard Digital Optimus Local).
   - IndustrialExpert handles LIVE DATA (RAG search + MCP sensors).
-  - Both specialize; the orchestrator only routes — it does NOT reason about domain data.
-  - vision_model can be None: the orchestrator degrades gracefully without Sistema 1.
+  - vision_model can be None: orchestrator degrades gracefully without VL subagents.
 
 IMPORTANT:
   - `generalist_model` MUST be a resolved LLM instance (not a callable).
@@ -25,6 +26,7 @@ from loguru import logger
 from app.domain.agent.factory import create_industrial_agent
 from app.domain.agent.subagents.system1_subagent import create_system1_agent
 from app.domain.agent.prompts.generalist import GENERALIST_SYSTEM_PROMPT
+from app.core.config import settings
 
 
 def create_generalist_orchestrator(
@@ -38,6 +40,8 @@ def create_generalist_orchestrator(
     enable_knowledge: bool = True,
     enable_mcp: bool = True,
     enable_system1: bool = True,
+    enable_computer_use: bool = True,
+    vl_replay_buffer=None,
 ) -> object:
     """
     Creates the Generalist Orchestrator — the top-level router.
@@ -45,36 +49,35 @@ def create_generalist_orchestrator(
     Args:
         generalist_model: Resolved LLM for orchestration. MUST be a real LLM instance.
         expert_model: Resolved LLM OR async factory for the IndustrialExpert.
-                      Resolved lazily inside the graph to avoid loading into VRAM upfront.
-        vision_model: Resolved multimodal LLM for Sistema 1 (e.g., qwen2.5-vl:7b).
-                      If None, Sistema 1 is skipped — system operates without it.
-        worker_model: Model used by the IndustrialExpert's sub-subagents (RAG, MCP).
-                      Defaults to generalist_model (sub-agents don't need the fine-tuned model).
-        checkpointer: LangGraph checkpointer for thread-scoped conversation memory.
-        store: LangGraph store for user-scoped long-term memory (cross-thread).
-        mcp_tools_context: Formatted MCP tools string passed down to IndustrialExpert.
+        vision_model: Resolved multimodal LLM for Sistema 1 + Computer Use (Qwen2.5-VL).
+                      If None, VL subagents are skipped gracefully.
+        worker_model: Model for IndustrialExpert sub-subagents. Defaults to generalist_model.
+        checkpointer: LangGraph checkpointer for thread-scoped memory.
+        store: LangGraph store for user-scoped long-term memory.
+        mcp_tools_context: Formatted MCP tools string for IndustrialExpert.
         enable_knowledge: Whether IndustrialExpert can use the RAG knowledge base.
         enable_mcp: Whether IndustrialExpert can call real-time MCP tools.
-        enable_system1: Master toggle for Sistema 1 (also requires vision_model != None).
+        enable_system1: Toggle for Sistema 1 historical/VL subagent.
+        enable_computer_use: Toggle for Computer Use Agent (Digital Optimus Local).
+        vl_replay_buffer: VLReplayBuffer instance to store training trajectories.
 
     Returns:
         A compiled LangGraph graph ready for ainvoke() / astream_events().
     """
+    _has_vision = vision_model is not None
     logger.info(
         f"[Orchestrator] Assembling. "
-        f"enable_system1={enable_system1 and vision_model is not None}, "
+        f"enable_system1={enable_system1 and _has_vision}, "
+        f"enable_computer_use={enable_computer_use and _has_vision and settings.computer_use_enabled}, "
         f"enable_knowledge={enable_knowledge}, enable_mcp={enable_mcp}"
     )
 
     all_subagents = []
 
     # ── 1. Sistema 1 (VL Fine-tuned — Historical + Vision) ────────────────
-    # Registered FIRST so the orchestrator considers it before the IndustrialExpert.
-    # This way, historical queries are answered from the fine-tuned weights
-    # without turning on the heavier RAG/MCP pipeline.
     if enable_system1:
         sistema1 = create_system1_agent(
-            vision_model=vision_model,   # None → skipped gracefully with a warning
+            vision_model=vision_model,
             checkpointer=checkpointer,
             store=store,
         )
@@ -87,16 +90,50 @@ def create_generalist_orchestrator(
                 "Historical queries will fall through to IndustrialExpert."
             )
 
-    # ── 2. Industrial Expert (Aura Fine-tuned — RAG + MCP) ────────────────
-    # Lazy-loaded to avoid instantiating the fine-tuned model into VRAM until needed.
-    # Sub-subagents (knowledge-researcher, mcp-orchestrator) use worker_model,
-    # which defaults to generalist_model — they don't need the fine-tuned expert.
+    # ── 2. Computer Use Agent (Digital Optimus Local — Macrohard) ─────────
+    if enable_computer_use and _has_vision and settings.computer_use_enabled:
+        from app.domain.agent.subagents.computer_use_subagent import create_computer_use_agent
+        from app.persistence.vl_replay_buffer import vl_replay_buffer as default_vl_buffer
+
+        _active_buffer = vl_replay_buffer or default_vl_buffer
+
+        computer_use_graph = create_computer_use_agent(
+            vision_llm=vision_model,
+            vl_replay_buffer=_active_buffer,
+        )
+
+        computer_use_subagent = CompiledSubAgent(
+            name="computer-use-agent",
+            description=(
+                "USE when the user asks to PERFORM AN ACTION on a computer interface: "
+                "navigating SAP GUI transactions (MB51, ME21N, VL02N, etc.), "
+                "clicking buttons, filling forms, updating records in ERP/database screens, "
+                "or sending emails via an email client. "
+                "This agent SEES the screen and ACTS on it step by step. "
+                "Provide a clear, single instruction describing what to accomplish. "
+                "DO NOT use for answering questions — use industrial-expert for that."
+            ),
+            graph=computer_use_graph,
+        )
+        all_subagents.append(computer_use_subagent)
+        logger.info(
+            f"[Orchestrator] Computer Use Agent registered "
+            f"(demo_mode={settings.computer_use_demo_mode}, "
+            f"max_steps={settings.computer_use_max_steps})."
+        )
+    elif enable_computer_use and not _has_vision:
+        logger.warning(
+            "[Orchestrator] Computer Use Agent skipped (vision_model unavailable). "
+            "Deploy VL model via OTA to activate."
+        )
+
+    # ── 3. Industrial Expert (Aura Fine-tuned — RAG + MCP) ────────────────
     async def _load_industrial_expert():
         """Async factory: resolve expert_model and assemble IndustrialExpert."""
         resolved_expert = await expert_model() if callable(expert_model) else expert_model
         return create_industrial_agent(
             model=resolved_expert,
-            worker_model=worker_model or generalist_model,   # sub-agents use generalist
+            worker_model=worker_model or generalist_model,
             checkpointer=checkpointer,
             store=store,
             mcp_tools_context=mcp_tools_context,
@@ -112,7 +149,8 @@ def create_generalist_orchestrator(
             "searching internal company manuals (ISO, OSHA, NOM regulations), "
             "and incident report lookup. "
             "DO NOT use for historical data older than 6 months — "
-            "use sistema1-experto for that."
+            "use sistema1-experto for that. "
+            "DO NOT use for GUI actions — use computer-use-agent for that."
         ),
         graph=_load_industrial_expert,
     )
@@ -120,7 +158,7 @@ def create_generalist_orchestrator(
 
     logger.info(f"[Orchestrator] {len(all_subagents)} subagent(s) registered.")
 
-    # ── 3. Assemble Orchestrator ───────────────────────────────────────────
+    # ── 4. Assemble Orchestrator ───────────────────────────────────────────
     return create_deep_agent(
         model=generalist_model,
         system_prompt=GENERALIST_SYSTEM_PROMPT,

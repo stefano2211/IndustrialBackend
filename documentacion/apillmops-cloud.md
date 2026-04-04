@@ -39,8 +39,8 @@ La estructura de carpetas sigue un patrón de diseño por capas (Domain-Driven D
                        │
 ┌──────────────────────▼──────────────────────────────┐
 │              API Layer (app/api/)                    │
-│  datasets.py (Ingesta de datos .jsonl)               │
-│  training.py (Dispara y consulta jobs de Celery)     │
+│  datasets.py / vl_datasets.py (Ingesta de datos)     │
+│  training.py / vl_training.py (Jobs de Celery)       │
 │  models.py   (Registry: emite Presigned URLs S3)     │
 └──────────────────────┬──────────────────────────────┘
                        │
@@ -49,7 +49,7 @@ La estructura de carpetas sigue un patrón de diseño por capas (Domain-Driven D
 │                                                      │
 │  ┌──────────────┐  ┌──────────────┐                 │
 │  │   schemas/   │  │  services/   │                 │
-│  │ Pydantic DTOs│  │unsloth_trainer (Celery Task)   │
+│  │ Pydantic DTOs│  │ unsloth_trainer / vl_trainer   │
 │  └──────────────┘  └──────────────┘                 │
 └──────────────────────┬──────────────────────────────┘
                        │
@@ -70,14 +70,11 @@ El Endpoint `POST /upload` en `datasets.py` atiende a los Nodos Edge.
 3. Le anexa asincrónicamente el nuevo chunk (`aiofiles`).
 4. Reemplaza el master file viejo en S3 subiendo el nuevo.
 
-### 3.2 Fine-Tuning & Exportación GGUF
-El Endpoint `POST /job` en `training.py` encola una tarea en Celery. El Worker GPU la consume:
-1. **Download:** Descarga todos los `.jsonl` correspondientes al `tenant_id`.
-2. **Pre-processing:** Carga los datos, formatea a ChatML usando HuggingFace `trl`.
-3. **Training:** Carga el `base_model` usando `Unsloth` (load_in_4bit) + QLoRA target modules. Entrena usando `SFTTrainer`.
-4. **Compile & Quantize:** Exporta directamente desde el estado LoRA activo a formato GGUF (int4/`q4_k_m`) nativo para llama.cpp/Ollama.
-5. **Storage:** Sube el `.gguf` y el `.Modelfile` al bucket `models` de S3.
-6. **Webook (OTA Trigger):** Si se proveyó un `webhook_url`, postea un JSON al Edge Target reportando el fin del entrenamiento con el label del modelo (ej. `aura_tenant_01-v2`).
+### 3.2 Fine-Tuning (Dual Text/Vision Pipeline)
+La Motherhisp cuenta con 2 pipelinas de Celery diferentes para combatir el Catastrophic Forgetting:
+- `unsloth_trainer.py` (Texto MPU): Usa `DataCollatorForCompletionOnlyLM` para entrenar el modelo de texto sobre ShareGPT. Exporta `gguf`.
+- `vl_trainer.py` (Visión GUI): Usa `UnslothVisionDataCollator` para fine-tunear `Qwen2.5-VL-3B` con imágenes. Exporta el combo principal `gguf` + el proyector visual `mmproj.gguf`.
+- **Webook (OTA):** Emite el tipo de modelo (`vision` o `text`) para que el Edge enrute su descarga acorde a la nueva arquitectura 2-layered (Macrohard).
 
 ### 3.3 Consumo OTA (Model Pull)
 Días o semanas después del webhoook, cuando un Nodo Edge arranca u obedece a un reinicio, llama a:

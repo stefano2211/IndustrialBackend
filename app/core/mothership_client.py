@@ -53,35 +53,83 @@ class MothershipClient:
             logger.error(f"[Mothership Client] Excepción de conexión: {e}")
             return False
 
-    async def trigger_training_job(self, tenant_id: str = "aura_tenant_01", epochs: int = 3, webhook_url: Optional[str] = None) -> bool:
-        """Dispara el job de Fine-Tuning de Qwen en los workers de la nube"""
-        url = f"{self.base_url}/api/v1/training/job"
-        
-        # Si no se provee un webhook específico, autogeneramos la ruta hacia este nodo Edge
+    async def upload_vl_dataset(
+        self,
+        file_path: str,
+        tenant_id: str = "aura_tenant_01",
+        tool_name: str = "computer_use",
+    ) -> bool:
+        """
+        Sube un dataset VL (.jsonl con screenshots+acciones) al datalake-vl de ApiLLMOps.
+        Endpoint: POST /api/v1/vl/upload
+        """
+        url = f"{self.base_url}/api/v1/vl/upload"
+        remote_filename = f"{tenant_id}_vl_{tool_name}.jsonl"
+
+        logger.info(f"[Mothership Client] Subiendo Dataset VL ({remote_filename}) a {self.base_url}...")
+
+        if not os.path.exists(file_path):
+            logger.error(f"[Mothership Client] Archivo VL no encontrado: {file_path}")
+            return False
+
+        try:
+            with open(file_path, "rb") as f:
+                files = {"file": (remote_filename, f, "application/jsonlines")}
+                data = {"tenant_id": tenant_id, "tool_name": tool_name}
+
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(url, headers=self.headers, data=data, files=files)
+
+                    if response.status_code == 200:
+                        logger.success("[Mothership Client] Dataset VL subido exitosamente.")
+                        return True
+                    else:
+                        logger.error(f"[Mothership Client] Error subiendo dataset VL: {response.text}")
+                        return False
+        except Exception as e:
+            logger.error(f"[Mothership Client] Excepción subiendo dataset VL: {e}")
+            return False
+
+    async def trigger_vl_training_job(
+        self,
+        tenant_id: str = "aura_tenant_01",
+        vl_epochs: int = 2,
+        text_epochs: int = 1,
+        webhook_url: Optional[str] = None,
+    ) -> bool:
+        """
+        Dispara el pipeline VL unificado (2 fases) en el Celery Worker de ApiLLMOps.
+        Endpoint: POST /api/v1/vl/training/job
+        """
+        url = f"{self.base_url}/api/v1/vl/training/job"
+
         if not webhook_url:
             webhook_url = f"{settings.edge_public_url.rstrip('/')}/mlops/webhook/model-ready"
-            
+
         payload = {
             "tenant_id": tenant_id,
-            "base_model": "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit",
-            "epochs": epochs,
-            "webhook_url": webhook_url
+            "base_model": "unsloth/Qwen2.5-VL-3B-Instruct-bnb-4bit",  # 3B: edge-friendly (2.5 GB VRAM inferencia)
+            "vl_epochs": vl_epochs,
+            "text_epochs": text_epochs,
+            "webhook_url": webhook_url,
         }
-        
-        logger.info(f"[Mothership Client] Desencadenando entrenamiento LoRA en la nube: {url} ...")
-        
+
+        logger.info(f"[Mothership Client] Disparando training VL para {tenant_id} → {url}")
+
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(url, headers=self.headers, json=payload)
-                
+
                 if response.status_code == 200:
-                    logger.success(f"[Mothership Client] Entrenamiento disparado. JobID: {response.json().get('job_id')}")
+                    job_id = response.json().get("job_id", "?")
+                    logger.success(f"[Mothership Client] Training VL encolado. JobID: {job_id}")
                     return True
                 else:
-                    logger.error(f"[Mothership Client] Error disparando entrenamiento: {response.text}")
+                    logger.error(f"[Mothership Client] Error disparando training VL: {response.text}")
                     return False
         except Exception as e:
-            logger.error(f"[Mothership Client] Excepción desencadenando Job: {e}")
+            logger.error(f"[Mothership Client] Excepción disparando training VL: {e}")
             return False
+
 
 mothership_client = MothershipClient()

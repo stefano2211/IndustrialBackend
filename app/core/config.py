@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     system1_model: str = "aura_tenant_01-vl"   # VL model name in Ollama after OTA deploy
     system1_enabled: bool = True               # Toggle; set False if VL model not available
 
+    # Computer Use — Macrohard Digital Optimus Local
+    computer_use_enabled: bool = True          # Feature flag global
+    computer_use_demo_mode: bool = True        # True=mock screenshots, False=pantalla real
+    computer_use_max_steps: int = 15           # Máximo de pasos por tarea (evita loops infinitos)
+
     # MLOps Architecture (Cloud Sync)
     mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port
     mothership_api_key: str = "default-mothership-secret-key" # Must match ApiLLMOps MOTHERSHIP_API_KEY env

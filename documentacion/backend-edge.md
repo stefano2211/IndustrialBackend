@@ -7,9 +7,9 @@ Este reporte técnico consolida la auditoría completa de los proyectos `Industr
 
 ## 1. Filosofía de Arquitectura: "The Replay Loop"
 
-El ecosistema Aura AI está diseñado bajo la filosofía de **Continuous Edge Learning**.
-- **Edge (IndustrialBackend)**: Ejecuta inferencia de baja latencia con modelos especializados en seguridad industrial, recolecta datos de fallos o telemetría y reporta a la nube.
-- **Cloud (ApiLLMOps)**: Consolida datos de múltiples nudos, realiza Fine-Tuning masivo (Fine-tuning as a Service) y "devuelve" el conocimiento al borde vía OTA (Over-The-Air).
+El ecosistema Aura AI está diseñado bajo la filosofía de **Continuous Edge Learning** + **Macrohard Architecture**.
+- **Edge (IndustrialBackend)**: Ejecuta inferencia de baja latencia con un Sistema 2 (Razonamiento texto/SCADA) y un Sistema 1 (Ejecución Visual Digital Optimus), recolectando datos operativos.
+- **Cloud (ApiLLMOps)**: Consolida datos, realiza Fine-Tuning de texto Y de visión (Vision-Language), y devuelve el conocimiento dual al borde vía OTA (Over-The-Air).
 
 ---
 
@@ -41,11 +41,10 @@ Utilizado en todo el stack para instanciar componentes pesados sin acoplamiento:
 
 A continuación, el recorrido lógico de una pieza de información a través de los archivos del sistema.
 
-### Fase 1: Recolección (Ingesta de Conocimiento)
-1.  `app/persistence/db_source_repository.py` (Edge): Se define la fuente de datos (Sensor/ERP).
-2.  `app/domain/db_collector/scheduler.py` (Edge): Dispara el job.
-3.  `app/domain/db_collector/collector_service.py` (Edge): Ejecuta la query y formatea a **ShareGPT**.
-4.  `app/core/mothership_client.py` (Edge): Realiza el `upload_dataset` a la nube.
+### Fase 1: Recolección (Ingesta de Conocimiento + Visual)
+1.  `app/persistence/db_source_repository.py` (Edge): Datos SQL de telemetría, y `vl_replay_buffer.py` para recolección de capturas SAP.
+2.  `app/domain/db_collector/scheduler.py` (Edge): Dispara el job de base de datos.
+3.  `app/core/mothership_client.py` (Edge): Realiza `upload_dataset` (texto) y `upload_vl_dataset` (capturas visuales) a la nube.
 
 ### Fase 2: Fine-Tuning en la Nube
 5.  `app/api/endpoints/datasets.py` (Mops): Recibe los bytes y los anexa al master file en MinIO.
@@ -57,11 +56,10 @@ A continuación, el recorrido lógico de una pieza de información a través de 
     - Lanza Webhook de retorno al Edge.
 
 ### Fase 3: Despliegue OTA y Ejecución
-8.  `app/api/endpoints/mlops.py` (Edge): Capta el webhook `model-ready`.
-9.  `app/domain/services/mlops_service.py` (Edge): 
-    - Descarga el binario GGUF en streaming.
-    - Registra el blob en la RAM de Ollama.
-    - Parchea el `Modelfile` para soporte de herramientas industrial (Qwen2.5 Template).
+8.  `app/api/endpoints/mlops.py` (Edge): Capta el webhook, separando payloads según `model_type` (text / vision).
+9.  `app/domain/services/mlops_service.py` y `vl_mlops_service.py` (Edge): 
+    - Descargan binarios GGUF (incluidos los `mmproj.gguf` para visión).
+    - Registran el blob en Ollama construyendo el `Modelfile` con el adaptor visual.
 10. `app/domain/services/agent_service.py` (Edge): Instancia el nuevo modelo local y el usuario comienza a chatear con el conocimiento actualizado.
 
 ---

@@ -25,8 +25,8 @@ sequenceDiagram
     Note over Mops: 3. ENTRENAMIENTO (GPU Cluster)
     Mops->>Mops: Trigger Celery Task
     Mops->>MinIO: Download Datasets
-    Mops->>Mops: Fine-tune (Unsloth) & GGUF Export
-    Mops->>MinIO: Upload [Tenant-v2.gguf / Modelfile]
+    Mops->>Mops: Fine-tune (Text & VL pipelines paralelos)
+    Mops->>MinIO: Upload [Tenant.gguf / mmproj.gguf]
 
     Note over Mops, Edge: 4. NOTIFICACIÓN (Webhook)
     Mops->>Edge: POST /mlops/webhook/model-ready (Webhook)
@@ -78,21 +78,21 @@ Cuando un "Job" es disparado:
 
 ## 4. Fase C: Actualización OTA (Over-The-Air)
 
-### 4.1 El Disparo (Webhook)
+### 4.1 El Disparo Ruteado (Webhook)
 Una vez el modelo está en S3, la Mothership llama al Edge:
-- **Endpoint**: `IndustrialBackend: /mlops/webhook/model-ready`.
-- **Payload**: `{"model_tag": "aura_tenant_01-v2"}`.
-- **Seguridad**: El Edge valida que el API Key del webhook coincida con su secreto compartido.
+- **Endpoint**: `IndustrialBackend: /api/v1/mlops/webhook/model-ready`.
+- **Payload**: `{"model_tag": "aura...", "model_type": "text | vision", "mmproj_tag": "..."}`.
+- **Seguridad**: El Edge valida que el API Key del webhook coincida con su secreto. El `model_type` define qué Service lo gestiona.
 
 ### 4.2 Descarga y Registro Local (`mlops_service.py`)
 Este es el paso más sofisticado del Edge Node.
 1. **Model Discovery**: Llama a la Mothership para solicitar URLs de descarga.
 2. **Presigned URLs**: ApiLLMOps genera links temporales (firma S3) para que el Edge le pida los GBs de datos directamente a MinIO, no a la aplicación API (más eficiente).
 3. **Streaming Download**: El Edge descarga el `.gguf` en trozos de 1MB para no saturar su propia RAM.
-4. **Ollama Ingestion**: 
+4. **Ollama Ingestion Dual**: 
     - Calcula el **SHA256** del archivo descargado.
-    - Sube el blob a la API de Ollama (`/api/blobs/{digest}`).
-    - Crea el modelo (`/api/create`) inyectando un **Template de Tool-Calling avanzado** (Qwen2.5) para asegurar que el agente pueda seguir usando MCP después del fine-tuning.
+    - Sube los blobs a la API de Ollama (`/api/blobs/{digest}`).
+    - Crea el modelo (`/api/create`): Para modelos Visuales, emplea un `Modelfile` con la estructura `FROM <hash>` + `ADAPTER <hash_mmproj>` para enlazar el proyector visual.
 
 ---
 

@@ -16,13 +16,13 @@ El sistema es un **backend Edge AI** construido sobre FastAPI, que implementa un
 | API | FastAPI 0.115 + uvicorn |
 | Agentes | `deepagents` + LangGraph + LangChain |
 | LLMs | Ollama (local) + OpenRouter (cloud) |
-| RAG | Qdrant (similarity) + nomic-embed-text |
 | Persistencia SQL | PostgreSQL + SQLModel + asyncpg |
 | Checkpoints de Agente | LangGraph AsyncPostgresSaver |
 | Store Long-Term | LangGraph AsyncPostgresStore |
 | Blobs | MinIO |
+| Local GUI execution | mss (screenshots) + PyAutoGUI (mouse/keyboard actions) |
 | Scheduler | APScheduler (cron jobs) |
-| MLOps | OTA via ApiLLMOps (Mothership) |
+| MLOps | OTA via ApiLLMOps (Mothership) para modelos NLP y Visuales |
 
 ---
 
@@ -89,18 +89,21 @@ Modo 1: Expert Direct (default)
      +-- [general-assistant] SubAgent (fallback)
 
 
-Modo 2: Generalist Orchestrator (use_generalist=True)
+Modo 2: Macrohard Generalist Orchestrator (use_generalist=True)
 ------------------------------------------------------
  User Query
      |
      v
- [GeneralistOrchestrator] (llama3.1:8b / user-selected model)
-     +-- [industrial-expert] Tool -> IndustrialAgent (lazy, on demand)
-     |       +-- (identico al Modo 1)
-     +-- [sap-agent] Tool -> check_inventory (PLACEHOLDER)
-     +-- [google-agent] Tool -> google_search (PLACEHOLDER)
-     +-- [office-agent] Tool -> read_outlook_email (PLACEHOLDER)
+ [Orchestrator] (System 2 — Generalist: Qwen 32b) -> Rutea a subagentes
+     +-- [Sistema 1 Visual] Tool -> computer-use-agent (Qwen2.5-VL 3B)
+     |       +-- (loop "Observe-Think-Act" via mss y PyAutoGUI)
+     +-- [Sistema 1 Texto] Tool -> sistema1-experto (Qwen2.5 1.5B fine-tuned)
+     |       +-- (respuestas en base a conocimiento en sus pesos)
+     +-- [Sistema 2 Experto] Tool -> industrial-expert (Aura fine-tuned)
+     |       +-- (acceso en tiempo real a SCADA, RAG y APIs)
 ```
+
+La arquitectura "Macrohard" explicita la separación: los LLMs de texto y razonamiento empresarial (Sistema 2) nunca se ensucian con tareas visuales. Las macros visuales son exclusivas de un modelo visual aislado (Sistema 1).
 
 ### 3.2 Flujo de Creacion del Agente (AgentService)
 
@@ -141,6 +144,9 @@ VFS (Virtual File System del DeepAgent)
 
 Checkpointer -> AsyncPostgresSaver -> PostgreSQL
 (Guarda estado del grafo LangGraph por thread_id)
+
+VL Replay Buffer -> JSONL Local -> Push a Nube
+(Traza cada frame + instrucción + acción del Sistema 1 Visual y lo prepara para fine-tuning continuo)
 ```
 
 La `UserScopedStoreBackend` es una decision muy elegante: al usar `user_id` como namespace (en vez de `thread_id`), las memorias se comparten entre TODAS las conversaciones del mismo usuario.

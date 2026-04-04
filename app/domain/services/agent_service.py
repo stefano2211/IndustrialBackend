@@ -25,6 +25,7 @@ from app.domain.agent.factory import create_industrial_agent
 from app.domain.agent.orchestrator import create_generalist_orchestrator
 from app.domain.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTER_PROMPT
 from app.persistence.repositories.model_repository import ModelRepository
+from app.persistence.vl_replay_buffer import vl_replay_buffer
 
 
 class AgentService:
@@ -375,6 +376,8 @@ class AgentService:
                 enable_knowledge=(knowledge_base_id != "none"),
                 enable_mcp=(mcp_source_id != "none"),
                 enable_system1=settings.system1_enabled,
+                enable_computer_use=settings.computer_use_enabled,
+                vl_replay_buffer=vl_replay_buffer,
             )
         else:
             # ── EXPERT DIRECT MODE ──────────────────
@@ -557,6 +560,8 @@ class AgentService:
                 enable_knowledge=(knowledge_base_id != "none"),
                 enable_mcp=(mcp_source_id != "none"),
                 enable_system1=settings.system1_enabled,
+                enable_computer_use=settings.computer_use_enabled,
+                vl_replay_buffer=vl_replay_buffer,
             )
         else:
             # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────

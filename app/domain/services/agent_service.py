@@ -27,6 +27,8 @@ from app.domain.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTER_PROMPT
 from app.persistence.repositories.model_repository import ModelRepository
 from app.persistence.vl_replay_buffer import vl_replay_buffer
 
+_GRAPH_CACHE: Dict[str, dict] = {}
+MAX_CACHE_SIZE = 100
 
 class AgentService:
     """
@@ -305,8 +307,8 @@ class AgentService:
         if hasattr(ui_generalist_llm, "request_timeout"):
             ui_generalist_llm.request_timeout = settings.llm_request_timeout
             
-        # 4.5 Expert LLM (Aura fine-tuned — used as IndustrialExpert brain)
-        expert_llm = await LLMFactory.get_llm(
+        # 4.5 Expert Loader: Deferred
+        expert_llm_factory = lambda: LLMFactory.get_llm(
             provider=LLMProvider.OLLAMA,
             model_name=settings.default_llm_model,
             session=session,
@@ -356,41 +358,51 @@ class AgentService:
         ]
         tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
         
-        # 4. Expert Factory (Lazy)
-        expert_llm_factory = lambda: expert_llm
-        
         custom_prompt = db_model.system_prompt if db_model else None
 
-        # 5. Assemble and run
-        if use_generalist:
-            # ── GENERALIST ORCHESTRATOR MODE ──────────────────────────────────
-            logger.info("[AgentService] Assembling Generalist Orchestrator (invoke)...")
-            agent = create_generalist_orchestrator(
-                generalist_model=ui_generalist_llm,
-                expert_model=expert_llm_factory,
-                vision_model=vision_llm,
-                worker_model=worker_llm,
-                checkpointer=checkpointer,
-                store=store,
-                mcp_tools_context=tools_context,
-                enable_knowledge=(knowledge_base_id != "none"),
-                enable_mcp=(mcp_source_id != "none"),
-                enable_system1=settings.system1_enabled,
-                enable_computer_use=settings.computer_use_enabled,
-                vl_replay_buffer=vl_replay_buffer,
-            )
+        # --- Build Cache Key & Assemble -----------------------
+        tools_hash = hash(tools_context)
+        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{tools_hash}_{hash(custom_prompt)}"
+
+        async def _build_agent_async():
+            if use_generalist:
+                logger.info("[AgentService] Assembling Generalist Orchestrator (invoke)...")
+                return create_generalist_orchestrator(
+                    generalist_model=ui_generalist_llm,
+                    expert_model=expert_llm_factory,
+                    vision_model=vision_llm,
+                    worker_model=worker_llm,
+                    checkpointer=checkpointer,
+                    store=store,
+                    mcp_tools_context=tools_context,
+                    enable_knowledge=(knowledge_base_id != "none"),
+                    enable_mcp=(mcp_source_id != "none"),
+                    enable_system1=settings.system1_enabled,
+                    enable_computer_use=settings.computer_use_enabled,
+                    vl_replay_buffer=vl_replay_buffer,
+                )
+            else:
+                expert_llm = await expert_llm_factory()
+                return create_industrial_agent(
+                    model=expert_llm, worker_model=worker_llm, 
+                    checkpointer=checkpointer, store=store,
+                    custom_system_prompt=custom_prompt,
+                    mcp_tools_context=tools_context,
+                    enable_knowledge=(knowledge_base_id != "none"),
+                    enable_mcp=(mcp_source_id != "none")
+                )
+
+        global _GRAPH_CACHE
+        if cache_key in _GRAPH_CACHE:
+            entry = _GRAPH_CACHE.pop(cache_key)
+            _GRAPH_CACHE[cache_key] = entry
+            agent = entry['agent']
         else:
-            # ── EXPERT DIRECT MODE ──────────────────
-            # Re-initialize expert here if needed for direct mode
-            expert_llm = await expert_llm_factory()
-            agent = create_industrial_agent(
-                model=expert_llm, worker_model=worker_llm, 
-                checkpointer=checkpointer, store=store,
-                custom_system_prompt=custom_prompt,
-                mcp_tools_context=tools_context,
-                enable_knowledge=(knowledge_base_id != "none"),
-                enable_mcp=(mcp_source_id != "none")
-            )
+            agent = await _build_agent_async()
+            if len(_GRAPH_CACHE) >= MAX_CACHE_SIZE:
+                first_key = next(iter(_GRAPH_CACHE))
+                del _GRAPH_CACHE[first_key]
+            _GRAPH_CACHE[cache_key] = {'agent': agent}
 
         # 3. Invoke with config
         config = {
@@ -546,34 +558,49 @@ class AgentService:
         
         custom_prompt = db_model.system_prompt if db_model else None
 
-        if use_generalist:
-            # ── GENERALIST ORCHESTRATOR MODE ─────────────────────────────────
-            logger.info("[AgentService] Assembling Generalist Orchestrator (stream)...")
-            agent = create_generalist_orchestrator(
-                generalist_model=ui_generalist_llm,
-                expert_model=expert_llm_factory,
-                vision_model=vision_llm,
-                worker_model=worker_llm,
-                checkpointer=checkpointer,
-                store=store,
-                mcp_tools_context=tools_context,
-                enable_knowledge=(knowledge_base_id != "none"),
-                enable_mcp=(mcp_source_id != "none"),
-                enable_system1=settings.system1_enabled,
-                enable_computer_use=settings.computer_use_enabled,
-                vl_replay_buffer=vl_replay_buffer,
-            )
+        # --- Build Cache Key & Assemble -----------------------
+        tools_hash = hash(tools_context)
+        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{tools_hash}_{hash(custom_prompt)}"
+
+        async def _build_agent_async():
+            if use_generalist:
+                logger.info("[AgentService] Assembling Generalist Orchestrator (stream)...")
+                return create_generalist_orchestrator(
+                    generalist_model=ui_generalist_llm,
+                    expert_model=expert_llm_factory,
+                    vision_model=vision_llm,
+                    worker_model=worker_llm,
+                    checkpointer=checkpointer,
+                    store=store,
+                    mcp_tools_context=tools_context,
+                    enable_knowledge=(knowledge_base_id != "none"),
+                    enable_mcp=(mcp_source_id != "none"),
+                    enable_system1=settings.system1_enabled,
+                    enable_computer_use=settings.computer_use_enabled,
+                    vl_replay_buffer=vl_replay_buffer,
+                )
+            else:
+                expert_llm = await expert_llm_factory()
+                return create_industrial_agent(
+                    model=expert_llm, worker_model=worker_llm, 
+                    checkpointer=checkpointer, store=store,
+                    custom_system_prompt=custom_prompt,
+                    mcp_tools_context=tools_context,
+                    enable_knowledge=(knowledge_base_id != "none"),
+                    enable_mcp=(mcp_source_id != "none")
+                )
+
+        global _GRAPH_CACHE
+        if cache_key in _GRAPH_CACHE:
+            entry = _GRAPH_CACHE.pop(cache_key)
+            _GRAPH_CACHE[cache_key] = entry
+            agent = entry['agent']
         else:
-            # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────
-            expert_llm = await expert_llm_factory()
-            agent = create_industrial_agent(
-                model=expert_llm, worker_model=worker_llm, 
-                checkpointer=checkpointer, store=store,
-                custom_system_prompt=custom_prompt,
-                mcp_tools_context=tools_context,
-                enable_knowledge=(knowledge_base_id != "none"),
-                enable_mcp=(mcp_source_id != "none")
-            )
+            agent = await _build_agent_async()
+            if len(_GRAPH_CACHE) >= MAX_CACHE_SIZE:
+                first_key = next(iter(_GRAPH_CACHE))
+                del _GRAPH_CACHE[first_key]
+            _GRAPH_CACHE[cache_key] = {'agent': agent}
 
         config = {
             "configurable": {

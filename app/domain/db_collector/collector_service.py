@@ -64,6 +64,18 @@ class CollectorService:
             rows = await connector.fetch(connection_string, source.query)
             result.rows_fetched = len(rows)
 
+            # --- SMART DELTA SLICING (in memory) ---
+            # Previene reenviar el histórico completo a la Mothership
+            if source.accumulated_rows > 0:
+                if len(rows) > source.accumulated_rows:
+                    rows = rows[source.accumulated_rows:]
+                    logger.info(f"[DbCollector] Smart Slicing: Only sending {len(rows)} new rows.")
+                elif len(rows) <= source.accumulated_rows:
+                    logger.info("[DbCollector] No new rows detected since last run. Skipping upload.")
+                    result.status = DbSourceStatus.NO_DATA
+                    await self._update_metadata(source, result)
+                    return result
+
             if not rows:
                 logger.warning(f"[DbCollector] No rows returned for source: {source.name}")
                 result.status = DbSourceStatus.NO_DATA

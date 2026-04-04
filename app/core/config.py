@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # Generalist Orchestrator (Magentic-One layer — also runs on Ollama)
     generalist_llm_model: str = "llama3.1:8b"  # General-purpose director model
 
+    # Sistema 1 — Fine-tuned Vision-Language Expert (no tools, historical + vision)
+    system1_model: str = "aura_tenant_01-vl"   # VL model name in Ollama after OTA deploy
+    system1_enabled: bool = True               # Toggle; set False if VL model not available
+
     # MLOps Architecture (Cloud Sync)
     mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port
     mothership_api_key: str = "default-mothership-secret-key" # Must match ApiLLMOps MOTHERSHIP_API_KEY env

@@ -21,8 +21,8 @@ from loguru import logger
 
 from app.core.config import settings
 from app.core.llm import LLMFactory, LLMProvider
-from app.domain.agent.deep_agent import create_industrial_agent
-from app.domain.agent.generalist_agent import create_generalist_orchestrator
+from app.domain.agent.factory import create_industrial_agent
+from app.domain.agent.orchestrator import create_generalist_orchestrator
 from app.domain.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTER_PROMPT
 from app.persistence.repositories.model_repository import ModelRepository
 
@@ -304,16 +304,29 @@ class AgentService:
         if hasattr(ui_generalist_llm, "request_timeout"):
             ui_generalist_llm.request_timeout = settings.llm_request_timeout
             
-        # 4.5 Create Fixed Expert LLM (siempre el mismo para conectarse a Data/RAG)
+        # 4.5 Expert LLM (Aura fine-tuned — used as IndustrialExpert brain)
         expert_llm = await LLMFactory.get_llm(
             provider=LLMProvider.OLLAMA,
             model_name=settings.default_llm_model,
             session=session,
         )
 
-        # 4.6 Worker LLM: reuse the same orchestrator instance to avoid a duplicate
-        # factory call and an extra DB query (same pattern as stream())
+        # 4.6 Worker LLM: reuse generalist instance (sub-subagents don't need fine-tuning)
         worker_llm = ui_generalist_llm
+
+        # 4.7 Vision LLM — Sistema 1 (VL fine-tuned, historical + future computer use)
+        # Created only if enabled; None triggers graceful degradation in the orchestrator.
+        vision_llm = None
+        if settings.system1_enabled:
+            try:
+                vision_llm = await LLMFactory.get_llm(
+                    provider=LLMProvider.OLLAMA,
+                    model_name=settings.system1_model,
+                    session=session,
+                )
+                logger.info(f"[AgentService] Sistema 1 VL model loaded: {settings.system1_model}")
+            except Exception as e:
+                logger.warning(f"[AgentService] Sistema 1 model unavailable: {e}. Continuing without it.")
         
         # 5. Handle system prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:
@@ -349,18 +362,19 @@ class AgentService:
 
         # 5. Assemble and run
         if use_generalist:
-            # ── GENERALIST ORCHESTRATOR MODE (Magentic-One) ──────────────────
+            # ── GENERALIST ORCHESTRATOR MODE ──────────────────────────────────
             logger.info("[AgentService] Assembling Generalist Orchestrator (invoke)...")
             agent = create_generalist_orchestrator(
                 generalist_model=ui_generalist_llm,
                 expert_model=expert_llm_factory,
+                vision_model=vision_llm,
                 worker_model=worker_llm,
                 checkpointer=checkpointer,
                 store=store,
                 mcp_tools_context=tools_context,
                 enable_knowledge=(knowledge_base_id != "none"),
                 enable_mcp=(mcp_source_id != "none"),
-                enable_satellite=True,
+                enable_system1=settings.system1_enabled,
             )
         else:
             # ── EXPERT DIRECT MODE ──────────────────
@@ -481,13 +495,26 @@ class AgentService:
             mcp_source_id = "none"
             knowledge_base_id = "none"
 
-        # 4.4 Expert Loader: Defer to generalist_agent factory
-        # We pass the session and params instead of a pre-initialized LLM to allow lazy loading
+        # 4.4 Expert Loader: Deferred — avoid loading fine-tuned model into VRAM until needed
         expert_llm_factory = lambda: LLMFactory.get_llm(
             provider=LLMProvider.OLLAMA,
-            model_name=settings.default_llm_model, # aura_tenant_01-v2
+            model_name=settings.default_llm_model,
             session=session,
         )
+
+        # 4.5 Vision LLM — Sistema 1 (VL fine-tuned, historical + future computer use)
+        # Created only if enabled; None triggers graceful degradation in the orchestrator.
+        vision_llm = None
+        if settings.system1_enabled:
+            try:
+                vision_llm = await LLMFactory.get_llm(
+                    provider=LLMProvider.OLLAMA,
+                    model_name=settings.system1_model,
+                    session=session,
+                )
+                logger.info(f"[AgentService] Sistema 1 VL model loaded: {settings.system1_model}")
+            except Exception as e:
+                logger.warning(f"[AgentService] Sistema 1 model unavailable: {e}. Continuing without it.")
 
         # 5. Handle system prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:
@@ -517,18 +544,19 @@ class AgentService:
         custom_prompt = db_model.system_prompt if db_model else None
 
         if use_generalist:
-            # ── GENERALIST ORCHESTRATOR MODE (Magentic-One) ──────────────────
+            # ── GENERALIST ORCHESTRATOR MODE ─────────────────────────────────
             logger.info("[AgentService] Assembling Generalist Orchestrator (stream)...")
             agent = create_generalist_orchestrator(
                 generalist_model=ui_generalist_llm,
-                expert_model=expert_llm_factory, # Passing the factory for lazy init
+                expert_model=expert_llm_factory,
+                vision_model=vision_llm,
                 worker_model=worker_llm,
                 checkpointer=checkpointer,
                 store=store,
                 mcp_tools_context=tools_context,
                 enable_knowledge=(knowledge_base_id != "none"),
                 enable_mcp=(mcp_source_id != "none"),
-                enable_satellite=True,
+                enable_system1=settings.system1_enabled,
             )
         else:
             # ── EXPERT DIRECT MODE (default, backward compatible) ─────────────

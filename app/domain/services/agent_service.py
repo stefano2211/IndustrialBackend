@@ -310,14 +310,10 @@ class AgentService:
             model_name=settings.default_llm_model,
             session=session,
         )
-        
-        # 4.6 Create Dedicated Worker LLM (Now uses the same UI model as the orchestrator)
-        worker_llm = await LLMFactory.get_llm(
-            provider=provider,
-            model_name=model_name,
-            session=session,
-            **merged_params
-        )
+
+        # 4.6 Worker LLM: reuse the same orchestrator instance to avoid a duplicate
+        # factory call and an extra DB query (same pattern as stream())
+        worker_llm = ui_generalist_llm
         
         # 5. Handle system prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:

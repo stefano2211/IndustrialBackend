@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 class Settings(BaseSettings):
     # Qdrant
@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_port: int = 5432
     postgres_db: str = "aura_db"
+
+    # CORS
+    BACKEND_CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8080",
+    ]
 
     # Security
     secret_key: str

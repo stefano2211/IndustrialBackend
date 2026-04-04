@@ -24,11 +24,16 @@ def create_sap_agent(model, checkpointer=None, store=None):
         "explain that the SAP connector is currently in read-only mode."
     )
     
-    # Placeholder tools for SAP
+    # Placeholder tools for SAP — connector not yet configured
     @tool
     def check_inventory(part_id: str):
         """Check stock levels in SAP ERP."""
-        return f"SAP: Part {part_id} has 42 units in Warehouse A."
+        return (
+            f"[DEMO — SAP connector not configured] "
+            f"The SAP ERP integration is currently under development. "
+            f"Real inventory data for part '{part_id}' is not available yet. "
+            f"Please contact your administrator to set up the SAP connector."
+        )
 
     graph = create_deep_agent(
         model=model,
@@ -55,7 +60,12 @@ def create_google_agent(model, checkpointer=None, store=None):
     @tool
     def google_search(query: str):
         """Search the public internet via Google."""
-        return f"Google Search Result for '{query}': [Placeholder Result]"
+        return (
+            f"[DEMO — Google Search connector not configured] "
+            f"The Google Workspace integration is currently under development. "
+            f"Real search results for '{query}' are not available yet. "
+            f"Please contact your administrator to set up the Google connector."
+        )
 
     graph = create_deep_agent(
         model=model,
@@ -82,7 +92,12 @@ def create_office_agent(model, checkpointer=None, store=None):
     @tool
     def read_outlook_email(count: int = 5):
         """Read latest emails from Outlook."""
-        return "Office: No new security alerts in the last 5 emails."
+        return (
+            f"[DEMO — Microsoft 365 connector not configured] "
+            f"The Outlook/OneDrive integration is currently under development. "
+            f"Real email data is not available yet. "
+            f"Please contact your administrator to set up the M365 connector."
+        )
 
     graph = create_deep_agent(
         model=model,

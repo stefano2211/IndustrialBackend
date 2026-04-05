@@ -1,11 +1,11 @@
-from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from app.core.config import settings
 
 class Embedder:
     def __init__(self):
-        self.model = OllamaEmbeddings(
-            base_url=settings.ollama_base_url,
-            model=settings.embedding_model,
+        self.model = HuggingFaceEmbeddings(
+            model_name=settings.embedding_model,
+            model_kwargs={'trust_remote_code': True}
         )
 
     def embed_documents(self, texts):

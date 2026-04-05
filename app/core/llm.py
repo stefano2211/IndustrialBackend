@@ -7,7 +7,6 @@ Adding a new provider = adding one entry to the registry.
 
 from enum import Enum
 from typing import Optional, Any, Dict
-from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from app.core.config import settings
 from loguru import logger
@@ -18,7 +17,7 @@ from app.persistence.repositories.settings_repository import SettingsRepository
 
 
 class LLMProvider(str, Enum):
-    OLLAMA = "ollama"
+    VLLM = "vllm"
     OPENROUTER = "openrouter"
 
 
@@ -27,45 +26,33 @@ class LLMProvider(str, Enum):
 # ---------------------------------------------------------------------------
 
 
-def _create_ollama(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
-    # Set a balanced context window to avoid VRAM OOM on 8GB cards
-    if "num_ctx" not in kwargs:
-        kwargs["num_ctx"] = 16384 # 16k total, ensuring 8k per slot for stable 8GB VRAM performance
-    
-    # Map max_tokens to num_predict for ChatOllama
-    if "max_tokens" in kwargs:
-        if kwargs["max_tokens"] is not None:
-            kwargs["num_predict"] = kwargs.pop("max_tokens")
-        else:
-            kwargs.pop("max_tokens")
-        
+def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
+    # Map max_tokens appropriately
     streaming = kwargs.pop("streaming", True)
     
     # Ensure stop tokens are always present to avoid infinite loops
     if "stop" not in kwargs:
         kwargs["stop"] = ["<|im_end|>", "<|endoftext|>", "Assistant:", "User:"]
 
-    return ChatOllama(
-        base_url=base_url or settings.ollama_base_url,
+    return ChatOpenAI(
+        openai_api_key="EMPTY",  # vLLM doesn't require an API key by default
+        openai_api_base=base_url or settings.vllm_base_url,
         model=model_name or settings.default_llm_model,
         temperature=temperature,
         streaming=streaming,
+        max_tokens=kwargs.pop("max_tokens", 2048),
         **kwargs,
     )
 
 
 def _create_openrouter(model_name: str, temperature: float, api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
-    # Set a reasonable default max_tokens to avoid OpenRouter credit check failures (402)
     if "max_tokens" not in kwargs or kwargs["max_tokens"] is None:
-        kwargs["max_tokens"] = 2048 # Reduced from 4096
+        kwargs["max_tokens"] = 2048 
         
-    # OpenRouter/OpenAI-client compatibility: remove parameters not supported by ChatOpenAI
-    # top_k is common in Ollama but not in OpenAI standard completions API
     top_k = kwargs.pop("top_k", None)
     
     logger.info(f"Creating OpenRouter chat model: {model_name} at {base_url or settings.openrouter_base_url}")
     
-    # If top_k is provided, we can pass it in extra_body for OpenRouter to handle natively
     extra_body = {}
     if top_k is not None:
         extra_body["top_k"] = top_k
@@ -87,10 +74,8 @@ def _create_openrouter(model_name: str, temperature: float, api_key: Optional[st
     )
 
 
-
-
 _PROVIDER_REGISTRY: Dict[str, Any] = {
-    LLMProvider.OLLAMA: _create_ollama,
+    LLMProvider.VLLM: _create_vllm,
     LLMProvider.OPENROUTER: _create_openrouter,
 }
 
@@ -117,61 +102,53 @@ class LLMFactory:
         session: Optional[AsyncSession] = None,
         **kwargs,
     ) -> Any:
-        # Gracefully handle callers passing 'model' instead of 'model_name'
         model_from_kwargs = kwargs.pop("model", None)
         model_name = model_name or model_from_kwargs
-        # 1. Try DB config first (optional, matches role if provided)
+
         if session and role and not (provider and model_name):
             db_config = await LLMFactory.get_db_config(session, role)
             if db_config:
                 provider = provider or db_config["provider"]
                 model_name = model_name or db_config["model_name"]
 
-        # 2. Provider Prioritization from System Settings
         if not provider:
-            # Auto-detect OpenRouter if model name contains a slash (e.g. "qwen/...")
             if model_name and "/" in str(model_name):
                 provider = LLMProvider.OPENROUTER
             elif session:
                 settings_repo = SettingsRepository(session)
                 sys_settings = await settings_repo.get_settings()
                 
-                if sys_settings.ollama_enabled:
-                    provider = LLMProvider.OLLAMA
-                elif sys_settings.openrouter_enabled:
+                # Assume standard sys_settings mapping 
+                if hasattr(sys_settings, 'openrouter_enabled') and sys_settings.openrouter_enabled:
                     provider = LLMProvider.OPENROUTER
                 else:
-                    provider = settings.default_llm_provider
+                    provider = LLMProvider.VLLM
             else:
                 provider = settings.default_llm_provider
 
-
-        # 3. Model Name Resolution
-        # If model_name is None OR matches a provider name, treat as "want default for this provider"
-        if not model_name or model_name.lower() in ["ollama", "openrouter"]:
-            if provider == LLMProvider.OLLAMA:
-                # If the global default looks like an OpenRouter model (contains /), use a safe Ollama fallback
-                if settings.default_llm_model and "/" in settings.default_llm_model:
-                    model_name = "llama3.1:8b" # Safe local fallback
-                else:
-                    model_name = settings.default_llm_model
+        if not model_name or model_name.lower() in ["vllm", "openrouter", "ollama"]:
+            if provider == LLMProvider.VLLM:
+                model_name = settings.default_llm_model
             else:
                 model_name = settings.default_llm_model
 
-        # 4. Load provider configuration from DB
         factory_kwargs = {}
         if session:
             settings_repo = SettingsRepository(session)
             sys_settings = await settings_repo.get_settings()
-            if provider == LLMProvider.OLLAMA:
-                factory_kwargs["base_url"] = sys_settings.ollama_base_url
+            if provider == LLMProvider.VLLM:
+                factory_kwargs["base_url"] = getattr(sys_settings, "vllm_base_url", settings.vllm_base_url)
             elif provider == LLMProvider.OPENROUTER:
                 factory_kwargs["api_key"] = sys_settings.openrouter_api_key
                 factory_kwargs["base_url"] = sys_settings.openrouter_base_url
 
         logger.info(f"Initializing Unified LLM: provider={provider}, model={model_name} (requested role={role})")
 
-        # 5. Create via registry
+        # Fallback handling in case DB still contains "ollama" provider from migration
+        if provider == "ollama":
+            provider = LLMProvider.VLLM
+            logger.info("Migrated legacy 'ollama' provider to 'vllm' dynamically")
+
         factory_fn = _PROVIDER_REGISTRY.get(provider)
         if not factory_fn:
             raise ValueError(f"Unsupported LLM provider: {provider}")

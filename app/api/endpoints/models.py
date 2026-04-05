@@ -96,8 +96,8 @@ async def list_providers(
     sys_settings = await repo.get_settings()
     
     providers = []
-    if sys_settings.ollama_enabled:
-        providers.append({"id": "ollama", "name": "Ollama", "base_url": sys_settings.ollama_base_url})
+    if hasattr(sys_settings, 'vllm_enabled') and sys_settings.vllm_enabled:
+        providers.append({"id": "vllm", "name": "vLLM", "base_url": sys_settings.vllm_base_url})
     if sys_settings.openrouter_enabled or settings.openrouter_api_key:
         providers.append({
             "id": "openrouter", 
@@ -117,34 +117,24 @@ async def list_provider_models(
     session: AsyncSession = Depends(get_session),
 ):
     """Fetch available models for a specific provider."""
-    if provider_id == "ollama":
+    if provider_id == "vllm":
         repo = SettingsRepository(session)
         sys_settings = await repo.get_settings()
-        base_url = sys_settings.ollama_base_url
+        base_url = sys_settings.vllm_base_url if hasattr(sys_settings, 'vllm_base_url') else settings.vllm_base_url
         
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(f"{base_url}/api/tags")
+                response = await client.get(f"{base_url}/models")
                 if response.status_code == 200:
                     data = response.json()
                     models = []
-                    for model in data.get("models", []):
-                        # Filter out embedding models
-                        details = model.get("details", {})
-                        families = details.get("families", [])
-                        is_embedding = (
-                            "embed" in model["name"].lower() or 
-                            "bert" in model["name"].lower() or
-                            (families and any("bert" in f.lower() for f in families))
-                        )
-                        
-                        if not is_embedding:
-                            models.append({
-                                "id": model["name"],
-                                "name": model["name"],
-                                "size": model.get("size"),
-                                "details": details
-                            })
+                    for model in data.get("data", []):
+                        models.append({
+                            "id": model["id"],
+                            "name": model["id"],
+                            "size": 0,
+                            "details": {}
+                        })
                     return models
         except Exception as e:
             return [{"id": settings.default_llm_model, "name": f"{settings.default_llm_model} (Offline)", "error": str(e)}]

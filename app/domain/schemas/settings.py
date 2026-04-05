@@ -26,9 +26,9 @@ class SystemSettings(SQLModel, table=True):
     # Retrieval Settings
     retrieval_search_results: int = Field(default=5)
 
-    # Provider Settings (Ollama)
-    ollama_enabled: bool = Field(default=True)
-    ollama_base_url: str = Field(default="http://ollama:11434")
+    # Provider Settings (vLLM)
+    vllm_enabled: bool = Field(default=True)
+    vllm_base_url: str = Field(default="http://vllm:8000/v1")
 
     # Provider Settings (OpenRouter)
     openrouter_enabled: bool = Field(default=False)
@@ -45,8 +45,8 @@ class SystemSettingsGeneralRead(SQLModel):
     feature_enable_community_sharing: bool
     
     # Providers
-    ollama_enabled: bool
-    ollama_base_url: str
+    vllm_enabled: bool
+    vllm_base_url: str
     openrouter_enabled: bool
     openrouter_api_key: Optional[str]
     openrouter_base_url: str
@@ -59,8 +59,8 @@ class SystemSettingsGeneralUpdate(SQLModel):
     feature_enable_community_sharing: Optional[bool] = None
     
     # Providers
-    ollama_enabled: Optional[bool] = None
-    ollama_base_url: Optional[str] = None
+    vllm_enabled: Optional[bool] = None
+    vllm_base_url: Optional[str] = None
     openrouter_enabled: Optional[bool] = None
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: Optional[str] = None

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     qdrant_host: str 
     qdrant_port: int 
     qdrant_collection: str = "documents"
-    embedding_model: str = "nomic-embed-text"
+    embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
     
     
     # MinIO 1.0
@@ -37,21 +37,21 @@ class Settings(BaseSettings):
 
     
     # Edge / Local Model configuration
-    ollama_base_url: str = "http://ollama:11434"
+    vllm_base_url: str = "http://vllm:8000/v1"
 
     # OpenRouter configuration
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     # Defaults
-    default_llm_provider: str = "ollama"
-    default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert industrial model (fine-tuned via LLMOps)
+    default_llm_provider: str = "vllm"
+    default_llm_model: Optional[str] = "aura_expert=/loras/aura_tenant_01-v2" # Expert alias in vLLM
 
-    # Generalist Orchestrator (Magentic-One layer — also runs on Ollama)
-    generalist_llm_model: str = "llama3.1:8b"  # General-purpose director model
+    # Generalist Orchestrator
+    generalist_llm_model: str = "Qwen/Qwen3.5-4B"  # General-purpose director model
 
-    # Sistema 1 — Fine-tuned Vision-Language Expert (no tools, historical + vision)
-    system1_model: str = "aura_tenant_01-vl"   # VL model name in Ollama after OTA deploy
+    # Sistema 1 — Fine-tuned Vision-Language
+    system1_model: str = "aura_system1=/loras/aura_tenant_01-vl"   # VL model alias
     system1_enabled: bool = True               # Toggle; set False if VL model not available
 
     # Computer Use — Macrohard Digital Optimus Local

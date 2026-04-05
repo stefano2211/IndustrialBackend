@@ -71,10 +71,14 @@ class CollectorService:
                     rows = rows[source.accumulated_rows:]
                     logger.info(f"[DbCollector] Smart Slicing: Only sending {len(rows)} new rows.")
                 elif len(rows) <= source.accumulated_rows:
-                    logger.info("[DbCollector] No new rows detected since last run. Skipping upload.")
-                    result.status = DbSourceStatus.NO_DATA
-                    await self._update_metadata(source, result)
-                    return result
+                    if len(rows) < source.accumulated_rows:
+                        logger.warning(f"[DbCollector] DB source rows ({len(rows)}) < accumulated ({source.accumulated_rows}). Source DB was likely reset. Resetting counter and uploading all data.")
+                        source.accumulated_rows = 0 # Reiniciar porque la base de datos se borró
+                    else:
+                        logger.info("[DbCollector] No new rows detected since last run. Skipping upload.")
+                        result.status = DbSourceStatus.NO_DATA
+                        await self._update_metadata(source, result)
+                        return result
 
             if not rows:
                 logger.warning(f"[DbCollector] No rows returned for source: {source.name}")

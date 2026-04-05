@@ -41,21 +41,20 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
     ports:
-      - "11434:11434"
-    environment:
-      - OLLAMA_FLASH_ATTENTION=1
-      - OLLAMA_KV_CACHE_TYPE=q8_0
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_MAX_LOADED_MODELS=2
-      - OLLAMA_NUM_PARALLEL=2
+      - "8002:8000"
+    command: >
+      --model Qwen/Qwen3.5-4B
+      --enable-lora
+      --max-loras 4
+      --gpu-memory-utilization 0.85
+      --max-model-len 8192
     volumes:
-      - ollama_data:/root/.ollama
-      - ./tmp:/tmp
-      - ./tmp:/tmp
+      - ./loras:/loras
+      - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
     deploy:
       resources:
@@ -64,26 +63,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [ gpu ]
-
-  ollama-pull:
-    image: curlimages/curl:latest
-    container_name: ollama-pull
-    depends_on:
-      - ollama
-    command: >
-      sh -c '
-        echo "Waiting for Ollama to be ready..."
-        while ! curl -s http://ollama:11434/api/tags > /dev/null; do
-          sleep 2
-        done
-        echo "Ollama is ready! Pulling aura_tenant_01-v2 model (Expert Industrial Agent)..."
-        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"aura_tenant_01-v2\"}" || true
-        echo "Pulling llama3.1:8b model (Generalist Orchestrator)..."
-        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"llama3.1:8b\"}" || true
-        echo "Pulling nomic-embed-text model for embeddings..."
-        curl -X POST http://ollama:11434/api/pull -d "{\"name\": \"nomic-embed-text\"}"
-        echo "Pull complete."
-      '
 
   api:
     build: .
@@ -94,14 +73,14 @@ services:
     env_file:
       - .env
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - VLLM_BASE_URL=http://vllm:8000/v1
     volumes:
       - ./app:/app/app
       - ./tmp:/tmp
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
     depends_on:
-      - ollama
+      - vllm
 
 volumes:
   minio_data:
@@ -112,5 +91,3 @@ volumes:
     name: hf-cache
   postgres_data:
     name: postgres-data
-  ollama_data:
-    name: ollama-data

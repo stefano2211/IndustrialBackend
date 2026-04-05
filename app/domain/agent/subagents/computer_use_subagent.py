@@ -230,8 +230,8 @@ def create_computer_use_agent(
     Construye el grafo LangGraph del Computer Use Agent (Sistema 1).
 
     Args:
-        vision_llm: Instancia de ChatOllama configurada con el modelo VL
-                    (Qwen2.5-VL local fine-tuned via OTA).
+        vision_llm: Instancia de ChatOpenAI configurada con el modelo VL
+                    (Qwen2.5-VL local cargado en vLLM).
         vl_replay_buffer: Buffer donde se guardan los steps para re-training.
                            Si es None, no se guardan los steps.
 

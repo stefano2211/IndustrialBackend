@@ -67,20 +67,16 @@ async def ota_model_update(
         )
 
     if payload.model_type == "vision":
-        if not payload.mmproj_tag:
-            raise HTTPException(
-                status_code=400,
-                detail="mmproj_tag es requerido para model_type='vision'",
-            )
+        # mmproj_tag ya no es requerido — el nuevo flujo OTA descarga un único tar.gz de adaptador LoRA
         bg_tasks.add_task(
             vl_service.process_vl_ota_webhook,
             payload.model_tag,
-            payload.mmproj_tag,
+            payload.mmproj_tag,  # Sigue aceptado por compatibilidad (se ignora internamente)
         )
         return {
             "status": "accepted",
             "model_type": "vision",
-            "message": f"OTA VL agendado: {payload.model_tag} + {payload.mmproj_tag}",
+            "message": f"OTA VL agendado: {payload.model_tag}",
         }
     else:
         bg_tasks.add_task(service.process_ota_webhook, payload.model_tag)

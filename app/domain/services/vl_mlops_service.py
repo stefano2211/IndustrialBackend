@@ -74,11 +74,35 @@ class VLMLOpsService:
             
             def _extract_tar():
                 with tarfile.open(tar_path, "r:gz") as tar:
-                    tar.extractall(path="./loras")
+                    # BUG 4 fix: filter='data' previene path traversal (recomendado Python 3.12+)
+                    tar.extractall(path="./loras", filter="data")
             
             await asyncio.to_thread(_extract_tar)
             
-            logger.success(f"[VL OTA] Adaptador VL '{model_tag}' disponible en '{lora_base_dir}' para inyección de vLLM dinámica.")
+            logger.success(f"[VL OTA] Adaptador VL '{model_tag}' extraído en '{lora_base_dir}'.")
+
+            # --- BUG 7 fix: Notificar a vLLM para cargar el adaptador VL dinámicamente ---
+            vllm_base = settings.vllm_base_url.rstrip("/")
+            vllm_host = vllm_base.removesuffix("/v1")
+            lora_path_in_container = f"/loras/{model_tag}"
+
+            logger.info(f"[VL OTA] Notificando a vLLM para cargar adaptador VL: {model_tag}")
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        f"{vllm_host}/v1/load_lora_adapter",
+                        json={
+                            "lora_name": model_tag,
+                            "lora_path": lora_path_in_container,
+                            "load_inplace": True,
+                        },
+                    )
+                    if resp.status_code == 200:
+                        logger.success(f"[VL OTA] vLLM cargó el adaptador VL '{model_tag}' correctamente.")
+                    else:
+                        logger.warning(f"[VL OTA] vLLM respondió {resp.status_code}: {resp.text}")
+            except Exception as vllm_err:
+                logger.error(f"[VL OTA] Error notificando a vLLM VL (pesos en disco): {vllm_err}")
 
         except Exception as e:
             logger.error(f"[VL OTA] ❌ Error en OTA VL: {e}")

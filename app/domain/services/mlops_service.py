@@ -65,11 +65,37 @@ class MLOpsService:
             
             def _extract_tar():
                 with tarfile.open(tar_path, "r:gz") as tar:
-                    tar.extractall(path="./loras")
+                    # BUG 4 fix: filter='data' previene path traversal (recomendado Python 3.12+)
+                    tar.extractall(path="./loras", filter="data")
             
             await asyncio.to_thread(_extract_tar)
             
-            logger.success(f"[MLOps OTA] Adaptador '{new_model_tag}' disponible en '{lora_base_dir}' para inyección de vLLM dinámica.")
+            logger.success(f"[MLOps OTA] Adaptador '{new_model_tag}' extraído en '{lora_base_dir}'.")
+
+            # --- BUG 7 fix: Notificar a vLLM para que cargue el adaptador dinámicamente ---
+            # Requiere VLLM_ALLOW_RUNTIME_LORA_UPDATING=true en el contenedor vLLM
+            vllm_base = settings.vllm_base_url.rstrip("/")  # e.g. http://vllm:8000/v1
+            vllm_host = vllm_base.removesuffix("/v1")       # e.g. http://vllm:8000
+            lora_path_in_container = f"/loras/{new_model_tag}"
+            
+            logger.info(f"[MLOps OTA] Notificando a vLLM para cargar adaptador: {new_model_tag} desde {lora_path_in_container}")
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        f"{vllm_host}/v1/load_lora_adapter",
+                        json={
+                            "lora_name": new_model_tag,
+                            "lora_path": lora_path_in_container,
+                            "load_inplace": True,  # Actualiza adaptador existente sin unload previo
+                        },
+                    )
+                    if resp.status_code == 200:
+                        logger.success(f"[MLOps OTA] vLLM cargó el adaptador '{new_model_tag}' correctamente.")
+                    else:
+                        logger.warning(f"[MLOps OTA] vLLM respondió {resp.status_code} al cargar LoRA: {resp.text}")
+            except Exception as vllm_err:
+                # No fallar el OTA completo si vLLM no responde — los pesos ya están en disco
+                logger.error(f"[MLOps OTA] Error notificando a vLLM (pesos en disco): {vllm_err}")
 
         except Exception as e:
             logger.error(f"[MLOps OTA] Excepción durante el proceso OTA: {e}")

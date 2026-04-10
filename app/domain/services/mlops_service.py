@@ -30,13 +30,8 @@ class MLOpsService:
         logger.info(f"[MLOps OTA] Iniciando actualización OTA para adaptador LoRA: {new_model_tag}")
 
         tar_path = f"/tmp/{new_model_tag}.tar.gz"
-        lora_base_dir = f"./loras/{new_model_tag}"
-        done_flag = f"./loras/{new_model_tag}/.ota_done"
-
-        # Idempotencia: si ya se extrajo este tag, solo notificar a vLLM y salir
-        if os.path.exists(done_flag):
-            logger.info(f"[MLOps OTA] Adaptador '{new_model_tag}' ya instalado. Saltando descarga.")
-            return {"status": "already_installed", "tag": new_model_tag}
+        lora_base_dir = f"/loras/{new_model_tag}"
+        hash_flag = f"/loras/{new_model_tag}/.artifact_hash"
 
         try:
             # --- PASO 1: Obtener presigned URL del adaptador desde Mothership ---
@@ -64,20 +59,40 @@ class MLOpsService:
                             f.write(chunk)
                 logger.info(f"[MLOps OTA] Tarball descargado en: {tar_path}")
 
-            # --- PASO 3: Extraer adaptador nativamente para vLLM ---
-            logger.info(f"[MLOps OTA] Descomprimiendo pesos a {lora_base_dir} ...")
-            os.makedirs("./loras", exist_ok=True)
-            
-            def _extract_tar():
-                with tarfile.open(tar_path, "r:gz") as tar:
-                    # BUG 4 fix: filter='data' previene path traversal (recomendado Python 3.12+)
-                    tar.extractall(path="./loras", filter="data")
-            
-            await asyncio.to_thread(_extract_tar)
+            # Idempotencia por hash: si el artefacto no cambio (mismo ciclo/retry), saltar extraccion
+            _md5 = hashlib.md5()
+            with open(tar_path, "rb") as _f:
+                for _chunk in iter(lambda: _f.read(8 * 1024 * 1024), b""):
+                    _md5.update(_chunk)
+            current_hash = _md5.hexdigest()
+            if os.path.exists(hash_flag):
+                with open(hash_flag, "r") as _hf:
+                    prev_hash = _hf.read().strip()
+                if current_hash == prev_hash:
+                    logger.info(f"[MLOps OTA] Mismo artefacto (hash={current_hash[:8]}). Solo notificando a vLLM.")
+                    # Cae al bloque de notificacion vLLM de abajo
+                else:
+                    logger.info(f"[MLOps OTA] Nuevo artefacto detectado (hash={current_hash[:8]}). Extrayendo...")
+                    os.makedirs("/loras", exist_ok=True)
 
-            # Marcar como instalado para idempotencia
-            with open(done_flag, "w"):
-                pass
+                    def _extract_tar():
+                        with tarfile.open(tar_path, "r:gz") as tar:
+                            tar.extractall(path="/loras", filter="data")
+
+                    await asyncio.to_thread(_extract_tar)
+                    with open(hash_flag, "w") as _hf:
+                        _hf.write(current_hash)
+            else:
+                logger.info(f"[MLOps OTA] Primera instalacion del adaptador. Extrayendo...")
+                os.makedirs("/loras", exist_ok=True)
+
+                def _extract_tar():
+                    with tarfile.open(tar_path, "r:gz") as tar:
+                        tar.extractall(path="/loras", filter="data")
+
+                await asyncio.to_thread(_extract_tar)
+                with open(hash_flag, "w") as _hf:
+                    _hf.write(current_hash)
             
             logger.success(f"[MLOps OTA] Adaptador '{new_model_tag}' extraído en '{lora_base_dir}'.")
 

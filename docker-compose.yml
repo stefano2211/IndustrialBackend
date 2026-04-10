@@ -42,7 +42,7 @@ services:
     restart: unless-stopped
 
   vllm:
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:v0.9.1  # Qwen3.5 requires >=v0.17.0 (Unsloth docs); pinned for reproducibility
     container_name: vllm
     ports:
       - "8002:8000"
@@ -83,6 +83,7 @@ services:
     volumes:
       - ./app:/app/app
       - ./tmp:/tmp
+      - ./loras:/loras  # Shared with vLLM — OTA service extracts adapters here
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
     depends_on:

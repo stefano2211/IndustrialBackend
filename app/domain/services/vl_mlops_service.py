@@ -6,6 +6,7 @@ Con Qwen3.5 unificado multimodal + vLLM, descargamos el LoRA VL como .tar.gz
 y lo extraemos directamente en la carpeta dinámica de vLLM (/loras).
 """
 
+import hashlib
 import os
 import asyncio
 import httpx
@@ -39,13 +40,8 @@ class VLMLOpsService:
         logger.info(f"[VL OTA] 🚀 Iniciando actualización OTA VL para vLLM: {model_tag}")
 
         tar_path = f"/tmp/{model_tag}.tar.gz"
-        lora_base_dir = f"./loras/{model_tag}"
-        done_flag = f"./loras/{model_tag}/.ota_done"
-
-        # Idempotencia: si ya se extrajo este tag, solo notificar a vLLM y salir
-        if os.path.exists(done_flag):
-            logger.info(f"[VL OTA] Adaptador VL '{model_tag}' ya instalado. Saltando descarga.")
-            return {"status": "already_installed", "tag": model_tag}
+        lora_base_dir = f"/loras/{model_tag}"
+        hash_flag = f"/loras/{model_tag}/.artifact_hash"
 
         try:
             # ── PASO 1: Obtener presigned URL del registry VL ─────────────────────
@@ -72,20 +68,40 @@ class VLMLOpsService:
             
             logger.info(f"[VL OTA] Tarball descargado en: {tar_path}")
 
-            # ── PASO 3: Extraer adaptador nativamente para vLLM ──────────────
-            logger.info(f"[VL OTA] Descomprimiendo pesos a {lora_base_dir} ...")
-            os.makedirs("./loras", exist_ok=True)
-            
-            def _extract_tar():
-                with tarfile.open(tar_path, "r:gz") as tar:
-                    # BUG 4 fix: filter='data' previene path traversal (recomendado Python 3.12+)
-                    tar.extractall(path="./loras", filter="data")
-            
-            await asyncio.to_thread(_extract_tar)
+            # Idempotencia por hash: saltar extraccion si el artefacto no cambio
+            _md5 = hashlib.md5()
+            with open(tar_path, "rb") as _f:
+                for _chunk in iter(lambda: _f.read(8 * 1024 * 1024), b""):
+                    _md5.update(_chunk)
+            current_hash = _md5.hexdigest()
 
-            # Marcar como instalado para idempotencia
-            with open(done_flag, "w"):
-                pass
+            if os.path.exists(hash_flag):
+                with open(hash_flag, "r") as _hf:
+                    prev_hash = _hf.read().strip()
+                if current_hash == prev_hash:
+                    logger.info(f"[VL OTA] Mismo artefacto (hash={current_hash[:8]}). Solo notificando a vLLM.")
+                else:
+                    logger.info(f"[VL OTA] Nuevo artefacto VL (hash={current_hash[:8]}). Extrayendo...")
+                    os.makedirs("/loras", exist_ok=True)
+
+                    def _extract_tar():
+                        with tarfile.open(tar_path, "r:gz") as tar:
+                            tar.extractall(path="/loras", filter="data")
+
+                    await asyncio.to_thread(_extract_tar)
+                    with open(hash_flag, "w") as _hf:
+                        _hf.write(current_hash)
+            else:
+                logger.info(f"[VL OTA] Primera instalacion del adaptador VL. Extrayendo...")
+                os.makedirs("/loras", exist_ok=True)
+
+                def _extract_tar():
+                    with tarfile.open(tar_path, "r:gz") as tar:
+                        tar.extractall(path="/loras", filter="data")
+
+                await asyncio.to_thread(_extract_tar)
+                with open(hash_flag, "w") as _hf:
+                    _hf.write(current_hash)
             
             logger.success(f"[VL OTA] Adaptador VL '{model_tag}' extraído en '{lora_base_dir}'.")
 

@@ -323,7 +323,7 @@ class AgentService:
         if settings.system1_enabled:
             try:
                 vision_llm = await LLMFactory.get_llm(
-                    provider=LLMProvider.OLLAMA,
+                    provider=LLMProvider.VLLM,
                     model_name=settings.system1_model,
                     session=session,
                 )
@@ -512,7 +512,7 @@ class AgentService:
 
         # 4.4 Expert Loader: Deferred — avoid loading fine-tuned model into VRAM until needed
         expert_llm_factory = lambda: LLMFactory.get_llm(
-            provider=LLMProvider.OLLAMA,
+            provider=LLMProvider.VLLM,
             model_name=settings.default_llm_model,
             session=session,
         )
@@ -523,7 +523,7 @@ class AgentService:
         if settings.system1_enabled:
             try:
                 vision_llm = await LLMFactory.get_llm(
-                    provider=LLMProvider.OLLAMA,
+                    provider=LLMProvider.VLLM,
                     model_name=settings.system1_model,
                     session=session,
                 )

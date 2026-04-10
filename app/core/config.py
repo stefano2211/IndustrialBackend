@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     default_llm_model: Optional[str] = "aura_expert=/loras/aura_tenant_01-v2" # Expert alias in vLLM
 
     # Generalist Orchestrator
-    generalist_llm_model: str = "Qwen/Qwen3.5-4B"  # General-purpose director model
+    generalist_llm_model: str = "Qwen/Qwen3.5-2B"  # Unified multimodal director model
 
     # Sistema 1 — Fine-tuned Vision-Language
     system1_model: str = "aura_system1=/loras/aura_tenant_01-vl"   # VL model alias

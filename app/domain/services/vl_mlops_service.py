@@ -2,10 +2,8 @@
 VL MLOps Service — OTA Update para modelos Vision-Language
 ===========================================================
 
-Con la transición a vLLM y Qwen2.5-VL unificado, ya no requerimos descargar model.gguf 
-y mmproj.mmproj por separado ni interactuar con la Blob API de Ollama. 
-Los pesos LoRA para el sistema visual se descargan en el mismo `.tar.gz` 
-y se extraen directamente en la carpeta dinámica de vLLM (/loras).
+Con Qwen3.5 unificado multimodal + vLLM, descargamos el LoRA VL como .tar.gz
+y lo extraemos directamente en la carpeta dinámica de vLLM (/loras).
 """
 
 import os

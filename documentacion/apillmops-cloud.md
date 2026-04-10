@@ -1,86 +1,117 @@
 # 🏗️ Auditoría de Arquitectura — ApiLLMOps (Mothership)
 
 > **Rol:** Arquitecto de Software Senior  
-> **Proyecto:** `ApiLLMOps` — Hub Central (Mothership) para Fine-Tuning y MLOps
+> **Proyecto:** `ApiLLMOps` — Hub Central (Mothership) para Fine-Tuning y MLOps  
+> **Última revisión:** Abril 2026
 
 ---
 
 ## 1. Visión General del Sistema
 
-El sistema `ApiLLMOps` actúa como el **Mothership (Hub Central)** en una arquitectura Cloud-to-Edge. Su responsabilidad principal es recibir datos telemétricos o históricos desde múltiples nodos Edge (ej. `IndustrialBackend`), consolidarlos en un Data Lake, orquestar procesos pesados de re-entrenamiento de LLMs (Fine-Tuning) utilizando aceleración GPU, y coordinar el despliegue automático (OTA - Over-The-Air) de los nuevos modelos hacia los nodos mediante webhooks y presigned URLs.
+El sistema `ApiLLMOps` actúa como el **Mothership (Hub Central)** en una arquitectura Cloud-to-Edge. Su responsabilidad principal es recibir datos telemétricos o históricos desde múltiples nodos Edge (ej. `IndustrialBackend`), consolidarlos en un Data Lake (MinIO), orquestar procesos pesados de re-entrenamiento de LLMs (Fine-Tuning con LoRA) utilizando aceleración GPU via Unsloth, y coordinar el despliegue automático (OTA - Over-The-Air) de los nuevos adaptadores LoRA hacia los nodos Edge mediante webhooks y presigned URLs de S3.
 
 ### Stack Técnico
 
 | Componente | Tecnología |
 |------------|-----------|
-| **API** | FastAPI + Uvicorn |
+| **API** | FastAPI + Uvicorn (Python 3.11) |
 | **Task Queue** | Celery + Redis (Broker & Result Backend) |
-| **Object Storage** | MinIO (S3-compatible) para Data Lake y Modelos |
-| **ML/Training** | PyTorch (cu128), Unsloth (QLoRA), Transformers, TRL |
-| **Formato Exportación** | GGUF nativo + Ollama Modelfile |
-| **Infraestructura** | Docker Compose (API container + GPU Worker separado) |
+| **Object Storage** | MinIO (S3-compatible) — 3 buckets: `datalake`, `datalake-vl`, `models` |
+| **ML/Training** | PyTorch (cu128), Unsloth (QLoRA), Transformers ≥5.0, TRL, Pillow |
+| **Formato Exportación** | Safetensors LoRA empaquetado en `.tar.gz` (compatible con vLLM) |
+| **Infraestructura** | Docker Compose — `Dockerfile.api` (sin GPU) + `Dockerfile.worker` (CUDA 12.8) |
 
 ---
 
 ## 2. Arquitectura por Capas y Componentes
 
-La estructura de carpetas sigue un patrón de diseño por capas (Domain-Driven Design simplificado) muy similar al del Edge Node, asegurando coherencia mental entre ambos proyectos.
+La estructura de carpetas sigue un patrón de diseño por capas (Domain-Driven Design simplificado) coherente con el Edge Node.
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│                 Infraestructura Docker               │
-│  mops-api | mops-gpu-worker | mops-redis | mops-minio│
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│                   FastAPI (app/main.py)              │
-│    Entrypoint, Auth, Middlewares, Healthchecks       │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│              API Layer (app/api/)                    │
-│  datasets.py / vl_datasets.py (Ingesta de datos)     │
-│  training.py / vl_training.py (Jobs de Celery)       │
-│  models.py   (Registry: emite Presigned URLs S3)     │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│          Domain Layer (app/domain/)                  │
-│                                                      │
-│  ┌──────────────┐  ┌──────────────┐                 │
-│  │   schemas/   │  │  services/   │                 │
-│  │ Pydantic DTOs│  │ unsloth_trainer / vl_trainer   │
-│  └──────────────┘  └──────────────┘                 │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│        Persistence Layer (app/persistence/)          │
-│  storage.py (MinioManager: S3 abstraction layer)     │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Infraestructura Docker                    │
+│  mops-api | mops-gpu-worker | mops-redis | mops-minio        │
+│  mops-minio-init (crea buckets datalake + models al inicio)  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│                   FastAPI (app/main.py)                      │
+│    Entrypoint, CORS, Healthcheck (/healthz)                  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│                   API Layer (app/api/)                       │
+│  datasets.py    → POST /datasets/upload (texto, UUID shard)  │
+│  vl_datasets.py → POST /vl/upload (screenshots+acciones)     │
+│  training.py    → POST /training/job (encola Celery texto)   │
+│  vl_training.py → POST /vl/training/job (encola Celery VL)   │
+│  models.py      → GET /models/{id}/latest/config             │
+│                   GET /vl/models/{id}/vl/config              │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│               Domain Layer (app/domain/)                     │
+│                                                              │
+│  ┌──────────────────┐  ┌──────────────────────────────────┐  │
+│  │   schemas/       │  │  services/                       │  │
+│  │ TrainingJobRequest│  │ unsloth_trainer.py (Celery Task) │  │
+│  │ VLTrainingJobReq  │  │ vl_trainer.py      (Celery Task) │  │
+│  └──────────────────┘  └──────────────────────────────────┘  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│           Persistence Layer (app/persistence/)               │
+│  storage.py → MinioManager (upload, download, presigned URL, │
+│               list_objects)                                  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 3. Flujos de Integración Principales (Cloud-To-Edge)
 
-### 3.1 Ingesta de Datos (Data Lake Append)
-El Endpoint `POST /upload` en `datasets.py` atiende a los Nodos Edge.
-1. Recibe un archivo `.jsonl` de telemetría y el `tenant_id`.
-2. Descarga el "master file" actual del bucket MinIO al `/tmp/` local.
-3. Le anexa asincrónicamente el nuevo chunk (`aiofiles`).
-4. Reemplaza el master file viejo en S3 subiendo el nuevo.
+### 3.1 Ingesta de Datos — Pipeline de Texto
+El endpoint `POST /api/v1/datasets/upload` en `datasets.py` atiende a los Nodos Edge.
+1. Recibe un archivo `.jsonl` y el `tenant_id`.
+2. **Genera un nombre único con UUID** (`{tenant_id}_{tool_name}_{uuid8}.jsonl`) — cada upload es una partición independiente. No hay descarga ni reescritura del histórico.
+3. Guarda localmente en `/tmp/datalake/` y lo sube al bucket `datalake` en MinIO.
+4. Al momento de entrenar, el worker agrega todos los archivos del tenant por prefijo.
 
-### 3.2 Fine-Tuning (Dual Text/Vision Pipeline)
-La Motherhisp cuenta con 2 pipelinas de Celery diferentes para combatir el Catastrophic Forgetting:
-- `unsloth_trainer.py` (Texto MPU): Usa `DataCollatorForCompletionOnlyLM` para entrenar el modelo de texto sobre ShareGPT. Exporta `gguf`.
-- `vl_trainer.py` (Visión GUI): Usa `UnslothVisionDataCollator` para fine-tunear `Qwen2.5-VL-3B` con imágenes. Exporta el combo principal `gguf` + el proyector visual `mmproj.gguf`.
-- **Webook (OTA):** Emite el tipo de modelo (`vision` o `text`) para que el Edge enrute su descarga acorde a la nueva arquitectura 2-layered (Macrohard).
+### 3.2 Ingesta de Datos — Pipeline VL (Vision-Language)
+El endpoint `POST /api/v1/vl/upload` en `vl_datasets.py` maneja datos de Computer Use.
+- Formato JSONL esperado: `{"messages": [...], "images": ["<base64_png>"]}` compatible con `FastVisionModel`.
+- Descarga el objeto existente del bucket `datalake-vl`, le hace append del nuevo chunk, y lo re-sube como objeto canónico `{tenant_id}_vl_{tool_name}.jsonl`.
+- **Nota**: Este patrón tiene una race condition si hay uploads concurrentes del mismo tenant.
 
-### 3.3 Consumo OTA (Model Pull)
-Días o semanas después del webhoook, cuando un Nodo Edge arranca u obedece a un reinicio, llama a:
-`GET /{tenant_id}/latest/config` en `models.py`.
-1. Emite URLs presignadas y efímeras de S3 para el GGUF y Modelfile.
-2. El Edge los descarga directamente saltándose la API limitando cuellos de botella en la red de la Mothership.
+### 3.3 Fine-Tuning — Dos Pipelines Independientes (Anti Catastrophic Forgetting)
+
+**Pipeline de Texto** (`unsloth_trainer.py`):
+- Base model: configurable por request (ej: `unsloth/qwen2.5-7b-bnb-4bit`)
+- Usa `FastLanguageModel` con QLoRA 4-bit (r=16, alpha=32)
+- `DataCollatorForCompletionOnlyLM`: entrena solo sobre las respuestas del assistant (SOTA)
+- `standardize_sharegpt`: normaliza inconsistencias de formato entre distintos Edge nodes
+- Exporta **safetensors LoRA** → comprime en `.tar.gz` → sube a bucket `models` como `{tenant_id}-v2-lora.tar.gz`
+
+**Pipeline VL** (`vl_trainer.py`):
+- Base model: `unsloth/Qwen2.5-VL-3B-Instruct-bnb-4bit`
+- Usa `FastVisionModel` con fine-tuning de capas de visión Y lenguaje
+- `UnslothVisionDataCollator`: maneja imágenes PIL + acciones JSON
+- `dataloader_num_workers=0`: obligatorio, PIL no es serializable entre workers
+- Exporta **safetensors LoRA VL** → comprime en `.tar.gz` → sube a `models` como `{tenant_id}-vl-lora.tar.gz`
+
+**Webhook OTA** al finalizar:
+```python
+requests.post(webhook_url, json={"model_tag": f"{tenant_id}-v2"}, headers={"x-api-key": settings.API_KEY})
+# VL:
+requests.post(webhook_url, json={"model_tag": f"{tenant_id}-vl", "model_type": "vision"}, ...)
+```
+
+### 3.4 Registry de Modelos y Presigned URLs
+El Edge consulta el registry para obtener la URL de descarga del artefacto:
+- Texto: `GET /api/v1/models/{tenant_id}/latest/config` → retorna `{"lora_url": "<presigned_url>", "format": "Safetensors-LoRA"}`
+- VL: `GET /api/v1/vl/models/{tenant_id}/vl/config` → retorna `{"lora_url": "<presigned_url>", "format": "safetensors"}`
+
+El Edge descarga el `.tar.gz` directamente desde MinIO via la presigned URL, sin pasar por la API.
 
 ---
 
@@ -89,66 +120,116 @@ Días o semanas después del webhoook, cuando un Nodo Edge arranca u obedece a u
 La pieza más valiosa de este repositorio es `start_finetuning_task` en `unsloth_trainer.py`. Es un pipeline MLOps State of the Art.
 
 **Fortalezas detectadas:**
-- **Uso de Unsloth:** Minimiza el footprint de VRAM dramáticamente y acelera el entrenamiento (x2 a x5) en comparación con un stack tradicional de HuggingFace TRL estandar. Permitirá correr el hub con GPUs de gama de entrada (RTX 3090 / 4090 o A10).
-- **Format ChatML Normalizado:** El código hace `standardize_sharegpt` lo cual soluciona muchas inconsistencias entre diferentes recolectores de datos de los Edge.
-- **DataCollatorForCompletionOnlyLM:** Gran detalle SOTA. El agente no penaliza el loss function sobre el texto de los *prompts* del usuario, optimizando exclusivamente qué tan bien responde el *assistant*.
-- **`MAX_JOBS=1` en llama.cpp:** Evita crasheos "Out of Memory" misteriosos en workers Docker que ocurren cuando llama.cpp intenta compilar C++ con docenas de hilos (paralelismo agresivo detectado de un bug clásico).
+- **Uso de Unsloth:** Minimiza el footprint de VRAM dramáticamente y acelera el entrenamiento (x2 a x5) frente a HuggingFace TRL estándar. Permite correr el hub con GPUs de gama de entrada (RTX 3090/4090 o A10).
+- **Format ChatML Normalizado:** `standardize_sharegpt` resuelve inconsistencias entre distintos recolectores de datos de los Edge.
+- **DataCollatorForCompletionOnlyLM:** SOTA multi-turno. Solo penaliza el loss sobre las respuestas del assistant, no sobre los prompts del usuario.
+- **`--max-tasks-per-child=1` en Dockerfile.worker:** Fuerza al SO a matar el proceso hijo y liberar el 100% de la VRAM GPU tras cada job. Previene memory fragmentation acumulada de PyTorch en jobs iterativos.
+- **Pool `solo` (`-P solo`):** Correcto para PyTorch — evita el uso de `fork()` que corrompe el estado CUDA.
+- **`HF_HUB_ENABLE_HF_TRANSFER=1`:** Acelera la descarga de pesos base de HuggingFace significativamente.
+- **`hf_cache` volume compartido:** Evita re-descargar modelos base entre runs consecutivos.
+- **`finally` block para VRAM:** `del model; gc.collect(); torch.cuda.empty_cache()` garantiza liberación de GPU pase lo que pase.
 
 ---
 
-## 5. Problemas y Observaciones Críticas (Riesgos a Escala)
+## 5. Bugs Críticos y Problemas Detectados
 
-A pesar de ser un diseño moderno excelente, existen vulnerabilidades operativas y cuellos de botella en el uso de datos.
-
-### ❌ CUELLO DE BOTELLA CRÍTICO: I/O Append en Memoria/Disco (`datasets.py`)
-El código en `datasets.py` (`POST /upload`):
+### 🔴 BUG CRÍTICO 1: `start_vl_finetuning_task` no registrada en el Worker Celery
 ```python
-storage.download_file(bucket, object_name, local_master_file) # Descarga un dataset maestro temporal entero
-# Append local
-storage.upload_file(bucket, object_name, local_master_file)   # Lo sube entero otra vez
+# app/core/celery_app.py:21
+imports=["app.domain.services.unsloth_trainer"],  # vl_trainer NO está aquí
 ```
-**Impacto:** Cuando el Data Lake de un `tenant_id` llegue, digamos, a 50GB en `.jsonl` generado con el tiempo: 
-- Cada nodo Edge subiendo apenas un chunk de 1MB forzará que la API descargue 50GB, le pegue 1MB, y resuba 50.001GB. Encolará tiempos de respuesta HTTP horribles y consumirá IOPS, banda ancha interna y disco temporal de Docker hasta colapsar.
-- **Solución P0:** Migrar a la API multipart append si soportado por MinIO, cambiar el patrón a `Partitioning` (subir `sensor_data_2026-04-01T12:00.jsonl` independientemente) y luego que el Worker consolide/cargue a demanda usando DuckDB u Objeto S3 Spark al momento de entrenar.
+El worker solo importa `unsloth_trainer`. La tarea `start_vl_finetuning_task` de `vl_trainer.py` **nunca se registra**. Cualquier job VL encolado falla con `celery.exceptions.NotRegistered`. El pipeline VL completo no funciona en producción.
 
-### ⚠️ RIESGO LATENTE DE OOM (Out Of Memory) en Celery GPU Worker (`unsloth_trainer.py`)
-Al final de la tarea de entrenamiento (línea 286), se utiliza:
-```python
-del trainer, model, tokenizer
-gc.collect()
-torch.cuda.empty_cache()
-```
-Aunque esto funciona en notebooks de Colab, usar Celery como *Long-running worker de PyTorch* casi siempre da por resultado una degradación de memoria GPU (memory fragmentation o leaks de C++) resultando en **OOM después de 3 o 4 tareas iterativas seguidas**.
-- **Solución P1:** Configurar Celery con el flag `--max-tasks-per-child=1`. Esto obligará al SO a matar el proceso hijo y liberar el 100% real de la memoria GPU, lanzando un proceso hijo fresco a la siguiente tarea de la cola. Ya está la queue de Redis para mantener la persistencia. Para ajustar esto, modificar en `Dockerfile.worker` la linea extra: `CMD ["celery", "-A", "app.core.celery_app", "worker", ... "--max-tasks-per-child=1"]`
-
-### ⚠️ INYECCIÓN DE DEPENDENCIA DE WEBHOOK INSEGURA
-El Payload original enviado del Celery:
-```python
-requests.post(webhook_url, json={"model_tag": f"{tenant_id}-v2"}, ...)
-```
-1. Confía ciegamente en `req.webhook_url` ingresado en el `POST /job`. Si un atacante malicioso interno proveé un Webhook hacia una IP perimetral (SSRF - Server Side Request Forgery) el *GPU Worker* atacará su objetivo o filtrará datos.
-2. Debería haber una validación de Tenant vs Endpoints Registrados en lugar de aceptar `webhook_url` ciegamente en la cabecera.
-
-### ℹ️ NO HAY VERSIÓN DINÁMICA DE MODELOS
-Para el output y tags, está hardcodeado como `aura_tenant_01-v2`. Cada vez que corras una corrida, el output machacará los bucket items de `-v2.gguf`. Una rotación por `epoch_{timestamp}` o el ID del job de celery como tag sería fundamental en una pipeline formal para permitir fallbacks/A-B Testing.
+**Fix:** Agregar `"app.domain.services.vl_trainer"` a la lista `imports`.
 
 ---
 
-## 6. Integración Seguridad: End-To-End Test Evaluation
+### 🔴 BUG CRÍTICO 2: Bucket `datalake-vl` nunca se crea
+```yaml
+# docker-compose.yml — minio-init solo crea:
+/usr/bin/mc mb myminio/datalake || true;
+/usr/bin/mc mb myminio/models || true;
+# datalake-vl NO se crea
+```
+`MinioManager.init_buckets()` tampoco lo crea (solo `datalake` y `models`), y además ese método **nunca se llama** en el startup de la aplicación. Todo upload VL (`POST /api/v1/vl/upload`) falla con `NoSuchBucket`.
 
-El script `test_e2e_mlops.py` suministrado expone que ya se validan correctamente ciertos supuestos de inyección en shell (Phase 4 y 5 de la suite) del lado de `IndustrialBackend`. Pero el test de la fase 2 invoca `http://host.docker.internal:8000/mlops/webhook/model-ready`. Note que `host.docker.internal` romperá resoluciones DNS de Linux si el orquestador no lo declara explícitamente y en Linux puro en prod (sin Docker Desktop) esto falla. 
+**Fix:** Agregar `datalake-vl` al `minio-init` y llamar `storage.init_buckets()` en el startup de la API.
+
+---
+
+### 🔴 BUG CRÍTICO 3: Race condition en upload VL (pérdida de datos silenciosa)
+El patrón de `vl_datasets.py` (download → append local → re-upload) es destructivo bajo concurrencia:
+- Si dos requests llegan simultáneamente para el mismo `tenant_id + tool_name`, ambas descargan el estado actual, ambas hacen append, y la segunda sobrescribe la data appended de la primera.
+
+**Fix:** Adoptar el mismo patrón que el pipeline de texto — UUID por upload, y agregar en el trainer.
+
+---
+
+### 🟠 PROBLEMA: Sin retry en webhook OTA post-training
+```python
+requests.post(webhook_url, json={"model_tag": ...}, timeout=10)
+# Si falla → except Exception as e: logger.error(...)
+```
+Si el Edge está ocupado o hay un problema de red transitorio, el webhook falla silenciosamente. El training se completó exitosamente pero el Edge nunca recibe la señal OTA. No hay reintento.
+
+**Fix:** Implementar retry con backoff exponencial (mínimo 3 intentos).
+
+---
+
+### 🟠 PROBLEMA: Limpieza de `/tmp/` incompleta en caso de error de training
+La limpieza del directorio de export y el `.tar.gz` local solo ocurre dentro del bloque `try` (al final del Paso 5). Si el upload a S3 falla después de un training de 4 horas, los artefactos de `/tmp/models/` (~100MB–2GB) quedan en disco indefinidamente. Múltiples fallos llenan el disco del worker.
+
+**Fix:** Mover la limpieza de archivos temporales al bloque `finally`.
+
+---
+
+### 🟡 RIESGO DE SEGURIDAD: `tenant_id` sin sanitización en paths de archivo
+```python
+local_dataset_path = f"/tmp/{object_name}"       # unsloth_trainer.py:59
+local_vl_path = f"/tmp/{tenant_id}_vl_master.jsonl"  # vl_trainer.py:76
+```
+Un `tenant_id` malicioso con `../` podría apuntar a rutas del sistema (path traversal). El contenedor Docker mitiga el impacto, pero no elimina el riesgo.
+
+**Fix:** Validar `tenant_id` con regex `^[a-zA-Z0-9_-]+$` en los endpoints.
+
+---
+
+### 🟡 RIESGO DE SEGURIDAD: API Key con comparación vulnerable a timing attack
+```python
+# security.py:8
+if api_key == settings.API_KEY:
+```
+La comparación con `==` es susceptible a timing attacks. Usar `hmac.compare_digest(api_key, settings.API_KEY)`.
+
+---
+
+### ℹ️ Sin versionado dinámico de modelos
+El output está hardcodeado como `{tenant_id}-v2-lora.tar.gz`. Cada training run sobrescribe el artefacto anterior en MinIO. No hay historial, fallback ni A/B testing posible.
+
+---
+
+## 6. Evaluación End-To-End: Test Suite
+
+El script `test_e2e_mlops.py` valida correctamente la sanitización de `model_tag` (Fase 5) y el rechazo sin API key (Fase 4). Sin embargo:
+- La Fase 2 usa `http://host.docker.internal:8000` como webhook URL — esto funciona en Docker Desktop en macOS/Windows pero **falla en Linux puro** sin configuración adicional.
+- `MOTHERSHIP_API_KEY = "default-mothership-secret-key"` está hardcodeado en el test — debe leerse de variable de entorno.
 
 ---
 
 ## 7. Recomendaciones Prioritarias (Action Items)
 
-### P0 — Crítico (Evitan Caídas del Sistema)
-1. **Modificar el Append Pattern** en el Endpoint de Upload. Acumular el `append` como particiones individuales diarias/por envío del MinIO, que luego el Trainer descargue iterativamente. No descargar/resubir todo el monolito en cada HTTP de 1MB.
-2. **Forzar Reciclaje del Worker:** Agregar flag `--max-tasks-per-child=1` en el CMD del `Dockerfile.worker` o correr en OOM a la terca o cuarta hora de operación continua.
+### P0 — Crítico (rompen funcionalidad core)
+1. **Registrar `vl_trainer` en Celery:** Agregar `"app.domain.services.vl_trainer"` a `celery_app.conf.imports`.
+2. **Crear bucket `datalake-vl`:** Agregar al `minio-init` de docker-compose y llamar `storage.init_buckets()` en startup.
+3. **Corregir race condition VL:** Adoptar UUID-per-shard en `vl_datasets.py` como en el pipeline de texto.
 
-### P1 — Importante (Robusteza)
-3. **Versiones Dinámicas de Modelo:** Sustituir los strings estáticos (ej: `tenant_id-v2`) con hashes combinados de `job_id` y `tenant_id` para historizar artefactos (`aura-01-abcdef.gguf`). Modificar el API para pedir `get_latest` basados en orden del bucket.
-4. Protección SSRF: Limitar dominios/IPs a la cual Celery tiene permiso de hacer webhook alerts. O manejar el registry desde la BD.
+### P1 — Importante (robusteza y seguridad)
+4. **Retry en webhook OTA:** 3 intentos con backoff exponencial en `unsloth_trainer.py` y `vl_trainer.py`.
+5. **Cleanup en `finally`:** Mover `shutil.rmtree(export_dir)` y `os.remove(tar_path)` al bloque `finally`.
+6. **Validar `tenant_id`:** Regex `^[a-zA-Z0-9_-]+$` en ambos trainers.
+7. **Timing-safe API key:** Reemplazar `==` con `hmac.compare_digest`.
 
-### P2 — Observables MLOps
-5. Conectar Loguru directamente al sistema de Tracking (e.g. LangSmith or MLFlow) para el Loss Rate ya que entrenar en Celery pierde stdout/stderr muy comúnmente y el cliente final no verá curvas de aprendizaje de forma directa, impidiendo curar su dataset correctamente.
+### P2 — Observabilidad MLOps
+8. **Versiones dinámicas de modelo:** Usar `{tenant_id}-v{job_id[:8]}-lora.tar.gz` y exponer historial en el registry.
+9. **Monitoreo Celery:** Agregar Flower (`celery flower`) para visibilidad del worker GPU.
+10. **Conectar loss metrics:** Enviar `trainer_stats` a un sistema de tracking (MLFlow, LangSmith) para visualizar curvas de aprendizaje.

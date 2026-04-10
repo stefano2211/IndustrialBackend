@@ -1,6 +1,8 @@
 # 🌌 Aura AI Ecosystem: Master Architecture Report
 ## "Industrial Edge-to-Cloud Intelligence"
 
+> **Última revisión:** Abril 2026
+
 Este reporte técnico consolida la auditoría completa de los proyectos `IndustrialBackend` (Nodo Edge) y `ApiLLMOps` (Mothership Cloud), analizando los patrones de diseño, flujos lógicos y la arquitectura de agentes industriales.
 
 ---
@@ -19,8 +21,8 @@ El sistema destaca por un uso riguroso de patrones de software modernos que aseg
 
 ### 2.1 Factory Pattern (Creación Dinámica)
 Utilizado en todo el stack para instanciar componentes pesados sin acoplamiento:
-- **`LLMFactory` (Edge)**: Crea instancias de `ChatOllama` o `ChatOpenRouter` basándose en configuración de base de datos.
-- **`DeepAgent Factory` (Edge)**: Ensambla el grafo de LangGraph, inyectando subagentes, herramientas y memoria según el `tenant_id`.
+- **`LLMFactory` (Edge)**: Crea instancias de `ChatOpenAI` (apuntando a vLLM local) o `ChatOpenAI` (apuntando a OpenRouter) basándose en el `LLMProvider` configurado en BD. Sigue el patrón Registry: agregar un proveedor nuevo = una entrada en el dict (OCP).
+- **`DeepAgent Factory` (Edge)**: Ensambla el grafo de LangGraph, inyectando subagentes, herramientas y memoria según la configuración del request.
 - **`ConnectorRegistry` (Edge)**: Instancia el conector de DB correcto (MySQL, Postgres, etc.) dinámicamente para el colector.
 
 ### 2.2 Bridge & Adapter (Abstracción de Herramientas)
@@ -47,20 +49,24 @@ A continuación, el recorrido lógico de una pieza de información a través de 
 3.  `app/core/mothership_client.py` (Edge): Realiza `upload_dataset` (texto) y `upload_vl_dataset` (capturas visuales) a la nube.
 
 ### Fase 2: Fine-Tuning en la Nube
-5.  `app/api/endpoints/datasets.py` (Mops): Recibe los bytes y los anexa al master file en MinIO.
-6.  `app/api/endpoints/training.py` (Mops): Manda un `job_id` a la cola de Celery.
-7.  `app/domain/services/unsloth_trainer.py` (Mops - Celery Worker): 
-    - Carga pesos base desde cache (`HF_HOME`).
-    - Entrena con **Fine-tuning LoRA** (QLoRA 4-bit).
-    - Exporta GGUF vía **lambda.cpp** nativo (`save_pretrained_gguf`).
-    - Lanza Webhook de retorno al Edge.
+5.  `app/api/endpoints/datasets.py` (Mops): Recibe el `.jsonl` y lo guarda como una **partición UUID independiente** en MinIO bucket `datalake`. No hay append de master file.
+6.  `app/api/endpoints/training.py` / `vl_training.py` (Mops): Encola el job en Celery y retorna un `job_id`.
+7.  `app/domain/services/unsloth_trainer.py` / `vl_trainer.py` (Mops - Celery Worker GPU):
+    - Agrega todos los archivos del tenant por prefijo desde MinIO.
+    - Carga pesos base desde cache (`HF_HOME`) con `HF_HUB_ENABLE_HF_TRANSFER=1`.
+    - Entrena con **QLoRA 4-bit** (r=16, alpha=32) via Unsloth.
+    - Exporta **safetensors LoRA** (no GGUF) → comprime en `.tar.gz` → sube a bucket `models`.
+    - Lanza Webhook OTA de retorno al Edge con `x-api-key`.
 
 ### Fase 3: Despliegue OTA y Ejecución
-8.  `app/api/endpoints/mlops.py` (Edge): Capta el webhook, separando payloads según `model_type` (text / vision).
-9.  `app/domain/services/mlops_service.py` y `vl_mlops_service.py` (Edge): 
-    - Descargan binarios GGUF (incluidos los `mmproj.gguf` para visión).
-    - Registran el blob en Ollama construyendo el `Modelfile` con el adaptor visual.
-10. `app/domain/services/agent_service.py` (Edge): Instancia el nuevo modelo local y el usuario comienza a chatear con el conocimiento actualizado.
+8.  `app/api/endpoints/mlops.py` (Edge): Capta el webhook con `model_type` (`text` / `vision`). Valida el `model_tag` con regex. Despacha a `BackgroundTask` según el tipo.
+9.  `app/domain/services/mlops_service.py` y `vl_mlops_service.py` (Edge):
+    - Consultan al registry de la Mothership para obtener la **presigned URL** del `.tar.gz` de safetensors.
+    - Descargan el tarball en streaming (chunks 1MB) a `/tmp/`.
+    - Extraen los pesos a `./loras/{model_tag}/` con `filter='data'` (previene path traversal).
+    - Notifican a vLLM: `POST /v1/load_lora_adapter` — **carga dinámica sin reiniciar**.
+    - Limpian archivos temporales en el bloque `finally`.
+10. `app/domain/services/agent_service.py` (Edge): Las próximas conversaciones usan el alias LoRA actualizado (`aura_expert=/loras/aura_tenant_01-v2` o `aura_system1=/loras/aura_tenant_01-vl`).
 
 ---
 
@@ -97,6 +103,7 @@ Aura AI implementa una de las arquitecturas de memoria más completas en proyect
 
 ### 5.2 JWT + API Key Combo
 - El sistema utiliza **JWT** para el usuario final (`app/api/deps.py`) pero usa **MOTHERSHIP_API_KEY** para la comunicación entre servicios. Un atacante con el JWT del usuario no puede disparar un entrenamiento; solo la Mothership autenticada puede hacerlo.
+- **Riesgo identificado:** El mismo secreto (`mothership_api_key`) se usa **bidirecccionalmente** — el Edge lo envía en uploads y el Mothership lo envía en webhooks. Si se compromete, un atacante puede tanto subir datos falsos como enviar webhooks OTA maliciosos. Se recomienda separar en dos secretos distintos.
 
 ---
 
@@ -106,11 +113,11 @@ El ecosistema Aura AI es **robusto, desacoplado y profesional**. No es un simple
 
 | Categoría | Evaluación | Nota |
 |-----------|------------|------|
-| **Escalabilidad** | Alta (Celery + Docker + Micro-services) | 9/10 |
+| **Escalabilidad** | Alta (Celery + Docker + arquitectura Edge/Cloud separada) | 9/10 |
 | **Separación de Concernos** | Excelente (Domain logic vs Persistence) | 10/10 |
 | **Inteligencia de Herramientas** | Superior (Smart Filter + Schema Discovery) | 10/10 |
-| **Puntos de Falla** | I/O en Upload (Edge) y RAM en GGUF Export (Mops) | 7/10 |
+| **Puntos de Falla** | Loop MLOps roto (4 bugs críticos), I/O síncrono en OTA | 6/10 |
 
 > [!IMPORTANT]
 > ### Recomendación Final de Negocio
-> El proyecto está listo para escalonamiento masivo (Multi-tenant). La decisión de usar **Unsloth** en la nube y **Ollama** en el borde es la combinación ganadora para reducir costos de inferencia y entrenamiento en un factor de 10x frente a soluciones puramente OpenAI/Azure.
+> El proyecto está listo para escalonamiento masivo (Multi-tenant) una vez resueltos los 4 bugs críticos del loop MLOps. La decisión de usar **Unsloth** en la nube y **vLLM con adaptadores LoRA dinámicos** en el borde es la combinación correcta: permite actualizar el modelo en producción sin downtime y sin re-descargar pesos base (~2GB), solo el adaptador (~100MB).

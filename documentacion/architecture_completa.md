@@ -1,13 +1,14 @@
 # 🏗️ Auditoría de Arquitectura — IndustrialBackend (Aura AI)
 
 > **Rol:** Arquitecto de Software Senior
-> **Proyecto:** `IndustrialBackend` — Edge AI para Seguridad Industrial
+> **Proyecto:** `IndustrialBackend` — Edge AI para Seguridad Industrial  
+> **Última revisión:** Abril 2026
 
 ---
 
 ## 1. Visión General del Sistema
 
-El sistema es un **backend Edge AI** construido sobre FastAPI, que implementa un agente de IA multi-nivel para análisis de documentos industriales y datos en tiempo real. La arquitectura es un sistema **Agentic RAG + MCP** de borde (edge) con soporte multi-modelo.
+El sistema es un **backend Edge AI** construido sobre FastAPI, que implementa un agente de IA multi-nivel jerárquico para análisis de documentos industriales, datos SCADA en tiempo real, y automatización visual de interfaces GUI (Computer Use). La arquitectura es un sistema **Agentic RAG + MCP + MLOps** de borde (edge) con soporte multi-modelo y loop de aprendizaje continuo hacia la nube.
 
 ### Stack Técnico
 
@@ -15,14 +16,15 @@ El sistema es un **backend Edge AI** construido sobre FastAPI, que implementa un
 |------|-----------|
 | API | FastAPI 0.115 + uvicorn |
 | Agentes | `deepagents` + LangGraph + LangChain |
-| LLMs | Ollama (local) + OpenRouter (cloud) |
+| LLMs (local) | vLLM — `Qwen/Qwen3.5-2B` como base + adaptadores LoRA dinámicos |
+| LLMs (cloud) | OpenRouter (fallback / modelos premium) |
 | Persistencia SQL | PostgreSQL + SQLModel + asyncpg |
-| Checkpoints de Agente | LangGraph AsyncPostgresSaver |
-| Store Long-Term | LangGraph AsyncPostgresStore |
-| Blobs | MinIO |
-| Local GUI execution | mss (screenshots) + PyAutoGUI (mouse/keyboard actions) |
-| Scheduler | APScheduler (cron jobs) |
-| MLOps | OTA via ApiLLMOps (Mothership) para modelos NLP y Visuales |
+| Checkpoints de Agente | LangGraph `AsyncPostgresSaver` (memoria por thread) |
+| Store Long-Term | LangGraph `AsyncPostgresStore` (memoria por usuario, cross-thread) |
+| Vector Store | Qdrant (RAG — documentos técnicos e industriales) |
+| Blobs | MinIO (documentos, archivos de usuario) |
+| Scheduler | APScheduler (cron jobs para DB Collector) |
+| MLOps | OTA via ApiLLMOps (Mothership) — descarga safetensors LoRA, inyecta en vLLM sin reiniciar |
 
 ---
 
@@ -76,34 +78,36 @@ Esta es la parte mas compleja y el corazon del sistema. Tiene una **arquitectura
 ### 3.1 Jerarquia de Agentes
 
 ```
-Modo 1: Expert Direct (default)
------------------------------------------
+Modo 1: Expert Direct (default, use_generalist=False)
+-----------------------------------------------------
  User Query
      |
      v
- [IndustrialAgent] (aura_tenant_01-v2 fine-tuned)
+ [IndustrialAgent] (vLLM Qwen3.5-2B + LoRA alias: aura_expert=/loras/aura_tenant_01-v2)
      +-- [knowledge-researcher] SubAgent
-     |       +-- ask_knowledge_agent -> Qdrant RAG
+     |       +-- ask_knowledge_agent -> Qdrant RAG (documentos técnicos)
      +-- [mcp-orchestrator] SubAgent
      |       +-- call_dynamic_mcp -> APIs REST / MCP SSE / stdio
-     +-- [general-assistant] SubAgent (fallback)
+     +-- [general-assistant] SubAgent (fallback sin herramientas)
 
 
 Modo 2: Macrohard Generalist Orchestrator (use_generalist=True)
-------------------------------------------------------
+---------------------------------------------------------------
  User Query
      |
      v
- [Orchestrator] (System 2 — Generalist: Qwen 32b) -> Rutea a subagentes
-     +-- [Sistema 1 Visual] Tool -> computer-use-agent (Qwen2.5-VL 3B)
-     |       +-- (loop "Observe-Think-Act" via mss y PyAutoGUI)
-     +-- [Sistema 1 Texto] Tool -> sistema1-experto (Qwen2.5 1.5B fine-tuned)
-     |       +-- (respuestas en base a conocimiento en sus pesos)
-     +-- [Sistema 2 Experto] Tool -> industrial-expert (Aura fine-tuned)
-     |       +-- (acceso en tiempo real a SCADA, RAG y APIs)
+ [Generalist Orchestrator] (vLLM Qwen3.5-2B — "Unified multimodal director")
+     +-- [Sistema 1 Subagent] Tool -> VL model (alias: aura_system1=/loras/aura_tenant_01-vl)
+     |       +-- (Observe-Think-Act loop con screenshots de la GUI)
+     |       +-- Feature flag: system1_enabled (default: True)
+     +-- [Computer Use Subagent] Tool -> vLLM Qwen3.5-2B
+     |       +-- (automatización GUI — demo mode: True por defecto)
+     |       +-- Feature flag: computer_use_enabled (default: True)
+     +-- [Industrial Expert] Tool -> IndustrialAgent (mismo que Modo 1)
+             +-- (acceso en tiempo real a SCADA, RAG y APIs vía MCP)
 ```
 
-La arquitectura "Macrohard" explicita la separación: los LLMs de texto y razonamiento empresarial (Sistema 2) nunca se ensucian con tareas visuales. Las macros visuales son exclusivas de un modelo visual aislado (Sistema 1).
+La arquitectura "Macrohard" mantiene la separación: el Orchestrator de texto y razonamiento nunca ejecuta tareas visuales directamente. Las tareas GUI son exclusivas del Sistema 1 VL aislado (Computer Use subagent).
 
 ### 3.2 Flujo de Creacion del Agente (AgentService)
 
@@ -208,17 +212,83 @@ Esto es arquitectonicamente correcto: filtra en Python O(n), no con LLM.
 
 ---
 
-## 6. MLOps — Sistema OTA
+## 6. MLOps — Sistema OTA (Over-The-Air con vLLM)
 
-El `MLOpsService.process_ota_webhook()` implementa:
+El sistema OTA ha migrado de Ollama+GGUF a **vLLM + safetensors LoRA**. Hay dos servicios OTA paralelos:
 
-1. Obtiene presigned URLs del Mothership (ApiLLMOps)
-2. Descarga .gguf en streaming (evita saturar RAM con modelos de 3GB+)
-3. Calcula SHA256 y sube blob a Ollama
-4. Registra el modelo con tool-calling template (Qwen2.5 format)
-5. Limpia archivos temporales en el `finally` block
+**`MLOpsService.process_ota_webhook()`** (modelos de texto):
+1. Recibe webhook de ApiLLMOps con `model_tag` (ej: `aura_tenant_01-v2`)
+2. Consulta `GET /api/v1/models/{tenant_id}/latest/config` en la Mothership → obtiene `lora_url` (presigned URL del `.tar.gz`)
+3. Descarga el `.tar.gz` en streaming con chunks de 1MB (evita saturar RAM)
+4. Extrae los safetensors a `./loras/{model_tag}/` usando `tarfile` con `filter='data'` (previene path traversal)
+5. Notifica a vLLM via `POST {vllm_host}/v1/load_lora_adapter` para carga dinámica sin reiniciar
+6. Limpia archivos temporales en el bloque `finally`
 
-Integracion clara entre el edge (este backend) y el MLOps cloud (ApiLLMOps).
+**`VLMLOpsService.process_vl_ota_webhook()`** (modelos Vision-Language):
+- Mismo flujo, pero consulta `GET /api/v1/vl/models/{tenant_id}/vl/config`
+- Extrae a `./loras/{model_tag}/` e inyecta en vLLM como adaptador VL
+
+**Requisito de vLLM:** `VLLM_ALLOW_RUNTIME_LORA_UPDATING=true` debe estar activo en el contenedor vLLM para que la carga dinámica funcione sin reinicio.
+
+### 6.1 vLLM Multi-LoRA — Configuración y Gestión de Adaptadores
+
+vLLM soporta servir **múltiples adaptadores LoRA simultáneamente** sobre un único modelo base en GPU. La configuración actual del Edge:
+
+```yaml
+# docker-compose.yml — servicio vllm
+--model Qwen/Qwen3.5-2B     # base model en GPU
+--enable-lora               # habilita soporte LoRA
+--max-loras 4               # máximo de LoRAs en VRAM simultáneamente
+--max-lora-rank 16          # debe coincidir con r=16 del training (Unsloth)
+--gpu-memory-utilization 0.85
+VLLM_ALLOW_RUNTIME_LORA_UPDATING=true  # permite actualización sin reinicio
+volumes:
+  - ./loras:/loras          # directorio compartido Edge ↔ vLLM container
+```
+
+**Slots ocupados actualmente (2 de 4 disponibles):**
+
+| Alias | Path en container | Uso |
+|-------|------------------|-----|
+| `aura_expert` | `/loras/aura_tenant_01-v2` | IndustrialAgent (texto, SCADA, RAG) |
+| `aura_system1` | `/loras/aura_tenant_01-vl` | Sistema 1 VL (análisis de screenshots) |
+
+Los aliases se definen en `config.py`:
+```python
+default_llm_model = "aura_expert=/loras/aura_tenant_01-v2"
+system1_model     = "aura_system1=/loras/aura_tenant_01-vl"
+```
+
+**Ciclo de vida de un adaptador LoRA en vLLM:**
+
+```
+Al iniciar vLLM:
+  --lora-modules alias=path  ← pre-carga (opcional, no configurado actualmente)
+
+En runtime (OTA update):
+  POST /v1/load_lora_adapter  {"lora_name": "aura_expert", "lora_path": "/loras/...", "load_inplace": true}
+  └→ load_inplace=true: actualiza el slot existente sin liberar VRAM (zero-downtime)
+  └→ load_inplace=false: requeriría unload previo y dejaría un gap de servicio
+
+Para eliminar un adaptador:
+  POST /v1/unload_lora_adapter  {"lora_name": "aura_expert"}
+
+Para listar adaptadores cargados:
+  GET /v1/models  ← devuelve el base model + todos los LoRA aliases registrados
+```
+
+**Cómo el agente selecciona el LoRA en inferencia:**
+```python
+# LLMFactory genera el cliente apuntando a vLLM con el alias como model name
+ChatOpenAI(
+    base_url="http://vllm:8000/v1",
+    model="aura_expert",        # ← vLLM enruta al LoRA correcto
+    api_key="not-needed",
+)
+```
+vLLM recibe la request con `model="aura_expert"`, aplica el adaptador correspondiente sobre `Qwen3.5-2B`, y retorna la respuesta. El base model en GPU se reutiliza para todos los LoRAs — solo los pesos delta del adaptador se suman en cada forward pass.
+
+**Restricción crítica:** `--max-lora-rank 16` es un techo global. Si en el futuro se entrena con `r=32`, el adaptador no cargará. El `r` del training en Unsloth y el `--max-lora-rank` de vLLM deben estar alineados.
 
 ---
 
@@ -233,78 +303,68 @@ Scheduler APScheduler que ejecuta cron jobs para:
 
 ## 8. Problemas Criticos Encontrados
 
-### BUG MAYOR: Duplicacion de LLMs en invoke()
+### 🔴 BUG CRÍTICO: `LLMProvider.OLLAMA` no existe — AttributeError en tool discovery
 
-En `agent_service.py` lineas 294-356, se crea `ui_generalist_llm` y `worker_llm` **dos veces**. El segundo bloque sobreescribe el primero silenciosamente, desperdiciando 2 llamadas al factory y una query a DB.
+En `mcp_service.py`, el código hace referencia a `LLMProvider.OLLAMA` que **no existe en el enum `LLMProvider`** del `LLMFactory`. El factory solo tiene `vllm` y `openrouter`. Esto produce un `AttributeError` al intentar usar el AI REST Bridge del MCPService, rompiendo el auto-descubrimiento de APIs REST.
 
-```python
-# Primera creacion (lines 294-320) - DESPERDICIADA:
-ui_generalist_llm = await LLMFactory.get_llm(...)
-worker_llm = await LLMFactory.get_llm(...)
+**Fix:** Reemplazar `LLMProvider.OLLAMA` por `LLMProvider.VLLM` en `mcp_service.py`.
 
-# Segunda creacion (lines 350-356) - la que realmente se usa:
-ui_generalist_llm = await LLMFactory.get_llm(...)
-worker_llm = ui_generalist_llm
-```
+---
 
-En `stream()` no hay duplicacion (esta limpio).
+### 🔴 BUG CRÍTICO: `trigger_training_job` no existe en MothershipClient
 
-### BUG EN PROMPT: AGENTS_MD_CONTENT Corrupto
+`mlops.py` llama `await mothership_client.trigger_training_job(...)` pero ese método **no está definido** en `MothershipClient`. El endpoint `POST /mlops/training/launch` lanza `AttributeError` en producción. Solo existe `trigger_vl_training_job`.
 
-En `app/domain/agent/prompts/industrial.py` lineas 36-41, el `AGENTS_MD_CONTENT` tiene **codigo Python embebido accidentalmente**. Esto se carga en el VFS del agente como memoria de dominio y contamina el contexto:
+**Fix:** Implementar `trigger_training_job()` en `mothership_client.py` que llame a `POST /api/v1/training/job`.
 
-```python
-AGENTS_MD_CONTENT = """...
-##    "system_prompt": (    # <-- codigo Python en el markdown!
-        "Industrial Data Orchestrator. "
-        ...
-"""
-```
+---
 
-### PROMPT INCOMPLETO: GENERALIST_SYSTEM_PROMPT
+### 🟠 APScheduler captura objeto DbSource stale (datos desactualizados)
 
-El prompt generalist comienza en la **mitad de una oracion** (linea 12 de generalist.py):
-```
-GENERALIST_SYSTEM_PROMPT = """\
-   - **M365/Office data?** ...   # <- le falta todo el encabezado
-```
-Le falta el bloque de decision (Step 1, Step 2...). El agente generalist no tiene contexto completo para enrutar correctamente.
+El scheduler registra el job con una referencia al objeto `DbSource` en el momento del registro. Si la fuente se actualiza (nuevo cron, nueva query), el job ejecutará con los datos viejos hasta que el scheduler se recargue.
 
-### PROMPT MCP_SUBAGENT TRUNCADO
+**Fix:** Pasar solo `source.id` al job y hacer un fetch fresh de la BD al inicio de cada ejecución.
 
-En `subagents.py`, el `MCP_SUBAGENT.system_prompt` comienza con:
-```python
-"in your call to `call_dynamic_mcp`. Only include filters..."
-```
-Le falta el contexto inicial ("You are an..."). La cadena fue truncada.
+---
 
-### AGENTE RECONSTRUIDO EN CADA REQUEST
+### 🟠 I/O síncrono en ReplayBuffers y streaming OTA bloquea el event loop
 
-El grafo LangGraph se compila from scratch en cada `invoke()` y `stream()`. Compilar tiene overhead de CPU. Con concurrencia alta puede generar latencia acumulada.
+- `replay_buffer.py` y `vl_replay_buffer.py` usan `open()` síncrono para escribir experiencias en JSONL.
+- `mlops_service.py` y `vl_mlops_service.py` usan `open()` síncrono para escribir chunks del streaming OTA.
 
-**Solucion sugerida**: Cache de agentes compilados keyed por `(model_id, kb_id, source_id)` + TTL.
+Cada write bloquea el event loop de asyncio, afectando todas las requests concurrentes durante la descarga del modelo (~100–500MB).
 
-### CORS NO CONFIGURABLE
+**Fix:** Envolver con `asyncio.to_thread()` o usar `aiofiles`.
 
-```python
-allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"]
-```
-Hardcoded, bloqueara el frontend en produccion. Deberia leerse del `.env`.
+---
 
-### SESSION PASADA DENTRO DEL CONFIG DEL AGENTE
+### 🟠 BUG: Duplicacion de código invoke() / stream() (~350 líneas duplicadas)
 
-```python
-config = {"configurable": {"session": session, ...}}
-```
-La sesion SQLAlchemy (no serializable) se pasa dentro del config del grafo. Funcionara en el modo actual, pero si el grafo se cachea o serializa, causara errores.
+En `agent_service.py`, los métodos `invoke()` y `stream()` duplican prácticamente la misma lógica de preparación del agente (resolución de modelo, creación de LLM, construcción de tools, merge de prompts). Cualquier cambio debe hacerse en dos lugares.
 
-### SATELLITE AGENTS SON PLACEHOLDERS EN PRODUCCION
+**Fix:** Extraer `_prepare_agent_context()` con la lógica compartida.
 
-Los agentes SAP, Google y Office retornan datos ficticios hardcodeados. Con `enable_satellite=True` por defecto en el generalist, puede enrutar al SAP agent y el usuario recibira datos falsos sin advertencia.
+---
 
-### DOBLE CONEXION DB EN call_dynamic_mcp
+### 🟡 AGENTE RECONSTRUIDO EN CADA REQUEST (latencia acumulada)
 
-`call_dynamic_mcp` en `mcp_tool.py` abre su propia sesion de DB (`async with async_session_factory() as session`) en vez de reutilizar la sesion del request que viene por config. Crea una conexion extra innecesaria al pool.
+El grafo LangGraph se compila from scratch en cada `invoke()` y `stream()`. El sistema ya tiene `_GRAPH_CACHE` implementado con hash de configuración, pero solo aplica en algunos paths. Con concurrencia alta puede generar latencia acumulada.
+
+**Verificar:** Que `_GRAPH_CACHE` cubra todos los casos de uso (generalist + industrial agent).
+
+---
+
+### 🟡 SATELLITE AGENTS retornan datos ficticios sin advertencia
+
+Los agentes SAP, Google y Office retornan datos hardcodeados. Con `enable_satellite=True`, el Generalist puede enrutar a SAP y el usuario recibirá datos falsos sin ninguna advertencia.
+
+**Fix:** Agregar flag `coming_soon=True` y bloquear el routing a satellites en producción.
+
+---
+
+### 🟡 Doble conexion DB en call_dynamic_mcp
+
+`call_dynamic_mcp` en `mcp_tool.py` abre su propia sesión de DB en vez de reutilizar la del request. Crea una conexión extra al pool en cada invocación de herramienta.
 
 ---
 
@@ -363,26 +423,26 @@ Frontend
 
 ## 11. Recomendaciones Prioritarias
 
-### P0 — Critico (bugs reales que afectan comportamiento)
+### P0 — Crítico (bugs reales que rompen funcionalidad)
 
-| # | Problema | Archivo | Accion |
+| # | Problema | Archivo | Acción |
 |---|---------|---------|--------|
-| 1 | Doble creacion de LLMs en invoke() | agent_service.py:294-320 | Eliminar el primer bloque LLM creation |
-| 2 | AGENTS_MD_CONTENT tiene codigo Python embebido | prompts/industrial.py:36-41 | Limpiar el markdown |
-| 3 | GENERALIST_SYSTEM_PROMPT incompleto | prompts/generalist.py | Agregar encabezado de routing |
-| 4 | MCP_SUBAGENT.system_prompt truncado | subagents.py:58 | Completar el contexto inicial |
+| 1 | `LLMProvider.OLLAMA` no existe — AI REST Bridge roto | `mcp_service.py` | Cambiar a `LLMProvider.VLLM` |
+| 2 | `trigger_training_job` no existe en MothershipClient | `mlops.py`, `mothership_client.py` | Implementar método |
+| 3 | APScheduler captura DbSource stale | `scheduler.py` | Pasar `source.id`, fetch fresh en runtime |
 
-### P1 — Importante (calidad y seguridad)
+### P1 — Importante (estabilidad, calidad y seguridad)
 
-| # | Problema | Archivo | Accion |
+| # | Problema | Archivo | Acción |
 |---|---------|---------|--------|
-| 5 | Satellite agents retornan datos ficticios | satellite_agents.py | Flag "coming_soon", disable en prod |
-| 6 | CORS origins hardcodeados | main.py:79 | Leer de settings/env var |
-| 7 | Doble conexion DB en MCP tool | tools/mcp_tool.py | Pasar session via config |
+| 4 | I/O síncrono en ReplayBuffers | `replay_buffer.py`, `vl_replay_buffer.py` | `asyncio.to_thread` o `aiofiles` |
+| 5 | I/O síncrono en streaming OTA | `mlops_service.py`, `vl_mlops_service.py` | `aiofiles` para escritura por chunks |
+| 6 | Satellite agents retornan datos ficticios | `satellite_agents.py` | Flag `coming_soon`, deshabilitar en prod |
+| 7 | Doble conexión DB en MCP tool | `tools/mcp_tool.py` | Reutilizar session del config |
 
-### P2 — Mejoras de Performance
+### P2 — Mejoras de Performance y Mantenibilidad
 
-| # | Problema | Accion |
+| # | Problema | Acción |
 |---|---------|--------|
-| 8 | Agente compilado cada request | Cache con key (model_id, kb_id, source_id) + TTL |
-| 9 | Pool compartido checkpointer+store | Considerar pools independientes |
+| 8 | invoke() y stream() duplican ~350 líneas | Extraer `_prepare_agent_context()` |
+| 9 | Verificar cobertura del `_GRAPH_CACHE` | Asegurar cache en todos los paths de creación de agente |

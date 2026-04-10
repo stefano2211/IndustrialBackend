@@ -10,6 +10,7 @@ Encapsulates the logic of:
 This isolates the chat endpoint from agent internals (Dependency Inversion).
 """
 
+import hashlib
 import json
 import re
 import uuid
@@ -353,11 +354,8 @@ class AgentService:
         if mcp_source_id == "none":
              all_tools = []
         elif mcp_source_id:
-             # Fetch tools for specific source (implicitly verified by source_id lookups usually, 
-             # but here we should ideally double check ownership if we were strict)
-             all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id))
+             all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id), user_id=uuid.UUID(user_id))
         else:
-             # Default: Use all tools OWNED by the user
              all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
         
         dynamic_tools_list = [
@@ -368,8 +366,9 @@ class AgentService:
         custom_prompt = db_model.system_prompt if db_model else None
 
         # --- Build Cache Key & Assemble -----------------------
-        tools_hash = hash(tools_context)
-        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{tools_hash}_{hash(custom_prompt)}"
+        def _stable_hash(s: str) -> str:
+            return hashlib.sha256(s.encode()).hexdigest()[:16]
+        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{_stable_hash(tools_context)}_{_stable_hash(str(custom_prompt))}"
 
         async def _build_agent_async():
             if use_generalist:
@@ -553,9 +552,8 @@ class AgentService:
         if mcp_source_id == "none":
             all_tools = []
         elif mcp_source_id:
-            all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id))
+            all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id), user_id=uuid.UUID(user_id))
         else:
-            # BUG-01 FIX: must filter by user to avoid cross-user tool exposure
             all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
         
         dynamic_tools_list = [
@@ -566,8 +564,9 @@ class AgentService:
         custom_prompt = db_model.system_prompt if db_model else None
 
         # --- Build Cache Key & Assemble -----------------------
-        tools_hash = hash(tools_context)
-        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{tools_hash}_{hash(custom_prompt)}"
+        def _stable_hash(s: str) -> str:
+            return hashlib.sha256(s.encode()).hexdigest()[:16]
+        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{_stable_hash(tools_context)}_{_stable_hash(str(custom_prompt))}"
 
         async def _build_agent_async():
             if use_generalist:

@@ -130,7 +130,17 @@ class VLReplayBuffer:
 
     def count(self) -> int:
         """Retorna el número de steps almacenados."""
-        return len(self._read_all())
+        if not os.path.exists(self.file_path):
+            return 0
+        count = 0
+        try:
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        count += 1
+        except Exception as e:
+            logger.error(f"[VLReplayBuffer] Error counting buffer: {e}")
+        return count
 
     async def _append_events(self, new_events: List[Dict]):
         all_events = await asyncio.to_thread(self._read_all)

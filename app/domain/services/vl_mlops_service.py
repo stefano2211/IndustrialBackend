@@ -84,7 +84,8 @@ class VLMLOpsService:
             await asyncio.to_thread(_extract_tar)
 
             # Marcar como instalado para idempotencia
-            open(done_flag, "w").close()
+            with open(done_flag, "w"):
+                pass
             
             logger.success(f"[VL OTA] Adaptador VL '{model_tag}' extraído en '{lora_base_dir}'.")
 

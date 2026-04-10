@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Union
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.schemas.tool_config import ToolConfig
@@ -23,8 +23,16 @@ class ToolConfigRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
-    async def get_by_source(self, source_id: uuid.UUID) -> List[ToolConfig]:
-        statement = select(ToolConfig).where(ToolConfig.source_id == source_id)
+    async def get_by_source(self, source_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> List[ToolConfig]:
+        from app.domain.schemas.mcp_source import MCPSource
+        if user_id is not None:
+            statement = (
+                select(ToolConfig)
+                .join(MCPSource, MCPSource.id == ToolConfig.source_id)
+                .where(ToolConfig.source_id == source_id, MCPSource.user_id == user_id)
+            )
+        else:
+            statement = select(ToolConfig).where(ToolConfig.source_id == source_id)
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 

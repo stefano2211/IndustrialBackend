@@ -4,7 +4,6 @@ import json
 import httpx
 import hashlib
 import asyncio
-import re as _re
 from loguru import logger
 
 from app.core.config import settings
@@ -77,7 +76,8 @@ class MLOpsService:
             await asyncio.to_thread(_extract_tar)
 
             # Marcar como instalado para idempotencia
-            open(done_flag, "w").close()
+            with open(done_flag, "w"):
+                pass
             
             logger.success(f"[MLOps OTA] Adaptador '{new_model_tag}' extraído en '{lora_base_dir}'.")
 

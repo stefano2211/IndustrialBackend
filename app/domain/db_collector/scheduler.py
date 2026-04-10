@@ -77,10 +77,25 @@ class DbCollectorScheduler:
             )
             trigger = CronTrigger(hour="*/6", timezone="UTC")
 
+        # Capture only the ID so the job always loads a fresh source object from DB.
+        # Passing the SQLModel instance directly would cause the job to use the stale
+        # state captured at scheduler startup, ignoring any config changes made via API.
+        source_id = source.id
+
+        async def _run_fresh():
+            from app.persistence.db import async_session_factory
+            from app.persistence.repositories.db_source_repository import DbSourceRepository
+            async with async_session_factory() as session:
+                repo = DbSourceRepository(session)
+                fresh_source = await repo.get_by_id(source_id)
+            if fresh_source:
+                await collector_service.run_source(fresh_source)
+            else:
+                logger.warning(f"[DbCollector Scheduler] Source {source_id} not found at job time, skipping.")
+
         self._scheduler.add_job(
-            func=collector_service.run_source,
+            func=_run_fresh,
             trigger=trigger,
-            args=[source],
             id=job_id,
             name=f"DbCollect:{source.name}",
             replace_existing=True,

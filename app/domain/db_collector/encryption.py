@@ -2,12 +2,14 @@
 
 import base64
 import hashlib
+from functools import lru_cache
 from cryptography.fernet import Fernet
 from app.core.config import settings
 
 
+@lru_cache(maxsize=1)
 def _get_fernet() -> Fernet:
-    """Derives a 32-byte Fernet key from the app SECRET_KEY via SHA-256."""
+    """Derives a 32-byte Fernet key from the app SECRET_KEY via SHA-256 (cached)."""
     raw_key = settings.secret_key.encode("utf-8")
     digest = hashlib.sha256(raw_key).digest()
     b64_key = base64.urlsafe_b64encode(digest)

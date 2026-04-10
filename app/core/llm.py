@@ -111,14 +111,16 @@ class LLMFactory:
                 provider = provider or db_config["provider"]
                 model_name = model_name or db_config["model_name"]
 
+        # Fetch DB settings once for both provider resolution and factory kwargs
+        sys_settings = None
+        if session:
+            settings_repo = SettingsRepository(session)
+            sys_settings = await settings_repo.get_settings()
+
         if not provider:
             if model_name and "/" in str(model_name):
                 provider = LLMProvider.OPENROUTER
-            elif session:
-                settings_repo = SettingsRepository(session)
-                sys_settings = await settings_repo.get_settings()
-                
-                # Assume standard sys_settings mapping 
+            elif sys_settings is not None:
                 if hasattr(sys_settings, 'openrouter_enabled') and sys_settings.openrouter_enabled:
                     provider = LLMProvider.OPENROUTER
                 else:
@@ -130,12 +132,10 @@ class LLMFactory:
             if provider == LLMProvider.VLLM:
                 model_name = settings.default_llm_model
             else:
-                model_name = settings.default_llm_model
+                model_name = "openai/gpt-4o"
 
         factory_kwargs = {}
-        if session:
-            settings_repo = SettingsRepository(session)
-            sys_settings = await settings_repo.get_settings()
+        if sys_settings is not None:
             if provider == LLMProvider.VLLM:
                 factory_kwargs["base_url"] = getattr(sys_settings, "vllm_base_url", settings.vllm_base_url)
             elif provider == LLMProvider.OPENROUTER:

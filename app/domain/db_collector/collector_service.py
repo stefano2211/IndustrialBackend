@@ -71,15 +71,14 @@ class CollectorService:
                 if len(rows) > source.accumulated_rows:
                     rows = rows[source.accumulated_rows:]
                     logger.info(f"[DbCollector] Smart Slicing: Only sending {len(rows)} new rows.")
-                elif len(rows) <= source.accumulated_rows:
-                    if len(rows) < source.accumulated_rows:
-                        logger.warning(f"[DbCollector] DB source rows ({len(rows)}) < accumulated ({source.accumulated_rows}). Source DB was likely reset. Resetting counter and uploading all data.")
-                        source.accumulated_rows = 0 # Reiniciar porque la base de datos se borró
-                    else:
-                        logger.info("[DbCollector] No new rows detected since last run. Skipping upload.")
-                        result.status = DbSourceStatus.NO_DATA
-                        await self._update_metadata(source, result)
-                        return result
+                elif len(rows) < source.accumulated_rows:
+                    logger.warning(f"[DbCollector] DB source rows ({len(rows)}) < accumulated ({source.accumulated_rows}). Source DB was likely reset. Resetting counter and uploading all data.")
+                    source.accumulated_rows = 0
+                else:
+                    logger.info("[DbCollector] No new rows detected since last run. Skipping upload.")
+                    result.status = DbSourceStatus.NO_DATA
+                    await self._update_metadata(source, result)
+                    return result
 
             if not rows:
                 logger.warning(f"[DbCollector] No rows returned for source: {source.name}")
@@ -87,16 +86,20 @@ class CollectorService:
                 await self._update_metadata(source, result)
                 return result
 
+            # Save the count of new rows BEFORE formatting (formatter adds a summary entry
+            # for multi-row results, so entries_generated != new_rows_count).
+            new_rows_count = len(rows)
+
             entries = rows_to_sharegpt(rows, source.name, source.sector, source.domain)
             result.entries_generated = len(entries)
 
             # Write to temp file and upload
             success = await self._upload_entries(entries, source)
             result.status = DbSourceStatus.SUCCESS if success else DbSourceStatus.ERROR
-            
+
             if success:
-                # Seguimiento metadata: acumular cuántas filas hemos enviado históricamente a la nube
-                source.accumulated_rows += result.entries_generated
+                # Accumulate DB rows processed, NOT training entries (which include the summary).
+                source.accumulated_rows += new_rows_count
 
         except Exception as exc:
             error_msg = (str(exc) + "")[:900]

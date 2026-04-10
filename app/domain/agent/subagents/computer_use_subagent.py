@@ -177,7 +177,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 # Guardar step en el VL Replay Buffer
                 if vl_replay_buffer and screenshot_b64:
                     try:
-                        vl_replay_buffer.append_trajectory_step(
+                        await vl_replay_buffer.append_trajectory_step(
                             instruction=instruction,
                             screenshot_b64=screenshot_b64,
                             action_json=action_json,

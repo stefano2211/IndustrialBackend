@@ -3,6 +3,7 @@ CollectorService — Orchestrates on-demand and scheduled data collection
 from external databases for MLOps fine-tuning.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -147,10 +148,13 @@ class CollectorService:
         safe_name = re.sub(r"[^a-zA-Z0-9]", "_", source.name)
         tmp_path = f"/tmp/{source.tenant_id}_{safe_name}.jsonl"
 
-        try:
+        def _write_jsonl():
             with open(tmp_path, "w", encoding="utf-8") as f:
                 for entry in entries:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        try:
+            await asyncio.to_thread(_write_jsonl)
 
             logger.info(
                 f"[DbCollector] Uploading {len(entries)} entries for '{source.name}' → Mothership"

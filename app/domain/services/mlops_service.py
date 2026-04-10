@@ -32,6 +32,12 @@ class MLOpsService:
 
         tar_path = f"/tmp/{new_model_tag}.tar.gz"
         lora_base_dir = f"./loras/{new_model_tag}"
+        done_flag = f"./loras/{new_model_tag}/.ota_done"
+
+        # Idempotencia: si ya se extrajo este tag, solo notificar a vLLM y salir
+        if os.path.exists(done_flag):
+            logger.info(f"[MLOps OTA] Adaptador '{new_model_tag}' ya instalado. Saltando descarga.")
+            return {"status": "already_installed", "tag": new_model_tag}
 
         try:
             # --- PASO 1: Obtener presigned URL del adaptador desde Mothership ---
@@ -69,6 +75,9 @@ class MLOpsService:
                     tar.extractall(path="./loras", filter="data")
             
             await asyncio.to_thread(_extract_tar)
+
+            # Marcar como instalado para idempotencia
+            open(done_flag, "w").close()
             
             logger.success(f"[MLOps OTA] Adaptador '{new_model_tag}' extraído en '{lora_base_dir}'.")
 

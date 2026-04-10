@@ -477,7 +477,7 @@ class MCPService:
             # Ask the LLM to analyse the endpoint
             from app.core.llm import LLMProvider
             llm = await LLMFactory.get_llm(
-                provider=LLMProvider.OLLAMA,
+                provider=LLMProvider.VLLM,
                 temperature=0,
                 max_tokens=1024,
             )

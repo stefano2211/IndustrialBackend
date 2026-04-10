@@ -11,6 +11,7 @@ El buffer usa la misma estrategia FIFO + retención de muestras recientes
 que el ReplayBuffer de texto existente.
 """
 
+import asyncio
 import json
 import os
 import random
@@ -51,7 +52,7 @@ class VLReplayBuffer:
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
 
-    def append_trajectory_step(
+    async def append_trajectory_step(
         self,
         instruction: str,
         screenshot_b64: str,
@@ -92,9 +93,9 @@ class VLReplayBuffer:
                 "task_id": task_id,
             },
         }
-        self._append_events([entry])
+        await self._append_events([entry])
 
-    def append_trajectory_batch(self, steps: List[Dict]):
+    async def append_trajectory_batch(self, steps: List[Dict]):
         """
         Guarda múltiples steps de una trayectoria completa de una sola vez.
         Cada step debe tener: instruction, screenshot_b64, action_json.
@@ -122,7 +123,7 @@ class VLReplayBuffer:
                     "task_id": step.get("task_id", ""),
                 },
             })
-        self._append_events(entries)
+        await self._append_events(entries)
 
     def get_dataset_path(self) -> str:
         return self.file_path
@@ -131,8 +132,8 @@ class VLReplayBuffer:
         """Retorna el número de steps almacenados."""
         return len(self._read_all())
 
-    def _append_events(self, new_events: List[Dict]):
-        all_events = self._read_all()
+    async def _append_events(self, new_events: List[Dict]):
+        all_events = await asyncio.to_thread(self._read_all)
         logger.info(
             f"[VLReplayBuffer] Recibidos {len(new_events)} steps nuevos. "
             f"Total histórico: {len(all_events)}"
@@ -142,7 +143,7 @@ class VLReplayBuffer:
         if len(all_events) > self.max_size:
             all_events = self._compress_buffer(all_events)
 
-        self._write_all(all_events)
+        await asyncio.to_thread(self._write_all, all_events)
         logger.info(
             f"[VLReplayBuffer] Buffer actualizado: {len(all_events)} / {self.max_size} steps."
         )

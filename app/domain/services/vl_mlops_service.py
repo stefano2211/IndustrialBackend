@@ -40,9 +40,15 @@ class VLMLOpsService:
 
         tar_path = f"/tmp/{model_tag}.tar.gz"
         lora_base_dir = f"./loras/{model_tag}"
+        done_flag = f"./loras/{model_tag}/.ota_done"
+
+        # Idempotencia: si ya se extrajo este tag, solo notificar a vLLM y salir
+        if os.path.exists(done_flag):
+            logger.info(f"[VL OTA] Adaptador VL '{model_tag}' ya instalado. Saltando descarga.")
+            return {"status": "already_installed", "tag": model_tag}
 
         try:
-            # ── PASO 1: Obtener presigned URL del registry VL ───────────────
+            # ── PASO 1: Obtener presigned URL del registry VL ─────────────────────
             config_url = f"{mothership_client.base_url}/api/v1/vl/models/{tenant_id}/vl/config"
             headers = {"x-api-key": mothership_client.api_key}
 
@@ -76,6 +82,9 @@ class VLMLOpsService:
                     tar.extractall(path="./loras", filter="data")
             
             await asyncio.to_thread(_extract_tar)
+
+            # Marcar como instalado para idempotencia
+            open(done_flag, "w").close()
             
             logger.success(f"[VL OTA] Adaptador VL '{model_tag}' extraído en '{lora_base_dir}'.")
 

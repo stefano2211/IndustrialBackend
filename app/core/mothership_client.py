@@ -90,6 +90,44 @@ class MothershipClient:
             logger.error(f"[Mothership Client] Excepción subiendo dataset VL: {e}")
             return False
 
+    async def trigger_training_job(
+        self,
+        tenant_id: str = "aura_tenant_01",
+        epochs: int = 3,
+        webhook_url: Optional[str] = None,
+    ) -> bool:
+        """
+        Dispara el pipeline de fine-tuning de texto (LoRA) en el Celery Worker de ApiLLMOps.
+        Endpoint: POST /api/v1/training/job
+        """
+        url = f"{self.base_url}/api/v1/training/job"
+
+        if not webhook_url:
+            webhook_url = f"{settings.edge_public_url.rstrip('/')}/mlops/webhook/model-ready"
+
+        payload = {
+            "tenant_id": tenant_id,
+            "epochs": epochs,
+            "webhook_url": webhook_url,
+        }
+
+        logger.info(f"[Mothership Client] Disparando training de texto para {tenant_id} → {url}")
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, headers=self.headers, json=payload)
+
+                if response.status_code == 200:
+                    job_id = response.json().get("job_id", "?")
+                    logger.success(f"[Mothership Client] Training de texto encolado. JobID: {job_id}")
+                    return True
+                else:
+                    logger.error(f"[Mothership Client] Error disparando training de texto: {response.text}")
+                    return False
+        except Exception as e:
+            logger.error(f"[Mothership Client] Excepción disparando training de texto: {e}")
+            return False
+
     async def trigger_vl_training_job(
         self,
         tenant_id: str = "aura_tenant_01",

@@ -173,7 +173,7 @@ class AgentService:
                     # Limit to first 5 values to keep context compact
                     vals_preview = kv_vals[:5]
                     suffix = f" (tot:{len(kv_vals)})" if len(kv_vals) > 5 else ""
-                lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
+                    lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
 
         return "\n".join(lines)
 
@@ -307,17 +307,24 @@ class AgentService:
         if hasattr(ui_generalist_llm, "request_timeout"):
             ui_generalist_llm.request_timeout = settings.llm_request_timeout
             
-        # 4.5 Expert Loader: Deferred
+        # 4.5 Temporal Router (reusing the same generalist instance)
+        is_historical = await self._check_temporal_route(query, ui_generalist_llm)
+        if is_historical:
+            logger.info(f"ROUTER: Query is purely historical! Bypassing MCP/RAG tools to save tokens.")
+            mcp_source_id = "none"
+            knowledge_base_id = "none"
+
+        # 4.6 Expert Loader: Deferred — avoid loading fine-tuned model into VRAM until needed
         expert_llm_factory = lambda: LLMFactory.get_llm(
-            provider=LLMProvider.OLLAMA,
+            provider=LLMProvider.VLLM,
             model_name=settings.default_llm_model,
             session=session,
         )
 
-        # 4.6 Worker LLM: reuse generalist instance (sub-subagents don't need fine-tuning)
+        # 4.7 Worker LLM: reuse generalist instance (sub-subagents don't need fine-tuning)
         worker_llm = ui_generalist_llm
 
-        # 4.7 Vision LLM — Sistema 1 (VL fine-tuned, historical + future computer use)
+        # 4.8 Vision LLM — Sistema 1 (VL fine-tuned, historical + future computer use)
         # Created only if enabled; None triggers graceful degradation in the orchestrator.
         vision_llm = None
         if settings.system1_enabled:

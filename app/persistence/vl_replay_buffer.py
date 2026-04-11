@@ -47,6 +47,7 @@ class VLReplayBuffer:
     def __init__(self, file_path: str = "data/vl_replay.jsonl", max_size: int = 2000):
         self.file_path = file_path
         self.max_size = max_size
+        self._lock = asyncio.Lock()
 
         dir_name = os.path.dirname(self.file_path)
         if dir_name:
@@ -143,20 +144,21 @@ class VLReplayBuffer:
         return count
 
     async def _append_events(self, new_events: List[Dict]):
-        all_events = await asyncio.to_thread(self._read_all)
-        logger.info(
-            f"[VLReplayBuffer] Recibidos {len(new_events)} steps nuevos. "
-            f"Total histórico: {len(all_events)}"
-        )
-        all_events.extend(new_events)
+        async with self._lock:
+            all_events = await asyncio.to_thread(self._read_all)
+            logger.info(
+                f"[VLReplayBuffer] Recibidos {len(new_events)} steps nuevos. "
+                f"Total histórico: {len(all_events)}"
+            )
+            all_events.extend(new_events)
 
-        if len(all_events) > self.max_size:
-            all_events = self._compress_buffer(all_events)
+            if len(all_events) > self.max_size:
+                all_events = self._compress_buffer(all_events)
 
-        await asyncio.to_thread(self._write_all, all_events)
-        logger.info(
-            f"[VLReplayBuffer] Buffer actualizado: {len(all_events)} / {self.max_size} steps."
-        )
+            await asyncio.to_thread(self._write_all, all_events)
+            logger.info(
+                f"[VLReplayBuffer] Buffer actualizado: {len(all_events)} / {self.max_size} steps."
+            )
 
     def _read_all(self) -> List[Dict]:
         if not os.path.exists(self.file_path):

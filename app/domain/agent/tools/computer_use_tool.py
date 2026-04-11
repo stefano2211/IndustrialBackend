@@ -108,7 +108,7 @@ async def take_screenshot(config: RunnableConfig) -> str:
     else:
         logger.debug("[ComputerUse] Capturando pantalla real con mss...")
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             b64 = await loop.run_in_executor(None, _capture_screen_sync)
         except Exception as e:
             logger.error(f"[ComputerUse] Error capturando pantalla: {e}")

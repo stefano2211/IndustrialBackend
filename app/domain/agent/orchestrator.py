@@ -159,11 +159,14 @@ def create_generalist_orchestrator(
     logger.info(f"[Orchestrator] {len(all_subagents)} subagent(s) registered.")
 
     # ── 4. Assemble Orchestrator ───────────────────────────────────────────
+    from app.domain.agent.memory import create_composite_backend
     return create_deep_agent(
         model=generalist_model,
         system_prompt=GENERALIST_SYSTEM_PROMPT,
-        tools=all_subagents,
-        subagents=[],
+        tools=[],
+        subagents=all_subagents,
+        backend=create_composite_backend,
+        memory=["/AGENTS.md"],
         checkpointer=checkpointer,
         store=store,
     )

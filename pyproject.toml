@@ -41,6 +41,9 @@ dependencies = [
     "langchain-huggingface",
     "sentence-transformers",
     "einops",
+    "mss",
+    "pyautogui",
+    "pillow",
 ]
 
 [tool.uv]

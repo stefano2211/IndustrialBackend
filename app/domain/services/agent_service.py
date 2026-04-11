@@ -243,6 +243,198 @@ class AgentService:
         messages.append(HumanMessage(content=query))
         return messages
 
+    async def _prepare_agent(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        query: str,
+        knowledge_base_id: str | None = None,
+        mcp_source_id: str | None = None,
+        session: Any = None,
+        checkpointer=None,
+        store=None,
+        params=None,
+        model_id: str | None = None,
+        use_generalist: bool = False,
+    ) -> dict:
+        """
+        Shared preparation logic for invoke() and stream().
+
+        Returns a context dict with:
+          agent, config, query (interpolated), params, all_tools, resolved_model_id
+        """
+        from types import SimpleNamespace
+        from app.persistence.repositories.tool_config_repository import ToolConfigRepository
+
+        # 1. Resolve Provider and Model Name from DB
+        provider = None
+        model_name = None
+        db_model = None
+
+        if model_id and session:
+            model_repo = ModelRepository(session)
+            db_model = await model_repo.get_by_id(model_id)
+            if db_model:
+                if ":" in db_model.base_model_id:
+                    provider, model_name = db_model.base_model_id.split(":", 1)
+                elif db_model.base_model_id in [p.value for p in LLMProvider]:
+                    provider = db_model.base_model_id
+                    model_name = None
+                else:
+                    model_name = db_model.base_model_id
+
+        # 2. Collect and merge parameters
+        merged_params = {}
+        if db_model and hasattr(db_model, 'params') and db_model.params:
+            merged_params.update(self._extract_params(db_model.params))
+        if params:
+            merged_params.update(self._extract_params(params))
+
+        if "stop_sequence" in merged_params:
+            stop_val = merged_params.pop("stop_sequence")
+            if stop_val:
+                merged_params["stop"] = [stop_val]
+
+        # 3. Create Orchestrator LLM
+        ui_generalist_llm = await LLMFactory.get_llm(
+            provider=provider,
+            model_name=model_name,
+            session=session,
+            **merged_params
+        )
+
+        # 4. Apply resilience settings
+        if hasattr(ui_generalist_llm, "max_retries"):
+            ui_generalist_llm.max_retries = settings.llm_max_retries
+        if hasattr(ui_generalist_llm, "request_timeout"):
+            ui_generalist_llm.request_timeout = settings.llm_request_timeout
+
+        # 4.5 Temporal Router (reusing the same generalist instance)
+        is_historical = await self._check_temporal_route(query, ui_generalist_llm)
+        if is_historical:
+            logger.info("ROUTER: Query is purely historical! Bypassing MCP/RAG tools to save tokens.")
+            mcp_source_id = "none"
+            knowledge_base_id = "none"
+
+        # 4.6 Expert Loader: Deferred — captured via default arg to avoid closure over
+        # a mutable session reference (the session may be closed before the lambda fires).
+        _captured_session = session
+        expert_llm_factory = lambda sess=_captured_session: LLMFactory.get_llm(
+            provider=LLMProvider.VLLM,
+            model_name=settings.default_llm_model,
+            session=sess,
+        )
+
+        # 4.7 Worker LLM: reuse generalist instance
+        worker_llm = ui_generalist_llm
+
+        # 4.8 Vision LLM — Sistema 1 (VL fine-tuned)
+        vision_llm = None
+        if settings.system1_enabled:
+            try:
+                vision_llm = await LLMFactory.get_llm(
+                    provider=LLMProvider.VLLM,
+                    model_name=settings.system1_model,
+                    session=session,
+                )
+                logger.info(f"[AgentService] Sistema 1 VL model loaded: {settings.system1_model}")
+            except Exception as e:
+                logger.warning(f"[AgentService] Sistema 1 model unavailable: {e}. Continuing without it.")
+
+        # 5. System prompt composition
+        if params and not params.system_prompt and db_model and db_model.system_prompt:
+            params.system_prompt = db_model.system_prompt
+        elif not params and db_model and db_model.system_prompt:
+            params = SimpleNamespace(system_prompt=db_model.system_prompt)
+
+        # 6. Build tool context
+        tool_repo = ToolConfigRepository(session)
+        if mcp_source_id == "none":
+            all_tools = []
+        elif mcp_source_id:
+            all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id), user_id=uuid.UUID(user_id))
+        else:
+            all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
+
+        dynamic_tools_list = [self._build_tool_context(t) for t in all_tools]
+        tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
+        custom_prompt = db_model.system_prompt if db_model else None
+
+        # --- Build Cache Key (includes vision availability to avoid stale graphs) ---
+        def _stable_hash(s: str) -> str:
+            return hashlib.sha256(s.encode()).hexdigest()[:16]
+
+        _vision_available = vision_llm is not None
+        cache_key = (
+            f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_"
+            f"{mcp_source_id}_{_vision_available}_"
+            f"{_stable_hash(tools_context)}_{_stable_hash(str(custom_prompt))}"
+        )
+
+        async def _build_agent_async():
+            if use_generalist:
+                logger.info("[AgentService] Assembling Generalist Orchestrator...")
+                return create_generalist_orchestrator(
+                    generalist_model=ui_generalist_llm,
+                    expert_model=expert_llm_factory,
+                    vision_model=vision_llm,
+                    worker_model=worker_llm,
+                    checkpointer=checkpointer,
+                    store=store,
+                    mcp_tools_context=tools_context,
+                    enable_knowledge=(knowledge_base_id != "none"),
+                    enable_mcp=(mcp_source_id != "none"),
+                    enable_system1=settings.system1_enabled,
+                    enable_computer_use=settings.computer_use_enabled,
+                    vl_replay_buffer=vl_replay_buffer,
+                )
+            else:
+                expert_llm = await expert_llm_factory()
+                return create_industrial_agent(
+                    model=expert_llm, worker_model=worker_llm,
+                    checkpointer=checkpointer, store=store,
+                    custom_system_prompt=custom_prompt,
+                    mcp_tools_context=tools_context,
+                    enable_knowledge=(knowledge_base_id != "none"),
+                    enable_mcp=(mcp_source_id != "none"),
+                )
+
+        global _GRAPH_CACHE
+        if cache_key in _GRAPH_CACHE:
+            entry = _GRAPH_CACHE.pop(cache_key)
+            _GRAPH_CACHE[cache_key] = entry
+            agent = entry["agent"]
+        else:
+            agent = await _build_agent_async()
+            if len(_GRAPH_CACHE) >= MAX_CACHE_SIZE:
+                first_key = next(iter(_GRAPH_CACHE))
+                del _GRAPH_CACHE[first_key]
+            _GRAPH_CACHE[cache_key] = {"agent": agent}
+
+        # Interpolate variables
+        query = self._interpolate_variables(query, all_tools)
+        if params and hasattr(params, "system_prompt") and params.system_prompt:
+            params.system_prompt = self._interpolate_variables(params.system_prompt, all_tools)
+
+        resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))
+
+        return {
+            "agent": agent,
+            "config": {
+                "configurable": {
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "knowledge_base_id": knowledge_base_id,
+                    "session": session,
+                }
+            },
+            "query": query,
+            "params": params,
+            "all_tools": all_tools,
+            "resolved_model_id": resolved_model_id,
+        }
+
     async def invoke(
         self,
         *,
@@ -261,185 +453,31 @@ class AgentService:
         """
         Invoke the Deep Agent and return the assistant's response text.
         """
-        # 1. Resolve Provider and Model Name from DB if model_id is provided
-        provider = None
-        model_name = None
-        db_model = None
-        
-        if model_id and session:
-            model_repo = ModelRepository(session)
-            db_model = await model_repo.get_by_id(model_id)
-            if db_model:
-                # base_model_id is usually "provider:model"
-                if ":" in db_model.base_model_id:
-                    provider, model_name = db_model.base_model_id.split(":", 1)
-                elif db_model.base_model_id in [p.value for p in LLMProvider]:
-                    # If it's just a provider name, treat as default model for that provider
-                    provider = db_model.base_model_id
-                    model_name = None
-                else:
-                    model_name = db_model.base_model_id
-
-        # 2. Collect and merge parameters
-        merged_params = {}
-        if db_model and hasattr(db_model, 'params') and db_model.params:
-            merged_params.update(self._extract_params(db_model.params))
-            
-        if params:
-            merged_params.update(self._extract_params(params))
-
-        # Handle stop sequence mapping
-        if "stop_sequence" in merged_params:
-            stop_val = merged_params.pop("stop_sequence")
-            if stop_val:
-                merged_params["stop"] = [stop_val]
-
-        # 3. Create Orchestrator LLM with resolved config and merged params from UI
-        ui_generalist_llm = await LLMFactory.get_llm(
-            provider=provider,
-            model_name=model_name,
+        ctx = await self._prepare_agent(
+            user_id=user_id,
+            thread_id=thread_id,
+            query=query,
+            knowledge_base_id=knowledge_base_id,
+            mcp_source_id=mcp_source_id,
             session=session,
-            **merged_params
-        )
-        
-        # 4. Apply additional settings to Orchestrator
-        if hasattr(ui_generalist_llm, "max_retries"):
-            ui_generalist_llm.max_retries = settings.llm_max_retries
-        if hasattr(ui_generalist_llm, "request_timeout"):
-            ui_generalist_llm.request_timeout = settings.llm_request_timeout
-            
-        # 4.5 Temporal Router (reusing the same generalist instance)
-        is_historical = await self._check_temporal_route(query, ui_generalist_llm)
-        if is_historical:
-            logger.info(f"ROUTER: Query is purely historical! Bypassing MCP/RAG tools to save tokens.")
-            mcp_source_id = "none"
-            knowledge_base_id = "none"
-
-        # 4.6 Expert Loader: Deferred — avoid loading fine-tuned model into VRAM until needed
-        expert_llm_factory = lambda: LLMFactory.get_llm(
-            provider=LLMProvider.VLLM,
-            model_name=settings.default_llm_model,
-            session=session,
+            checkpointer=checkpointer,
+            store=store,
+            params=params,
+            model_id=model_id,
+            use_generalist=use_generalist,
         )
 
-        # 4.7 Worker LLM: reuse generalist instance (sub-subagents don't need fine-tuning)
-        worker_llm = ui_generalist_llm
-
-        # 4.8 Vision LLM — Sistema 1 (VL fine-tuned, historical + future computer use)
-        # Created only if enabled; None triggers graceful degradation in the orchestrator.
-        vision_llm = None
-        if settings.system1_enabled:
-            try:
-                vision_llm = await LLMFactory.get_llm(
-                    provider=LLMProvider.VLLM,
-                    model_name=settings.system1_model,
-                    session=session,
-                )
-                logger.info(f"[AgentService] Sistema 1 VL model loaded: {settings.system1_model}")
-            except Exception as e:
-                logger.warning(f"[AgentService] Sistema 1 model unavailable: {e}. Continuing without it.")
-        
-        # 5. Handle system prompt composition
-        if params and not params.system_prompt and db_model and db_model.system_prompt:
-            params.system_prompt = db_model.system_prompt
-        elif not params and db_model and db_model.system_prompt:
-            from types import SimpleNamespace
-            params = SimpleNamespace(system_prompt=db_model.system_prompt)
-
-        # 6. Build agent with dynamic tools context
-        from app.persistence.repositories.tool_config_repository import ToolConfigRepository
-        tool_repo = ToolConfigRepository(session)
-        
-        # Filter by source_id if provided
-        if mcp_source_id == "none":
-             all_tools = []
-        elif mcp_source_id:
-             all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id), user_id=uuid.UUID(user_id))
-        else:
-             all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
-        
-        dynamic_tools_list = [
-            self._build_tool_context(t) for t in all_tools
-        ]
-        tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
-        
-        custom_prompt = db_model.system_prompt if db_model else None
-
-        # --- Build Cache Key & Assemble -----------------------
-        def _stable_hash(s: str) -> str:
-            return hashlib.sha256(s.encode()).hexdigest()[:16]
-        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{_stable_hash(tools_context)}_{_stable_hash(str(custom_prompt))}"
-
-        async def _build_agent_async():
-            if use_generalist:
-                logger.info("[AgentService] Assembling Generalist Orchestrator (invoke)...")
-                return create_generalist_orchestrator(
-                    generalist_model=ui_generalist_llm,
-                    expert_model=expert_llm_factory,
-                    vision_model=vision_llm,
-                    worker_model=worker_llm,
-                    checkpointer=checkpointer,
-                    store=store,
-                    mcp_tools_context=tools_context,
-                    enable_knowledge=(knowledge_base_id != "none"),
-                    enable_mcp=(mcp_source_id != "none"),
-                    enable_system1=settings.system1_enabled,
-                    enable_computer_use=settings.computer_use_enabled,
-                    vl_replay_buffer=vl_replay_buffer,
-                )
-            else:
-                expert_llm = await expert_llm_factory()
-                return create_industrial_agent(
-                    model=expert_llm, worker_model=worker_llm, 
-                    checkpointer=checkpointer, store=store,
-                    custom_system_prompt=custom_prompt,
-                    mcp_tools_context=tools_context,
-                    enable_knowledge=(knowledge_base_id != "none"),
-                    enable_mcp=(mcp_source_id != "none")
-                )
-
-        global _GRAPH_CACHE
-        if cache_key in _GRAPH_CACHE:
-            entry = _GRAPH_CACHE.pop(cache_key)
-            _GRAPH_CACHE[cache_key] = entry
-            agent = entry['agent']
-        else:
-            agent = await _build_agent_async()
-            if len(_GRAPH_CACHE) >= MAX_CACHE_SIZE:
-                first_key = next(iter(_GRAPH_CACHE))
-                del _GRAPH_CACHE[first_key]
-            _GRAPH_CACHE[cache_key] = {'agent': agent}
-
-        # 3. Invoke with config
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "user_id": user_id,
-                "knowledge_base_id": knowledge_base_id,
-                "session": session,
-            }
-        }
-
-        # Interpolate variables before building messages
-        query = self._interpolate_variables(query, all_tools)
-        if params and hasattr(params, 'system_prompt') and params.system_prompt:
-            params.system_prompt = self._interpolate_variables(params.system_prompt, all_tools)
-
-        logger.info(f"Invoking agent for thread {thread_id} with query: {query}")
-        response = await agent.ainvoke(
+        logger.info(f"Invoking agent for thread {thread_id} with query: {ctx['query']}")
+        response = await ctx["agent"].ainvoke(
             {
-                "messages": self._build_messages(query, params),
+                "messages": self._build_messages(ctx["query"], ctx["params"]),
                 "files": {"/AGENTS.md": create_file_data(AGENTS_MD_CONTENT)},
             },
-            config=config,
+            config=ctx["config"],
         )
 
-        # 4. Extract final message and return with model info
         last_message = response["messages"][-1]
-        content = last_message.content
-        # Resolved model ID is either from db_model or defaults
-        resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))
-        return content, resolved_model_id
+        return last_message.content, ctx["resolved_model_id"]
 
     async def stream(
         self,
@@ -457,176 +495,33 @@ class AgentService:
         use_generalist: bool = False,
     ):
         """
-        Stream the Deep Agent response, yielding text chunks as they arrive, 
+        Stream the Deep Agent response, yielding text chunks as they arrive,
         plus a final metadata chunk with model info.
         Uses LangGraph's astream_events v2 API.
         """
-        # 1. Resolve Provider and Model Name from DB if model_id is provided
-        provider = None
-        model_name = None
-        db_model = None
-        
-        if model_id and session:
-            model_repo = ModelRepository(session)
-            db_model = await model_repo.get_by_id(model_id)
-            if db_model:
-                if ":" in db_model.base_model_id:
-                    provider, model_name = db_model.base_model_id.split(":", 1)
-                elif db_model.base_model_id in [p.value for p in LLMProvider]:
-                    provider = db_model.base_model_id
-                    model_name = None
-                else:
-                    model_name = db_model.base_model_id
-
-        # 2. Collect and merge parameters
-        merged_params = {}
-        if db_model and hasattr(db_model, 'params') and db_model.params:
-            merged_params.update(self._extract_params(db_model.params))
-            
-        if params:
-            merged_params.update(self._extract_params(params))
-
-        # Handle stop sequence mapping
-        if "stop_sequence" in merged_params:
-            stop_val = merged_params.pop("stop_sequence")
-            if stop_val:
-                merged_params["stop"] = [stop_val]
-
-        # 3. Create Orchestrator LLM
-        ui_generalist_llm = await LLMFactory.get_llm(
-            provider=provider,
-            model_name=model_name,
+        ctx = await self._prepare_agent(
+            user_id=user_id,
+            thread_id=thread_id,
+            query=query,
+            knowledge_base_id=knowledge_base_id,
+            mcp_source_id=mcp_source_id,
             session=session,
-            **merged_params
+            checkpointer=checkpointer,
+            store=store,
+            params=params,
+            model_id=model_id,
+            use_generalist=use_generalist,
         )
-        
-        # 4. Apply additional settings
-        if hasattr(ui_generalist_llm, "max_retries"):
-            ui_generalist_llm.max_retries = settings.llm_max_retries
-        if hasattr(ui_generalist_llm, "request_timeout"):
-            ui_generalist_llm.request_timeout = settings.llm_request_timeout
-            
-        # 4.2 Use a single instance for Orchestrator and Worker to save VRAM and eliminate duplicate logs
-        worker_llm = ui_generalist_llm
+        agent = ctx["agent"]
+        config = ctx["config"]
+        query = ctx["query"]
+        params = ctx["params"]
 
-        # 4.3 Temporal Router (Reusing the same generalist instance)
-        is_historical = await self._check_temporal_route(query, ui_generalist_llm)
-        if is_historical:
-            logger.info(f"ROUTER: Query is purely historical! Bypassing MCP/RAG tools to save tokens.")
-            mcp_source_id = "none"
-            knowledge_base_id = "none"
-
-        # 4.4 Expert Loader: Deferred — avoid loading fine-tuned model into VRAM until needed
-        expert_llm_factory = lambda: LLMFactory.get_llm(
-            provider=LLMProvider.VLLM,
-            model_name=settings.default_llm_model,
-            session=session,
-        )
-
-        # 4.5 Vision LLM — Sistema 1 (VL fine-tuned, historical + future computer use)
-        # Created only if enabled; None triggers graceful degradation in the orchestrator.
-        vision_llm = None
-        if settings.system1_enabled:
-            try:
-                vision_llm = await LLMFactory.get_llm(
-                    provider=LLMProvider.VLLM,
-                    model_name=settings.system1_model,
-                    session=session,
-                )
-                logger.info(f"[AgentService] Sistema 1 VL model loaded: {settings.system1_model}")
-            except Exception as e:
-                logger.warning(f"[AgentService] Sistema 1 model unavailable: {e}. Continuing without it.")
-
-        # 5. Handle system prompt composition
-        if params and not params.system_prompt and db_model and db_model.system_prompt:
-            params.system_prompt = db_model.system_prompt
-        elif not params and db_model and db_model.system_prompt:
-            from types import SimpleNamespace
-            params = SimpleNamespace(system_prompt=db_model.system_prompt)
-
-        # 6. Build agent with dynamic tools context
-        from app.persistence.repositories.tool_config_repository import ToolConfigRepository
-        tool_repo = ToolConfigRepository(session)
-        
-        # Filter by source_id if provided
-        if mcp_source_id == "none":
-            all_tools = []
-        elif mcp_source_id:
-            all_tools = await tool_repo.get_by_source(uuid.UUID(mcp_source_id), user_id=uuid.UUID(user_id))
-        else:
-            all_tools = await tool_repo.get_all_by_user(uuid.UUID(user_id))
-        
-        dynamic_tools_list = [
-            self._build_tool_context(t) for t in all_tools
-        ]
-        tools_context = "\n\n".join(dynamic_tools_list) if dynamic_tools_list else "No dynamic tools currently registered."
-        
-        custom_prompt = db_model.system_prompt if db_model else None
-
-        # --- Build Cache Key & Assemble -----------------------
-        def _stable_hash(s: str) -> str:
-            return hashlib.sha256(s.encode()).hexdigest()[:16]
-        cache_key = f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_{mcp_source_id}_{_stable_hash(tools_context)}_{_stable_hash(str(custom_prompt))}"
-
-        async def _build_agent_async():
-            if use_generalist:
-                logger.info("[AgentService] Assembling Generalist Orchestrator (stream)...")
-                return create_generalist_orchestrator(
-                    generalist_model=ui_generalist_llm,
-                    expert_model=expert_llm_factory,
-                    vision_model=vision_llm,
-                    worker_model=worker_llm,
-                    checkpointer=checkpointer,
-                    store=store,
-                    mcp_tools_context=tools_context,
-                    enable_knowledge=(knowledge_base_id != "none"),
-                    enable_mcp=(mcp_source_id != "none"),
-                    enable_system1=settings.system1_enabled,
-                    enable_computer_use=settings.computer_use_enabled,
-                    vl_replay_buffer=vl_replay_buffer,
-                )
-            else:
-                expert_llm = await expert_llm_factory()
-                return create_industrial_agent(
-                    model=expert_llm, worker_model=worker_llm, 
-                    checkpointer=checkpointer, store=store,
-                    custom_system_prompt=custom_prompt,
-                    mcp_tools_context=tools_context,
-                    enable_knowledge=(knowledge_base_id != "none"),
-                    enable_mcp=(mcp_source_id != "none")
-                )
-
-        global _GRAPH_CACHE
-        if cache_key in _GRAPH_CACHE:
-            entry = _GRAPH_CACHE.pop(cache_key)
-            _GRAPH_CACHE[cache_key] = entry
-            agent = entry['agent']
-        else:
-            agent = await _build_agent_async()
-            if len(_GRAPH_CACHE) >= MAX_CACHE_SIZE:
-                first_key = next(iter(_GRAPH_CACHE))
-                del _GRAPH_CACHE[first_key]
-            _GRAPH_CACHE[cache_key] = {'agent': agent}
-
-        config = {
-            "configurable": {
-                "thread_id": thread_id,
-                "user_id": user_id,
-                "knowledge_base_id": knowledge_base_id,
-                "session": session,
-            }
-        }
-
-        # State for filtering <think>...</think> tokens emitted by reasoning models (Qwen, DeepSeek r1, etc.)
+        # State for filtering <think>...</think> tokens emitted by reasoning models
         any_token_yielded = False
         last_output_had_tool_calls = False
         inside_think_block = False
         think_buffer = ""
-
-        # Interpolate variables before building messages
-        query = self._interpolate_variables(query, all_tools)
-        if params and hasattr(params, 'system_prompt') and params.system_prompt:
-            params.system_prompt = self._interpolate_variables(params.system_prompt, all_tools)
 
         async for event in agent.astream_events(
             {
@@ -748,7 +643,5 @@ class AgentService:
                             yield text
 
 
-        # Yield metadata about the resolved model at the end
-        resolved_model_id = model_id or (db_model.id if db_model else (model_name or "default"))
-        yield {"model_id": resolved_model_id}
+        yield {"model_id": ctx["resolved_model_id"]}
 

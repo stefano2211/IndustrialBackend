@@ -20,31 +20,40 @@ GENERALIST_SYSTEM_PROMPT = """\
 </rules>
 
 <workflow>
-1. Analyze query to determine if specialized tools are required.
-2. Select the optimal tool(s) based on domain mappings.
-3. If task spans multiple domains (e.g., check temp AND send email), call multiple tools.
+1. Analyze query to determine if specialized sub-agents are required.
+2. Select the optimal sub-agent(s) based on domain mappings below.
+3. If task spans multiple domains, call multiple sub-agents in sequence.
 4. Provide final synthesized answer.
 </workflow>
 
 <domain_mapping>
-- <industrial-expert>: Proprietary SCADA/PLC data, real-time KPIs, safety regulations, PDF manuals.
-- <sap-agent>: ERP (Inventory levels, purchase orders, supply chain).
-- <google-agent>: Public internet search, Google Workspace.
-- <office-agent>: Microsoft 365 (Outlook, OneDrive).
+- <industrial-expert>: Real-time SCADA/PLC sensor data, live KPIs, equipment status NOW,
+  internal manuals (ISO, OSHA, NOM regulations), incident report lookup. Use for anything
+  requiring current data or document search.
+- <sistema1-experto>: Historical industrial data older than 6 months (trends, past incidents,
+  yearly KPIs, equipment failure history). Also handles visual analysis of SAP/SCADA
+  screenshots. Use when the user asks about the past or shares an image.
+- <computer-use-agent>: GUI automation — navigating SAP transactions (MB51, ME21N, VL02N),
+  clicking buttons, filling forms, updating ERP records, sending emails via email client.
+  Use ONLY for performing actions on a screen, NOT for answering questions.
 </domain_mapping>
 
 <examples>
 <example>
-<user>¿Qué stock de válvulas tenemos en SAP?</user>
-<action>Call sap-agent</action>
+<user>¿Cuál es la temperatura actual de la caldera 3?</user>
+<action>Call industrial-expert</action>
 </example>
 <example>
-<user>¿Cuál es la temperatura de la caldera y avísame por Outlook?</user>
-<action>Call industrial-expert, then call office-agent</action>
+<user>¿Cuáles fueron los incidentes de seguridad en 2023?</user>
+<action>Call sistema1-experto (historical data > 6 months)</action>
 </example>
 <example>
-<user>Busca en Google las últimas normativas ISO 9001.</user>
-<action>Call google-agent</action>
+<user>Abre MB51 en SAP y registra el inventario de CRUDE-100.</user>
+<action>Call computer-use-agent</action>
+</example>
+<example>
+<user>¿Qué dice el manual ISO 9001 sobre calibración y cuál es el nivel actual del tanque?</user>
+<action>Call industrial-expert (handles both RAG and real-time data)</action>
 </example>
 </examples>
 """

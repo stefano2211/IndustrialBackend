@@ -5,15 +5,10 @@ Each sub-agent is a dict with:
   - name: identifier (used for routing and logging)
   - description: what the sub-agent handles (used by the orchestrator for routing)
   - system_prompt: instructions for the sub-agent's LLM
-  - tools: list of LangChain tools available to the sub-agent
 
 Design principle (Open-Closed): Add new sub-agents here by extending this list.
 The agent factory in factory.py will pick them up automatically via get_all_subagents().
 """
-
-from app.domain.agent.tools.knowledge_tool import ask_knowledge_agent
-from app.domain.agent.tools.mcp_tool import call_dynamic_mcp
-
 
 KNOWLEDGE_SUBAGENT = {
     "name": "knowledge-researcher",
@@ -32,7 +27,6 @@ KNOWLEDGE_SUBAGENT = {
         "- ALWAYS reply in the language the user uses.\n"
         "</rules>"
     ),
-    "tools": [ask_knowledge_agent],
 }
 
 MCP_SUBAGENT = {
@@ -44,7 +38,7 @@ MCP_SUBAGENT = {
     ),
     "system_prompt": (
         "<role>Industrial Data Specialist (MCP Orchestrator)</role>\n\n"
-        
+
         "<rules>\n"
         "- Gather real-time data using the `call_dynamic_mcp` tool.\n"
         "- Look at `<available_tools>` for permitted filtering fields.\n"
@@ -68,7 +62,6 @@ MCP_SUBAGENT = {
         "{dynamic_tools_context}\n"
         "</available_tools>"
     ),
-    "tools": [call_dynamic_mcp],
 }
 
 GENERAL_SUBAGENT = {
@@ -86,7 +79,6 @@ GENERAL_SUBAGENT = {
         "- ALWAYS reply in the language the user uses.\n"
         "</rules>"
     ),
-    "tools": [],
 }
 
 

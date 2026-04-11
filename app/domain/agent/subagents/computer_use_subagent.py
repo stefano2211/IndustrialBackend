@@ -77,6 +77,47 @@ class ComputerUseState(TypedDict):
 
 # ── Graph Nodes ───────────────────────────────────────────────────────────────
 
+def _build_init_node():
+    """
+    Entry node: extracts the instruction from the messages list injected by
+    deepagents and initialises all required ComputerUseState fields.
+
+    deepagents passes subagent inputs as {"messages": [HumanMessage(...)]}.
+    The raw StateGraph expects ComputerUseState fields (instruction, steps_taken,
+    etc.) — this node bridges that impedance mismatch.
+    """
+
+    async def init(state: ComputerUseState) -> dict:
+        instruction = state.get("instruction", "")
+
+        if not instruction:
+            for msg in reversed(state.get("messages", [])):
+                content = getattr(msg, "content", None)
+                if isinstance(content, str) and content.strip():
+                    instruction = content.strip()
+                    break
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text = part.get("text", "").strip()
+                            if text:
+                                instruction = text
+                                break
+                    if instruction:
+                        break
+
+        return {
+            "instruction": instruction,
+            "steps_taken": state.get("steps_taken", 0),
+            "last_screenshot_b64": state.get("last_screenshot_b64"),
+            "trajectory": state.get("trajectory", []),
+            "is_complete": state.get("is_complete", False),
+            "result_summary": state.get("result_summary", ""),
+        }
+
+    return init
+
+
 def _build_observe_node(llm: BaseChatModel):
     """Nodo: captura screenshot y lo inyecta en el state."""
 
@@ -247,14 +288,17 @@ def create_computer_use_agent(
           "result_summary": "",
         }
     """
+    init_node = _build_init_node()
     observe_node = _build_observe_node(vision_llm)
     think_act_node = _build_think_act_node(vision_llm, vl_replay_buffer)
 
     graph = StateGraph(ComputerUseState)
+    graph.add_node("init", init_node)
     graph.add_node("observe", observe_node)
     graph.add_node("think_act", think_act_node)
 
-    graph.set_entry_point("observe")
+    graph.set_entry_point("init")
+    graph.add_edge("init", "observe")
     graph.add_edge("observe", "think_act")
     graph.add_conditional_edges("think_act", _should_continue, {END: END, "observe": "observe"})
 

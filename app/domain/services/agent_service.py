@@ -319,10 +319,16 @@ class AgentService:
 
         # 4.6 Expert Loader: Deferred — captured via default arg to avoid closure over
         # a mutable session reference (the session may be closed before the lambda fires).
+        
+        # Determine current tenant and dynamic LoRA identifiers for vLLM multiplexing
+        current_tenant = settings.mlops_tenant_id
+        expert_lora_target = f"{current_tenant}-v2"
+        vl_lora_target = f"{current_tenant}-vl"
+        
         _captured_session = session
         expert_llm_factory = lambda sess=_captured_session: LLMFactory.get_llm(
             provider=LLMProvider.VLLM,
-            model_name=settings.default_llm_model,
+            model_name=expert_lora_target,
             session=sess,
         )
 
@@ -335,12 +341,12 @@ class AgentService:
             try:
                 vision_llm = await LLMFactory.get_llm(
                     provider=LLMProvider.VLLM,
-                    model_name=settings.system1_model,
+                    model_name=vl_lora_target,
                     session=session,
                 )
-                logger.info(f"[AgentService] Sistema 1 VL model loaded: {settings.system1_model}")
+                logger.info(f"[AgentService] Sistema 1 VL model loaded: {vl_lora_target}")
             except Exception as e:
-                logger.warning(f"[AgentService] Sistema 1 model unavailable: {e}. Continuing without it.")
+                logger.warning(f"[AgentService] Sistema 1 VL model unavailable: {e}. Continuing without it.")
 
         # 5. System prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:

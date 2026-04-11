@@ -45,13 +45,13 @@ class Settings(BaseSettings):
 
     # Defaults
     default_llm_provider: str = "vllm"
-    default_llm_model: Optional[str] = "aura_expert=/loras/aura_tenant_01-v2" # Expert alias in vLLM
+    default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
 
     # Generalist Orchestrator
-    generalist_llm_model: str = "Qwen/Qwen3.5-2B"  # Unified multimodal director model
+    generalist_llm_model: str = "Qwen/Qwen3.5-2B"  # Unified multimodal director model (NO LORA)
 
     # Sistema 1 — Fine-tuned Vision-Language
-    system1_model: str = "aura_system1=/loras/aura_tenant_01-vl"   # VL model alias
+    system1_model: str = "aura_tenant_01-vl"   # VL LoRA tag in vLLM
     system1_enabled: bool = True               # Toggle; set False if VL model not available
 
     # Computer Use — Macrohard Digital Optimus Local

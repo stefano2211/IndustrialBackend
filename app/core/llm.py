@@ -130,7 +130,9 @@ class LLMFactory:
 
         if not model_name or model_name.lower() in ["vllm", "openrouter", "ollama"]:
             if provider == LLMProvider.VLLM:
-                model_name = settings.default_llm_model
+                # Default to the generalist/base model when no specific model is requested.
+                # Specific subagents (Expert, VL) will explicitly request their LoRA models.
+                model_name = settings.generalist_llm_model
             else:
                 model_name = "openai/gpt-4o"
 

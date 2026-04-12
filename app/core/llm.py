@@ -40,14 +40,14 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
         model=model_name or settings.default_llm_model,
         temperature=temperature,
         streaming=streaming,
-        max_tokens=kwargs.pop("max_tokens", 2048),
+        max_tokens=kwargs.pop("max_tokens", 4096),
         **kwargs,
     )
 
 
 def _create_openrouter(model_name: str, temperature: float, api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
     if "max_tokens" not in kwargs or kwargs["max_tokens"] is None:
-        kwargs["max_tokens"] = 2048 
+        kwargs["max_tokens"] = 4096 
         
     top_k = kwargs.pop("top_k", None)
     
@@ -139,7 +139,11 @@ class LLMFactory:
         factory_kwargs = {}
         if sys_settings is not None:
             if provider == LLMProvider.VLLM:
-                factory_kwargs["base_url"] = getattr(sys_settings, "vllm_base_url", settings.vllm_base_url)
+                # Route orchestrator to its separate container instance
+                if model_name == getattr(sys_settings, "generalist_llm_model", settings.generalist_llm_model):
+                    factory_kwargs["base_url"] = getattr(sys_settings, "vllm_orchestrator_url", settings.vllm_orchestrator_url)
+                else:
+                    factory_kwargs["base_url"] = getattr(sys_settings, "vllm_base_url", settings.vllm_base_url)
             elif provider == LLMProvider.OPENROUTER:
                 factory_kwargs["api_key"] = sys_settings.openrouter_api_key
                 factory_kwargs["base_url"] = sys_settings.openrouter_base_url

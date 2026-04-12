@@ -37,7 +37,8 @@ class Settings(BaseSettings):
 
     
     # Edge / Local Model configuration
-    vllm_base_url: str = "http://vllm:8000/v1"
+    vllm_base_url: str = "http://vllm-sistema1:8000/v1"
+    vllm_orchestrator_url: str = "http://vllm-orchestrator:8000/v1"
 
     # OpenRouter configuration
     openrouter_api_key: Optional[str] = None
@@ -47,12 +48,14 @@ class Settings(BaseSettings):
     default_llm_provider: str = "vllm"
     default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
 
-    # Generalist Orchestrator
-    generalist_llm_model: str = "Qwen/Qwen3.5-2B"  # Unified multimodal director model (NO LORA)
+    # Generalist Orchestrator (larger — for routing decisions)
+    generalist_llm_model: str = "Qwen/Qwen3.5-4B"  # Director model — bigger = better routing (NO LORA)
 
-    # Sistema 1 — Fine-tuned Vision-Language
-    system1_model: str = "aura_tenant_01-vl"   # VL LoRA tag in vLLM
-    system1_enabled: bool = True               # Toggle; set False if VL model not available
+    # Sistema 1 — Fine-tuned models (always 2B base + their LoRA)
+    system1_base_model: str = "Qwen/Qwen3.5-2B"        # Base backbone for ALL Sistema 1 subagents (hardcoded)
+    system1_historico_model: str = "aura_tenant_01-v2"  # Text LoRA tag in vLLM (historico subagent)
+    system1_model: str = "aura_tenant_01-vl"             # VL LoRA tag in vLLM (VL + computer-use subagents)
+    system1_enabled: bool = True                         # Toggle; set False if neither LoRA is deployed yet
 
     # Computer Use — Macrohard Digital Optimus Local
     computer_use_enabled: bool = True          # Feature flag global

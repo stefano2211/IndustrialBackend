@@ -320,11 +320,10 @@ class AgentService:
         # 4.6 Expert Loader: Deferred — captured via default arg to avoid closure over
         # a mutable session reference (the session may be closed before the lambda fires).
         
-        # Determine current tenant and dynamic LoRA identifiers for vLLM multiplexing
-        current_tenant = settings.mlops_tenant_id
-        expert_lora_target = f"{current_tenant}-v2"
-        vl_lora_target = f"{current_tenant}-vl"
-        
+        # Determine LoRA identifiers from settings (single source of truth)
+        expert_lora_target = settings.system1_historico_model   # e.g. "aura_tenant_01-v2"
+        vl_lora_target = settings.system1_model                 # e.g. "aura_tenant_01-vl"
+
         _captured_session = session
         expert_llm_factory = lambda sess=_captured_session: LLMFactory.get_llm(
             provider=LLMProvider.VLLM,
@@ -355,12 +354,12 @@ class AgentService:
                 try:
                     vision_llm = await LLMFactory.get_llm(
                         provider=LLMProvider.VLLM,
-                        model_name=settings.generalist_llm_model,
+                        model_name=settings.system1_base_model,
                         session=session,
                     )
                     logger.info(
-                        f"[AgentService] Vision fallback OK: using base model "
-                        f"'{settings.generalist_llm_model}' (natively multimodal)."
+                        f"[AgentService] Vision fallback OK: using Sistema 1 base model "
+                        f"'{settings.system1_base_model}' (natively multimodal)."
                     )
                 except Exception as fallback_err:
                     logger.error(f"[AgentService] Vision fallback also failed: {fallback_err}. No vision.")

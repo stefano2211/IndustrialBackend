@@ -335,7 +335,9 @@ class AgentService:
         # 4.7 Worker LLM: reuse generalist instance
         worker_llm = ui_generalist_llm
 
-        # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA)
+        # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
+        # Qwen3.5-2B is natively multimodal — if the VL LoRA doesn't exist yet,
+        # fall back to the base model so computer-use-agent and sistema1-vl still work.
         vision_llm = None
         if settings.system1_enabled:
             try:
@@ -346,7 +348,22 @@ class AgentService:
                 )
                 logger.info(f"[AgentService] Sistema 1 VL model loaded: {vl_lora_target}")
             except Exception as e:
-                logger.warning(f"[AgentService] Sistema 1 VL model unavailable: {e}. Continuing without it.")
+                logger.warning(
+                    f"[AgentService] VL LoRA '{vl_lora_target}' unavailable: {e}. "
+                    f"Falling back to base model ({settings.generalist_llm_model}) for vision."
+                )
+                try:
+                    vision_llm = await LLMFactory.get_llm(
+                        provider=LLMProvider.VLLM,
+                        model_name=settings.generalist_llm_model,
+                        session=session,
+                    )
+                    logger.info(
+                        f"[AgentService] Vision fallback OK: using base model "
+                        f"'{settings.generalist_llm_model}' (natively multimodal)."
+                    )
+                except Exception as fallback_err:
+                    logger.error(f"[AgentService] Vision fallback also failed: {fallback_err}. No vision.")
 
         # 4.9 Expert LLM instance — Sistema 1 Histórico (fine-tuned text LoRA, ZERO tools)
         # Resuelto como instancia directa (no factory) para que sistema1-historico

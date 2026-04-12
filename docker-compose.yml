@@ -42,26 +42,39 @@ services:
     restart: unless-stopped
 
   vllm:
-    image: vllm/vllm-openai:v0.9.1  # Qwen3.5 requires >=v0.17.0 (Unsloth docs); pinned for reproducibility
+    image: vllm/vllm-openai:latest # latest includes native Qwen3.5 + qwen3_xml tool call parser
     container_name: vllm
     ports:
       - "8002:8000"
     environment:
-      # BUG WARN 1 fix: requerido para carga dinámica de LoRA en runtime (POST /v1/load_lora_adapter)
+      # Requerido para carga dinámica de LoRA en runtime (POST /v1/load_lora_adapter)
       - VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
-    command: >
-      --model Qwen/Qwen3.5-2B
-      --enable-lora
-      --max-loras 4
-      --max-lora-rank 16
-      --gpu-memory-utilization 0.85
-      --max-model-len 8192
-      --enable-auto-tool-choice
-      --tool-call-parser qwen3_xml
+    command:
+      - "--model"
+      - "Qwen/Qwen3.5-2B"
+      - "--enable-lora"
+      - "--max-loras"
+      - "4"
+      - "--max-lora-rank"
+      - "16"
+      - "--gpu-memory-utilization"
+      - "0.85"
+      - "--max-model-len"
+      - "4096"
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser"
+      - "qwen3_xml"
     volumes:
       - ./loras:/loras
       - hf_cache:/root/.cache/huggingface
+    ipc: host # Required by vLLM: prevents shared memory errors during GPU tensor inference
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s  # vLLM needs ~2-3 min for model load + CUDA graph warmup
     deploy:
       resources:
         reservations:
@@ -83,11 +96,18 @@ services:
     volumes:
       - ./app:/app/app
       - ./tmp:/tmp
-      - ./loras:/loras  # Shared with vLLM — OTA service extracts adapters here
+      - ./loras:/loras # Shared with vLLM — OTA service extracts adapters here
       - hf_cache:/root/.cache/huggingface
     restart: unless-stopped
     depends_on:
-      - vllm
+      vllm:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
 
 volumes:
   minio_data:

@@ -42,7 +42,7 @@ MCP_SUBAGENT = {
         "<rules>\n"
         "- Gather real-time data using the `call_dynamic_mcp` tool.\n"
         "- Look at `<available_tools>` for permitted filtering fields.\n"
-        "- Pass an empty arguments dict `{}` if no specific filter is requested.\n"
+        "- Pass an empty arguments dict `{{}}` if no specific filter is requested.\n"
         "</rules>\n\n"
 
         "<filtering_rules>\n"

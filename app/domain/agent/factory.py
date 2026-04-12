@@ -75,13 +75,11 @@ def create_industrial_agent(
                 system_prompt=sa_def["system_prompt"],
                 subagents=[],
             )
-            subagents.append(
-                CompiledSubAgent(
-                    name=sa_def["name"],
-                    description=sa_def["description"],
-                    graph=graph,
-                )
-            )
+            subagents.append({
+                "name": sa_def["name"],
+                "description": sa_def["description"],
+                "runnable": graph,
+            })
 
         # --- mcp-orchestrator: real-time sensor / API data ---
         elif name == "mcp-orchestrator":
@@ -98,18 +96,25 @@ def create_industrial_agent(
                 system_prompt=mcp_prompt,
                 subagents=[],
             )
-            subagents.append(
-                CompiledSubAgent(
-                    name=sa_def["name"],
-                    description=sa_def["description"],
-                    graph=graph,
-                )
-            )
+            subagents.append({
+                "name": sa_def["name"],
+                "description": sa_def["description"],
+                "runnable": graph,
+            })
 
         # --- general-assistant: fallback, no tools needed ---
-        # Passed as a plain dict — deepagents accepts this format for simple subagents.
         else:
-            subagents.append(sa_def)
+            graph = create_deep_agent(
+                model=effective_worker,
+                tools=[],
+                system_prompt=sa_def["system_prompt"],
+                subagents=[],
+            )
+            subagents.append({
+                "name": sa_def["name"],
+                "description": sa_def["description"],
+                "runnable": graph,
+            })
 
     logger.info(f"[IndustrialAgent] Assembled {len(subagents)} subagent(s).")
 

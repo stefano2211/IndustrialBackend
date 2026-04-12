@@ -335,7 +335,7 @@ class AgentService:
         # 4.7 Worker LLM: reuse generalist instance
         worker_llm = ui_generalist_llm
 
-        # 4.8 Vision LLM — Sistema 1 (VL fine-tuned)
+        # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA)
         vision_llm = None
         if settings.system1_enabled:
             try:
@@ -347,6 +347,17 @@ class AgentService:
                 logger.info(f"[AgentService] Sistema 1 VL model loaded: {vl_lora_target}")
             except Exception as e:
                 logger.warning(f"[AgentService] Sistema 1 VL model unavailable: {e}. Continuing without it.")
+
+        # 4.9 Expert LLM instance — Sistema 1 Histórico (fine-tuned text LoRA, ZERO tools)
+        # Resuelto como instancia directa (no factory) para que sistema1-historico
+        # pueda ser ensamblado en tiempo de build del grafo.
+        expert_model_instance = None
+        if settings.system1_enabled:
+            try:
+                expert_model_instance = await expert_llm_factory()
+                logger.info(f"[AgentService] Sistema 1 Histórico model loaded: {expert_lora_target}")
+            except Exception as e:
+                logger.warning(f"[AgentService] Sistema 1 Histórico model unavailable: {e}. Continuing without it.")
 
         # 5. System prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:
@@ -372,9 +383,10 @@ class AgentService:
             return hashlib.sha256(s.encode()).hexdigest()[:16]
 
         _vision_available = vision_llm is not None
+        _expert_available = expert_model_instance is not None
         cache_key = (
             f"{user_id}_{model_id}_{use_generalist}_{knowledge_base_id}_"
-            f"{mcp_source_id}_{_vision_available}_"
+            f"{mcp_source_id}_{_vision_available}_{_expert_available}_"
             f"{_stable_hash(tools_context)}_{_stable_hash(str(custom_prompt))}"
         )
 
@@ -383,8 +395,9 @@ class AgentService:
                 logger.info("[AgentService] Assembling Generalist Orchestrator...")
                 return create_generalist_orchestrator(
                     generalist_model=ui_generalist_llm,
-                    expert_model=expert_llm_factory,
-                    vision_model=vision_llm,
+                    expert_model=expert_llm_factory,          # lazy factory → industrial-expert (Sistema 2)
+                    expert_model_instance=expert_model_instance,  # instancia resuelta → sistema1-historico (Sistema 1)
+                    vision_model=vision_llm,                  # instancia resuelta → sistema1-vl + computer-use
                     worker_model=worker_llm,
                     checkpointer=checkpointer,
                     store=store,

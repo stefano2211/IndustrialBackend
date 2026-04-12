@@ -1,29 +1,87 @@
 """
-Sistema 1 Subagent — Fine-tuned Vision-Language Expert.
+Sistema 1 Subagents — Fine-tuned experts with ZERO tools.
 
-This is the second specialist in the orchestrator hierarchy (alongside IndustrialExpert).
+Sistema 1 = the two fine-tuned models that receive OTA updates from ApiLLMOps.
+They answer exclusively from their trained weights — no RAG, no MCP, no external calls.
 
-Key characteristics:
-  - Uses a fine-tuned VL model (e.g., Qwen 3.2 VL 7b trained via ApiLLMOps OTA pipeline).
-  - Has ZERO tools — all knowledge comes from the model's fine-tuned weights.
-  - Handles two types of queries:
-      1. HISTORICAL: data older than ~6 months (baked into training, no RAG needed).
-      2. VISUAL (future): receives screenshots of industrial apps for computer use.
+┌─────────────────────────────────────────────────────────────────────┐
+│  SISTEMA 1                                                          │
+│  ├── sistema1-historico  Text LoRA (aura_tenant_01-v2)             │
+│  │     → Historical SCADA/SAP data > 6 months from weights         │
+│  └── sistema1-vl         VL LoRA   (aura_tenant_01-vl)             │
+│        → Visual analysis of industrial app screenshots from weights │
+└─────────────────────────────────────────────────────────────────────┘
 
-When to route here (for the orchestrator's description):
-  - User asks about historical trends, incidents, or data from months/years ago.
-  - User shares a screenshot of SAP, SCADA, HMI, or another industrial application.
-  - Queries about past fine-tuning events or learned operational patterns.
+The Generalist Orchestrator (Sistema 2) exposes both as callable tools
+and invokes whichever are needed based on the user's query — one, both, or neither.
 """
 
 from deepagents import create_deep_agent, CompiledSubAgent
 from loguru import logger
 
 from app.domain.agent.prompts.system1 import SISTEMA1_SYSTEM_PROMPT
+from app.domain.agent.prompts.system1_historico import SISTEMA1_HISTORICO_PROMPT
 from app.domain.agent.memory import create_composite_backend
 
 
-def create_system1_agent(
+def create_system1_historico_agent(
+    expert_model,
+    checkpointer=None,
+    store=None,
+) -> CompiledSubAgent | None:
+    """
+    Creates the Sistema 1 Histórico subagent.
+
+    Uses the fine-tuned TEXT LoRA (aura_tenant_01-v2) to answer historical
+    industrial queries directly from its trained weights.
+
+    Args:
+        expert_model: A resolved BaseChatModel instance pointing to the text LoRA
+                      (e.g., vLLM with model_name='aura_tenant_01-v2').
+                      If None, the subagent is skipped gracefully.
+        checkpointer: LangGraph checkpointer for conversation persistence.
+        store: LangGraph store for user-scoped long-term memory.
+
+    Returns:
+        CompiledSubAgent ready to be registered in the orchestrator,
+        or None if expert_model is not available.
+    """
+    if expert_model is None:
+        logger.warning(
+            "[Sistema1-Histórico] expert_model is None — skipping. "
+            "Deploy text LoRA via OTA to activate historical subagent."
+        )
+        return None
+
+    logger.info("[Sistema1-Histórico] Assembling (no tools — fine-tuned text weights).")
+
+    graph = create_deep_agent(
+        model=expert_model,
+        tools=[],                            # ← ZERO tools by design
+        system_prompt=SISTEMA1_HISTORICO_PROMPT,
+        backend=create_composite_backend,
+        memory=["/AGENTS.md"],
+        subagents=[],
+        checkpointer=checkpointer,
+        store=store,
+    )
+
+    return CompiledSubAgent(
+        name="sistema1-historico",
+        description=(
+            "USE for queries about industrial data OLDER THAN 6 MONTHS: "
+            "historical SCADA sensor trends, past equipment failures, yearly KPIs, "
+            "SAP historical transactions (MB51, ME21N, etc.), operational patterns, "
+            "and any data that was collected more than 6 months ago. "
+            "This model has this knowledge BAKED INTO its fine-tuned weights — NO external tools. "
+            "DO NOT use for real-time or current data — use industrial-expert instead. "
+            "DO NOT use for visual screenshot analysis — use sistema1-vl instead."
+        ),
+        runnable=graph,
+    )
+
+
+def create_system1_vl_agent(
     vision_model,
     checkpointer=None,
     store=None,
@@ -31,9 +89,12 @@ def create_system1_agent(
     """
     Creates the Sistema 1 VL subagent.
 
+    Uses the fine-tuned VL LoRA (aura_tenant_01-vl) to analyze screenshots
+    and visual content of industrial applications from its trained weights.
+
     Args:
-        vision_model: A pre-configured multimodal BaseChatModel instance
-                      (e.g., Ollama with qwen2.5-vl:7b or fine-tuned variant).
+        vision_model: A resolved multimodal BaseChatModel instance pointing to the VL LoRA
+                      (e.g., vLLM with model_name='aura_tenant_01-vl').
                       If None, the subagent is skipped gracefully.
         checkpointer: LangGraph checkpointer for conversation persistence.
         store: LangGraph store for user-scoped long-term memory.
@@ -44,36 +105,50 @@ def create_system1_agent(
     """
     if vision_model is None:
         logger.warning(
-            "[Sistema1] vision_model is None — Sistema 1 subagent will be skipped. "
-            "Set system1_enabled=True and configure system1_model in settings."
+            "[Sistema1-VL] vision_model is None — skipping. "
+            "Deploy VL LoRA via OTA to activate visual analysis subagent."
         )
         return None
 
-    logger.info("[Sistema1] Assembling Sistema 1 VL subagent (no tools — fine-tuned weights).")
+    logger.info("[Sistema1-VL] Assembling (no tools — fine-tuned VL weights).")
 
-    # Sistema 1 has NO tools. Its knowledge is baked into the fine-tuned model weights.
-    # The absence of tools is intentional — it forces the model to answer from training.
     graph = create_deep_agent(
         model=vision_model,
-        tools=[],                           # ← ZERO tools by design
+        tools=[],                            # ← ZERO tools by design
         system_prompt=SISTEMA1_SYSTEM_PROMPT,
-        backend=create_composite_backend,   # shared memory backend for user context
-        memory=["/AGENTS.md"],             # injects domain memory from VFS
+        backend=create_composite_backend,
+        memory=["/AGENTS.md"],
         subagents=[],
         checkpointer=checkpointer,
         store=store,
     )
 
     return CompiledSubAgent(
-        name="sistema1-experto",
+        name="sistema1-vl",
         description=(
-            "USE for: (1) historical queries about industrial data older than 6 months "
-            "(trends, past incidents, yearly KPIs, equipment failure history) — "
-            "this model has this data baked into its fine-tuned weights. "
-            "(2) Queries that include a screenshot of an industrial application "
-            "(SAP, SCADA, HMI panel) where visual analysis is needed. "
-            "DO NOT use for real-time sensor data or current readings — use "
-            "industrial-expert instead."
+            "USE when the query includes a SCREENSHOT or IMAGE of an industrial application "
+            "(SAP GUI, SCADA HMI, PLC panel, or any industrial UI) that requires visual analysis: "
+            "reading screen values, describing interface state, identifying UI elements, "
+            "or interpreting what is displayed. "
+            "This model analyzes visuals from its fine-tuned VL weights — NO external tools. "
+            "DO NOT use for real-time sensor data — use industrial-expert instead. "
+            "DO NOT use for performing GUI ACTIONS (clicking, typing) — use computer-use-agent instead."
         ),
-        graph=graph,
+        runnable=graph,
     )
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat alias — will be removed in a future cleanup
+# ---------------------------------------------------------------------------
+def create_system1_agent(
+    vision_model,
+    checkpointer=None,
+    store=None,
+) -> CompiledSubAgent | None:
+    """Deprecated: use create_system1_vl_agent() instead."""
+    logger.warning(
+        "[Sistema1] create_system1_agent() is deprecated. "
+        "Use create_system1_vl_agent() or create_system1_historico_agent()."
+    )
+    return create_system1_vl_agent(vision_model, checkpointer, store)

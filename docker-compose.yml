@@ -58,9 +58,9 @@ services:
       - "--max-lora-rank"
       - "16"
       - "--gpu-memory-utilization"
-      - "0.85"   # 48GB VRAM — both models fit comfortably (2B≈5GB + 4B≈9GB)
+      - "0.45"   # 48GB VRAM / 2 = 24GB para container 1. Suficiente para el 2B + Caché
       - "--max-model-len"
-      - "16384"  # 16k context window unlocked on production hardware
+      - "16384"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"
@@ -92,9 +92,9 @@ services:
       - "--model"
       - "Qwen/Qwen3.5-4B"
       - "--gpu-memory-utilization"
-      - "0.85"   # 48GB VRAM — plenty of headroom for the 4B orchestrator
+      - "0.45"   # 48GB VRAM / 2 = 24GB para container 2. Suficiente para el 4B + Caché
       - "--max-model-len"
-      - "16384"  # 16k context window unlocked on production hardware
+      - "16384"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"

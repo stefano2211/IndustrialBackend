@@ -409,11 +409,12 @@ class AgentService:
         async def _build_agent_async():
             if use_generalist:
                 logger.info("[AgentService] Assembling Generalist Orchestrator...")
+                resolved_expert_llm = await expert_llm_factory()
                 return create_generalist_orchestrator(
                     generalist_model=ui_generalist_llm,
-                    expert_model=expert_llm_factory,          # lazy factory → industrial-expert (Sistema 2)
-                    expert_model_instance=expert_model_instance,  # instancia resuelta → sistema1-historico (Sistema 1)
-                    vision_model=vision_llm,                  # instancia resuelta → sistema1-vl + computer-use
+                    expert_model=resolved_expert_llm,
+                    expert_model_instance=expert_model_instance,
+                    vision_model=vision_llm,
                     worker_model=worker_llm,
                     checkpointer=checkpointer,
                     store=store,

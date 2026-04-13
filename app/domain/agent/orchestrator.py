@@ -165,18 +165,15 @@ def create_generalist_orchestrator(
         )
 
     # ── Sistema 2: Industrial Expert (Text LoRA — RAG + MCP — live data) ────────────
-    async def _load_industrial_expert():
-        """Async factory: resolve expert_model and assemble IndustrialExpert."""
-        resolved_expert = await expert_model() if callable(expert_model) else expert_model
-        return create_industrial_agent(
-            model=resolved_expert,
-            worker_model=worker_model or generalist_model,
-            checkpointer=checkpointer,
-            store=store,
-            mcp_tools_context=mcp_tools_context,
-            enable_knowledge=enable_knowledge,
-            enable_mcp=enable_mcp,
-        )
+    industrial_expert_graph = create_industrial_agent(
+        model=expert_model,
+        worker_model=worker_model or generalist_model,
+        checkpointer=checkpointer,
+        store=store,
+        mcp_tools_context=mcp_tools_context,
+        enable_knowledge=enable_knowledge,
+        enable_mcp=enable_mcp,
+    )
 
     industrial_expert = CompiledSubAgent(
         name="industrial-expert",
@@ -190,7 +187,7 @@ def create_generalist_orchestrator(
             "DO NOT use for visual screenshot analysis — use sistema1-vl for that. "
             "DO NOT use for GUI actions — use computer-use-agent for that."
         ),
-        runnable=_load_industrial_expert,
+        runnable=industrial_expert_graph,
     )
     all_subagents.append(industrial_expert)
 

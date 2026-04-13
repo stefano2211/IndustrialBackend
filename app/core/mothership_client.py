@@ -107,7 +107,7 @@ class MothershipClient:
 
         payload = {
             "tenant_id": tenant_id,
-            "base_model": settings.generalist_llm_model, # Matches exactly the model running in local vLLM
+            "base_model": settings.system1_base_model, # Matches exactly the model running in vllm-sistema1
             "epochs": epochs,
             "webhook_url": webhook_url,
         }

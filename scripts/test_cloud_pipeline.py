@@ -112,18 +112,43 @@ def run_test():
             sync_result = json.loads(response.read().decode('utf-8'))
             print(f"Sincronizacion lanzada con exito!")
             print(f"Detalle del proceso: {sync_result}")
-            print("\n" + "=" * 60)
-            print("PRUEBA ENVIADA CORRECTAMENTE")
-            print("=" * 60)
-            print("\nSiguientes pasos para revisar en los servidores:")
-            print("1. Revisa los logs del SERVER A (IndustrialBackend). Debería decir que extrajo filas y se comunicó con Mothership.")
-            print("2. ¡Revisa los logs del SERVER B (ApiLLMOps)! Debería estar entrenando a Unsloth en este momento (tardará unos minutos).")
-            print("3. Cuando Server B termine, verás un POST de vuelta al Server A avisando que un nuevo LoRA está listo.")
-
+            
     except urllib.error.URLError as e:
         print(f"\nError al sincronizar la fuente: {e}")
         if hasattr(e, 'read'):
              print(f"Detalle del error: {e.read().decode('utf-8')}")
+        sys.exit(1)
+
+    # Damos tiempo a que se suba a MinIO en el background
+    time.sleep(2)
+
+    # 3. Disparar el Entrenamiento
+    BACKEND_TRAINING_URL = f"{BACKEND_HOST}/mlops/training/launch"
+    training_payload = {
+        "tenant_id": "aura_tenant_01",
+        "epochs": 3
+    }
+
+    try:
+        print("\n>> Paso 3: Disparando el Entrenamiento en ApiLLMOps...")
+        req = urllib.request.Request(
+            BACKEND_TRAINING_URL,
+            data=json.dumps(training_payload).encode('utf-8'),
+            headers=headers
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            train_result = json.loads(response.read().decode('utf-8'))
+            print("✅ ¡Entrenamiento disparado en la Mothership exitosamente!")
+            
+            print("\n" + "=" * 60)
+            print("PRUEBA ENVIADA CORRECTAMENTE")
+            print("=" * 60)
+            print("\nSiguientes pasos para revisar en los servidores:")
+            print("1. ¡Revisa los logs del SERVER B (ApiLLMOps)! Debería estar entrenando a Unsloth en este momento.")
+            print("2. Cuando Server B termine, verás un POST de vuelta al Server A avisando que un nuevo LoRA está listo.")
+    except urllib.error.URLError as e:
+        print(f"\n❌ Error al disparar entrenamiento: {e}")
+        if hasattr(e, 'read'): print(f"Detalle del error: {e.read().decode('utf-8')}")
         sys.exit(1)
 
 if __name__ == "__main__":

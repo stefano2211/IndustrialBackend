@@ -35,6 +35,7 @@ from app.core.config import settings
 from app.domain.agent.tools.computer_use_tool import (
     take_screenshot,
     execute_action,
+    run_shell_command,
     task_complete,
     COMPUTER_USE_TOOLS,
 )
@@ -43,25 +44,44 @@ from app.persistence.vl_replay_buffer import VLReplayBuffer
 # ── System Prompt ─────────────────────────────────────────────────────────────
 
 COMPUTER_USE_SYSTEM_PROMPT = """\
-<role>Aura Sistema 1: Computer Use Executor (Digital Optimus Local)</role>
+<role>Aura Sistema 1: Computer Use Executor (Digital Optimus)</role>
 
-<workflow>Observe -> Act</workflow>
+<environment>
+- OS: Ubuntu Linux (headless, Xvfb virtual display at :99, resolution 1920x1080)
+- Browser: Chromium (launch with: chromium --no-sandbox --disable-dev-shm-usage <url>)
+- All GUI interactions are via pyautogui coordinates (x, y origin = top-left corner)
+</environment>
+
+<workflow>Observe → Think → Act (ONE action per step)</workflow>
 
 <action_format>
-- `take_screenshot`: Call this FIRST to observe.
-- `execute_action`: Execute EXACTLY ONE action. JSON format:
+- `take_screenshot`: ALWAYS call this FIRST to see current screen state.
+- `execute_action`: Execute EXACTLY ONE action per turn. JSON format:
    {"type": "click|type|press|move|double_click|scroll", "x": int, "y": int, "text": "str", "key": "str", "amount": int}
-- `task_complete`: Call ONLY when the instruction is fully complete or permanently stuck.
+- `task_complete`: Call ONLY when fully done or permanently stuck (3+ failed attempts at same step).
 </action_format>
 
+<browser_instructions>
+To open Chromium and navigate to a URL:
+  execute_action: {"type": "press", "key": "ctrl+F2"}  — or use xterm/terminal shortcut
+  OR: Use the keyboard shortcut to open a terminal, then type: chromium --no-sandbox https://youtube.com
+  
+Once browser is open:
+  - Address bar is usually near top-center (y≈50, x≈700-900 on 1920x1080)
+  - Click address bar → type URL → press Enter to navigate
+  - YouTube search bar: once on youtube.com, click the search input (center-top area) and type
+</browser_instructions>
+
 <rules>
-- ALWAYS call `take_screenshot` before deciding an action.
-- Output ONLY ONE action per turn. Never chain tool calls.
-- If stuck after 3 attempts at the same step, call `task_complete` with error.
-- NEVER explain your reasoning to the user. Use <think> tags internally if needed, but the output must be valid tool calls.
-- NO CONVERSATIONAL FILLER. Output only the requested actions.
+- ALWAYS call `take_screenshot` before any action to know exact screen state.
+- Output ONLY ONE action per turn. Never chain multiple tool calls.
+- If stuck after 3 attempts at the same step, call `task_complete` with error description.
+- NEVER explain reasoning out loud. Use <think> tags internally if needed.
+- NO CONVERSATIONAL FILLER — output only tool calls.
+- After opening a browser, WAIT (1-2 steps of screenshot) for it to fully load before clicking.
 </rules>
 """
+
 
 # ── LangGraph State ───────────────────────────────────────────────────────────
 
@@ -188,6 +208,21 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
 
         # Parsear tool calls del response
         tool_calls = getattr(response, "tool_calls", [])
+        
+        # --- Fallback robusto para Qwen3.5-VL ---
+        # A veces Qwen emite el XML correcto pero LangChain falla en parsearlo
+        if not tool_calls and isinstance(response.content, str) and "<tool_call>" in response.content:
+            try:
+                import xml.etree.ElementTree as ET
+                xml_str = response.content[response.content.find("<tool_call>"):response.content.rfind("</tool_call>") + 12]
+                root = ET.fromstring(xml_str)
+                tool_name = root.find("name").text if root.find("name") is not None else ""
+                args_str = root.find("arguments").text if root.find("arguments") is not None else "{}"
+                tool_calls = [{"name": tool_name.strip(), "args": json.loads(args_str)}]
+                logger.info(f"[ComputerUse] Fallback XML parser exitoso: extraídos {len(tool_calls)} tool calls.")
+            except Exception as xml_e:
+                logger.warning(f"[ComputerUse] Error en fallback XML parser: {xml_e}")
+
         new_trajectory = []
         is_complete = False
         result_summary = ""
@@ -228,6 +263,30 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                             "instruction": instruction,
                             "screenshot_b64": screenshot_b64,
                             "action_json": action_json,
+                        })
+                    except Exception as e:
+                        logger.warning(f"[ComputerUse] Error guardando en VL buffer: {e}")
+
+            elif tool_name == "run_shell_command":
+                command = tool_args.get("command", "")
+                action_result = await run_shell_command.ainvoke(
+                    {"command": command}, config=config
+                )
+                logger.info(f"[ComputerUse] Shell command disparado: {action_result}")
+                
+                # Para comandos de shell, guardamos el action_json simulado para el replay buffer
+                if vl_replay_buffer and screenshot_b64:
+                    try:
+                        await vl_replay_buffer.append_trajectory_step(
+                            instruction=instruction,
+                            screenshot_b64=screenshot_b64,
+                            action_json=json.dumps({"type": "shell", "command": command}),
+                            tool_name="run_shell_command",
+                        )
+                        new_trajectory.append({
+                            "instruction": instruction,
+                            "screenshot_b64": screenshot_b64,
+                            "action_json": json.dumps({"type": "shell", "command": command}),
                         })
                     except Exception as e:
                         logger.warning(f"[ComputerUse] Error guardando en VL buffer: {e}")

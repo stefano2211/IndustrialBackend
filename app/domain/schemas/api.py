@@ -32,7 +32,7 @@ class ChatRequest(BaseModel):
     # Generalist Orchestrator mode (Magentic-One pattern):
     # True  → User-selected model (director) routes to Aura expert
     # False → Aura expert is called directly (default, backward compatible)
-    use_generalist: bool = False
+    use_generalist: bool = True
 
 class ChatResponse(BaseModel):
     answer: str

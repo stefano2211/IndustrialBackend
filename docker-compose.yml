@@ -93,7 +93,7 @@ services:
       - "--model"
       - "Qwen/Qwen3.5-4B"
       - "--gpu-memory-utilization"
-      - "0.44"   # Fijo definitivo: vLLM pidió 0.4346, usamos 0.44 (margen seguro)
+      - "0.46"   # Fijo definitivo: vLLM pidió 0.4546 para los CUDA graphs
       - "--max-model-len"
       - "16384"
       - "--enable-auto-tool-choice"
@@ -120,7 +120,7 @@ services:
   api:
     build: .
     container_name: api
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+    # CMD definido en start.sh (lanza Xvfb + uvicorn)
     ports:
       - "8000:8000"
     env_file:
@@ -128,6 +128,9 @@ services:
     environment:
       - VLLM_BASE_URL=http://vllm-sistema1:8000/v1
       - VLLM_ORCHESTRATOR_URL=http://vllm-orchestrator:8000/v1
+      - DISPLAY=:99  # Display virtual de Xvfb (Computer Use Agent)
+    # Chromium necesita al menos 256MB de shared memory para no crashear
+    shm_size: '256mb'
     volumes:
       - ./app:/app/app
       - ./tmp:/tmp

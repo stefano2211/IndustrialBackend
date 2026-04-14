@@ -2,14 +2,27 @@ FROM python:3.12-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
+# --- Sistema base + GUI headless (Computer Use Agent) ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc g++ \
+    # Xvfb: display virtual para correr Chromium sin pantalla real
+    xvfb x11-utils \
+    # Chromium: browser para el Computer Use Agent
+    chromium chromium-driver \
+    # Dependencias gráficas de pyautogui / mss
+    python3-xlib libxtst6 libxrandr2 \
+    # Utilidades de red
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
+# Apuntar el display virtual al que lanzaremos con Xvfb
+ENV DISPLAY=:99
+# Indicar a Chromium que no tiene sandbox real (necesario en Docker)
+ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
 
 # Copy dependency files
 COPY pyproject.toml uv.lock* ./
@@ -18,6 +31,10 @@ RUN uv sync --no-install-project
 COPY app ./app
 RUN uv sync
 
+# Script de arranque: lanza Xvfb en background y luego uvicorn
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/start.sh"]

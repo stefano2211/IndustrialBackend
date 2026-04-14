@@ -138,16 +138,16 @@ def run_test():
         )
         with urllib.request.urlopen(req, timeout=10) as response:
             train_result = json.loads(response.read().decode('utf-8'))
-            print("✅ ¡Entrenamiento disparado en la Mothership exitosamente!")
+            print(">>> EXITOSO: Entrenamiento disparado en la Mothership exitosamente!")
             
             print("\n" + "=" * 60)
             print("PRUEBA ENVIADA CORRECTAMENTE")
             print("=" * 60)
             print("\nSiguientes pasos para revisar en los servidores:")
-            print("1. ¡Revisa los logs del SERVER B (ApiLLMOps)! Debería estar entrenando a Unsloth en este momento.")
-            print("2. Cuando Server B termine, verás un POST de vuelta al Server A avisando que un nuevo LoRA está listo.")
+            print("1. Revisa los logs del SERVER B (ApiLLMOps)! Deberia estar entrenando a Unsloth en este momento.")
+            print("2. Cuando Server B termine, veras un POST de vuelta al Server A avisando que un nuevo LoRA esta listo.")
     except urllib.error.URLError as e:
-        print(f"\n❌ Error al disparar entrenamiento: {e}")
+        print(f"\n[ERROR] al disparar entrenamiento: {e}")
         if hasattr(e, 'read'): print(f"Detalle del error: {e.read().decode('utf-8')}")
         sys.exit(1)
 

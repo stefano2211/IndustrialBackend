@@ -198,6 +198,55 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
 
 
 @tool
+async def run_shell_command(config: RunnableConfig, command: str) -> str:
+    """
+    Executes a shell command on the server. Use this to launch applications
+    that cannot be opened via pyautogui alone (e.g., opening a browser).
+
+    Examples:
+      - Open Chromium on YouTube: command="chromium --no-sandbox --disable-dev-shm-usage https://youtube.com &"
+      - Open a terminal: command="xterm &"
+      - Take a specific window to focus: command="wmctrl -a Chromium"
+
+    IMPORTANT: Add '&' at the end to run non-blocking (background) processes.
+    The command runs on the server with DISPLAY=:99 already set.
+
+    Args:
+        command: Shell command string to execute.
+
+    Returns:
+        stdout/stderr output or confirmation of execution.
+    """
+    demo_mode = settings.computer_use_demo_mode
+
+    if demo_mode:
+        logger.info(f"[ComputerUse] DEMO SHELL: {command}")
+        return f"[DEMO] Shell command logged: {command}"
+
+    import asyncio
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**__import__("os").environ, "DISPLAY": ":99"},
+        )
+        # For background commands (&), don't wait forever
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            output = stdout.decode("utf-8", errors="replace").strip()
+            err = stderr.decode("utf-8", errors="replace").strip()
+            result = output or err or "Command executed (no output)."
+        except asyncio.TimeoutError:
+            result = f"Command launched in background (pid={proc.pid}). Use take_screenshot to verify."
+        logger.info(f"[ComputerUse] Shell executed: {command!r} → {result[:100]}")
+        return result
+    except Exception as e:
+        logger.error(f"[ComputerUse] Shell error: {e}")
+        return f"ERROR running command: {e}"
+
+
+@tool
 async def task_complete(config: RunnableConfig, summary: str) -> str:
     """
     Señala que la tarea asignada fue completada exitosamente.
@@ -217,4 +266,4 @@ async def task_complete(config: RunnableConfig, summary: str) -> str:
 
 
 # Export de las herramientas para el subagente
-COMPUTER_USE_TOOLS = [take_screenshot, execute_action, task_complete]
+COMPUTER_USE_TOOLS = [take_screenshot, execute_action, run_shell_command, task_complete]

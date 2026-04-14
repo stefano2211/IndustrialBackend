@@ -57,8 +57,9 @@ services:
       - "4"
       - "--max-lora-rank"
       - "16"
+      - "--enforce-eager"  # Ahorra ~3GB desactivando CUDA Graphs (recomendado al usar muchos LoRAs)
       - "--gpu-memory-utilization"
-      - "0.45"   # 48GB VRAM / 2 = 24GB para container 1. Suficiente para el 2B + Caché
+      - "0.48"   # Incrementamos de 0.45 a 0.48 como sugiere el log debido a la carga de los adaptadores
       - "--max-model-len"
       - "16384"
       - "--enable-auto-tool-choice"
@@ -92,7 +93,7 @@ services:
       - "--model"
       - "Qwen/Qwen3.5-4B"
       - "--gpu-memory-utilization"
-      - "0.45"   # 48GB VRAM / 2 = 24GB para container 2. Suficiente para el 4B + Caché
+      - "0.40"   # Reducimos de 0.45 a 0.40 (al no tener LoRAs le sobra muchísima RAM según los logs)
       - "--max-model-len"
       - "16384"
       - "--enable-auto-tool-choice"

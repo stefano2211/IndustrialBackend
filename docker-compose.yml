@@ -93,7 +93,7 @@ services:
       - "--model"
       - "Qwen/Qwen3.5-4B"
       - "--gpu-memory-utilization"
-      - "0.40"   # Reducimos de 0.45 a 0.40 (al no tener LoRAs le sobra muchísima RAM según los logs)
+      - "0.42"   # Aumentado a 0.42 porque vLLM pidió exactamente 0.4146 en el log
       - "--max-model-len"
       - "16384"
       - "--enable-auto-tool-choice"

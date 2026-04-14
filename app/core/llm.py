@@ -137,16 +137,16 @@ class LLMFactory:
                 model_name = "openai/gpt-4o"
 
         factory_kwargs = {}
-        if sys_settings is not None:
-            if provider == LLMProvider.VLLM:
-                # Route orchestrator to its separate container instance
-                if model_name == getattr(sys_settings, "generalist_llm_model", settings.generalist_llm_model):
-                    factory_kwargs["base_url"] = getattr(sys_settings, "vllm_orchestrator_url", settings.vllm_orchestrator_url)
-                else:
-                    factory_kwargs["base_url"] = getattr(sys_settings, "vllm_base_url", settings.vllm_base_url)
-            elif provider == LLMProvider.OPENROUTER:
-                factory_kwargs["api_key"] = sys_settings.openrouter_api_key
-                factory_kwargs["base_url"] = sys_settings.openrouter_base_url
+        if provider == LLMProvider.VLLM:
+            # Route orchestrator to its separate container instance
+            # Always prefer .env settings for internal Docker hostnames
+            if model_name == getattr(sys_settings, "generalist_llm_model", settings.generalist_llm_model):
+                factory_kwargs["base_url"] = settings.vllm_orchestrator_url
+            else:
+                factory_kwargs["base_url"] = settings.vllm_base_url
+        elif provider == LLMProvider.OPENROUTER and sys_settings:
+            factory_kwargs["api_key"] = sys_settings.openrouter_api_key or settings.openrouter_api_key
+            factory_kwargs["base_url"] = sys_settings.openrouter_base_url or settings.openrouter_base_url
 
         logger.info(f"Initializing Unified LLM: provider={provider}, model={model_name} (requested role={role})")
 

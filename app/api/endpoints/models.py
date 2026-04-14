@@ -120,24 +120,59 @@ async def list_provider_models(
     if provider_id == "vllm":
         repo = SettingsRepository(session)
         sys_settings = await repo.get_settings()
-        base_url = sys_settings.vllm_base_url if hasattr(sys_settings, 'vllm_base_url') else settings.vllm_base_url
-        
+
+        # Consultar ambos contenedores vLLM en paralelo
+        urls_to_query = []
+
+        # URL principal (Sistema 1 - con LoRAs): usa VLLM_BASE_URL del .env
+        base_url = settings.vllm_base_url  # e.g. http://vllm-sistema1:8000/v1
+        if base_url:
+            urls_to_query.append(("Sistema 1 (LoRA)", base_url))
+
+        # URL del orquestador (Qwen 4B): usa VLLM_ORCHESTRATOR_URL del .env
+        orchestrator_url = getattr(settings, 'vllm_orchestrator_url', None)  # e.g. http://vllm-orchestrator:8000/v1
+        if orchestrator_url:
+            urls_to_query.append(("Orchestrator", orchestrator_url))
+
+        # Si no hay URLs configuradas, usar el fallback de settings DB
+        if not urls_to_query:
+            db_url = sys_settings.vllm_base_url if hasattr(sys_settings, 'vllm_base_url') else base_url
+            urls_to_query.append(("vLLM", db_url))
+
+        all_models = []
+        seen_ids = set()
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{base_url}/models")
-                if response.status_code == 200:
-                    data = response.json()
-                    models = []
-                    for model in data.get("data", []):
-                        models.append({
-                            "id": model["id"],
-                            "name": model["id"],
-                            "size": 0,
-                            "details": {}
-                        })
-                    return models
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                for label, url in urls_to_query:
+                    try:
+                        # settings.vllm_base_url already includes /v1, so just append /models
+                        response = await client.get(f"{url}/models")
+                        if response.status_code == 200:
+                            data = response.json()
+                            for model in data.get("data", []):
+                                model_id = model["id"]
+                                # Solo mostrar modelos base (formato HuggingFace: "Org/Model")
+                                # Los LoRA adapters son internos del sistema y no se exponen al usuario
+                                if "/" not in model_id:
+                                    continue
+                                if model_id not in seen_ids:
+                                    seen_ids.add(model["id"])
+                                    all_models.append({
+                                        "id": model["id"],
+                                        "name": model["id"],
+                                        "size": 0,
+                                        "details": {"source": label}
+                                    })
+                    except Exception:
+                        pass  # Un servidor caído no rompe el discovery del otro
+
+            if all_models:
+                return all_models
         except Exception as e:
-            return [{"id": settings.default_llm_model, "name": f"{settings.default_llm_model} (Offline)", "error": str(e)}]
+            pass
+
+        # Fallback: retornar el modelo default como Offline
+        return [{"id": settings.default_llm_model, "name": f"{settings.default_llm_model} (Offline)", "error": "Could not connect to vLLM servers"}]
 
     if provider_id == "openrouter":
         # Dynamic fetch would be better, but sticking to requested models

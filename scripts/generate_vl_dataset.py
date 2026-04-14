@@ -33,7 +33,7 @@ SCREENS_DIR = os.path.join(BASE_DIR, "app", "static", "demo", "screens")
 DATASET_PATH = os.path.join(BASE_DIR, "data", "vl_synthetic.jsonl")
 
 # Configuraciones API
-MOTHERSHIP_URL = "http://localhost:8001/api/v1/vl/upload"
+MOTHERSHIP_URL = "http://149.36.0.115:8001/api/v1/vl/upload"
 TENANT_ID = "aura_tenant_01"
 API_KEY = "default-mothership-secret-key"
 
@@ -280,6 +280,6 @@ if __name__ == "__main__":
     asyncio.run(upload_dataset())
     
     print("\nTodo listo. Puedes despachar el entrenamiento VL usando:")
-    print(f"  curl -X POST http://localhost:8001/api/v1/vl/training/job \\")
+    print(f"  curl -X POST http://149.36.0.115:8001/api/v1/vl/training/job \\")
     print(f"       -H 'x-api-key: {API_KEY}' -H 'Content-Type: application/json' \\")
     print(f"       -d '{{\"tenant_id\": \"{TENANT_ID}\", \"vl_epochs\": 2}}'")

@@ -4,7 +4,7 @@ import json
 import time
 import sys
 
-BACKEND_HOST = "http://185.216.20.101:8000"
+BACKEND_HOST = "http://38.128.233.231:8000"
 BACKEND_LOGIN_URL = f"{BACKEND_HOST}/auth/login"
 BACKEND_REGISTER_URL = f"{BACKEND_HOST}/auth/register"
 BACKEND_SOURCES_URL = f"{BACKEND_HOST}/db-collector/sources"
@@ -54,8 +54,8 @@ def run_test():
     print("Iniciando prueba End-to-End en la Nube (IndustrialBackend -> ApiLLMOps)")
     print("-" * 60)
     
-    email = input("Email de Administrador: ")
-    password = input("Password: ")
+    email = "admin@macrohard.com"
+    password = "password123"
     
     token = get_token(email, password)
     headers = {

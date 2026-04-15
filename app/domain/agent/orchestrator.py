@@ -197,7 +197,7 @@ def create_generalist_orchestrator(
     logger.info(f"[Orchestrator] {len(all_subagents)} subagente(s) registrado(s) como tools del orquestador.")
 
     # ── Assemble Orchestrator ─────────────────────────────────────────────────────────
-    registered_names = [s.name for s in all_subagents]
+    registered_names = [s['name'] if isinstance(s, dict) else s.name for s in all_subagents]
     dynamic_prompt = build_generalist_prompt(registered_names)
     logger.info(f"[Orchestrator] Available subagents injected into prompt: {registered_names}")
 

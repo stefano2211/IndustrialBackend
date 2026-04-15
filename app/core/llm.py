@@ -29,7 +29,11 @@ class LLMProvider(str, Enum):
 def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
     # Map max_tokens appropriately
     streaming = kwargs.pop("streaming", True)
-    
+
+    # Remove top_k if present — vLLM doesn't support it via OpenAI-compatible API
+    # (Qwen3.5 doesn't use top_k; temperature and top_p are sufficient)
+    kwargs.pop("top_k", None)
+
     # Qwen3.5 stop tokens — only the official EOS tokens, no corrupted entries
     if "stop" not in kwargs:
         kwargs["stop"] = ["<|im_end|>", "<|endoftext|>"]

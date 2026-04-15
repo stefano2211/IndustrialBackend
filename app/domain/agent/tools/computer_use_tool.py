@@ -33,6 +33,12 @@ from app.core.config import settings
 
 # ── Screenshot capture ────────────────────────────────────────────────────────
 
+# Screenshot is downscaled by this factor to save VL context tokens.
+# execute_action MUST multiply coordinates by the same factor before calling pyautogui
+# so that image-space coords map back to actual 1920×1080 screen-space coords.
+SCREENSHOT_SCALE = 2  # image sent to model = actual_resolution / SCREENSHOT_SCALE
+
+
 def _capture_screen_sync() -> str:
     """Captura pantalla real con mss. Síncrona — wrappear con run_in_executor."""
     import mss
@@ -42,9 +48,11 @@ def _capture_screen_sync() -> str:
         monitor = sct.monitors[1]  # pantalla principal (monitor 0 = all screens)
         shot = sct.grab(monitor)
         img = Image.frombytes("RGB", shot.size, shot.rgb)
-        # Reducir resolución para ahorrar tokens en el contexto VL
+        # Reducir resolución para ahorrar tokens en el contexto VL.
+        # IMPORTANT: execute_action re-escalará las coordenadas × SCREENSHOT_SCALE
+        # para que los coords del modelo (imagen reducida) coincidan con la pantalla real.
         img = img.resize(
-            (img.width // 2, img.height // 2),
+            (img.width // SCREENSHOT_SCALE, img.height // SCREENSHOT_SCALE),
             Image.LANCZOS,
         )
         buffer = io.BytesIO()
@@ -155,13 +163,19 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
             pyautogui.FAILSAFE = True  # mover mouse a esquina sup-izq cancela
             pyautogui.PAUSE = 0.1     # pausa entre acciones para estabilidad
 
+            # The model outputs coordinates in the downscaled image space (960×540).
+            # Multiply by SCREENSHOT_SCALE to map back to actual screen space (1920×1080).
+            sx = SCREENSHOT_SCALE
+            x = action.get("x", 0) * sx
+            y = action.get("y", 0) * sx
+
             if action_type == "click":
-                pyautogui.click(action["x"], action["y"])
-                return f"Click ejecutado en ({action['x']}, {action['y']})"
+                pyautogui.click(x, y)
+                return f"Click ejecutado en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
             elif action_type == "double_click":
-                pyautogui.doubleClick(action["x"], action["y"])
-                return f"Double-click en ({action['x']}, {action['y']})"
+                pyautogui.doubleClick(x, y)
+                return f"Double-click en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
             elif action_type == "type":
                 text = action.get("text", "")
@@ -174,16 +188,16 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 return f"Tecla presionada: {key}"
 
             elif action_type == "move":
-                pyautogui.moveTo(action["x"], action["y"], duration=0.2)
-                return f"Mouse movido a ({action['x']}, {action['y']})"
+                pyautogui.moveTo(x, y, duration=0.2)
+                return f"Mouse movido a ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
             elif action_type == "scroll":
                 pyautogui.scroll(
                     action.get("amount", 3),
-                    x=action.get("x"),
-                    y=action.get("y"),
+                    x=x,
+                    y=y,
                 )
-                return f"Scroll {action.get('amount', 3)} en ({action.get('x')}, {action.get('y')})"
+                return f"Scroll {action.get('amount', 3)} en ({x}, {y})"
 
             else:
                 return f"Tipo de acción desconocido: {action_type}"
@@ -223,13 +237,24 @@ async def run_shell_command(config: RunnableConfig, command: str) -> str:
         logger.info(f"[ComputerUse] DEMO SHELL: {command}")
         return f"[DEMO] Shell command logged: {command}"
 
-    import asyncio
+    # Auto-inject mandatory Chromium flags when the command starts with chromium/chromium-browser.
+    # Without --no-sandbox the process crashes immediately inside Docker (no user namespace).
+    _cmd = command.strip()
+    if _cmd.startswith("chromium") or _cmd.startswith("chromium-browser"):
+        _required = "--no-sandbox --disable-dev-shm-usage"
+        if "--no-sandbox" not in _cmd:
+            # Insert flags right after the binary name
+            _binary, _, _rest = _cmd.partition(" ")
+            _cmd = f"{_binary} {_required} {_rest}".strip()
+            command = _cmd
+            logger.debug(f"[ComputerUse] Chromium flags auto-injected: {command}")
+
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**__import__("os").environ, "DISPLAY": ":99"},
+            env={**os.environ, "DISPLAY": ":99"},
         )
         # For background commands (&), don't wait forever
         try:

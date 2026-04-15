@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     system1_historico_model: str = "aura_tenant_01-v2"  # Text LoRA tag in vLLM (historico subagent)
     system1_model: str = "aura_tenant_01-vl"             # VL LoRA tag in vLLM (VL + computer-use subagents)
     system1_enabled: bool = True                         # Toggle; set False if neither LoRA is deployed yet
+    system1_force_base_model: bool = False              # True = usar modelo base sin intentar cargar LoRAs (para dev sin LoRAs)
 
     # Computer Use — Macrohard Digital Optimus Local
     computer_use_enabled: bool = True          # Feature flag global

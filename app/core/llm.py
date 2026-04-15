@@ -30,9 +30,9 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
     # Map max_tokens appropriately
     streaming = kwargs.pop("streaming", True)
     
-    # Ensure stop tokens are always present to avoid infinite loops
+    # Qwen3.5 stop tokens — only the official EOS tokens, no corrupted entries
     if "stop" not in kwargs:
-        kwargs["stop"] = ["<|im_end|>", "<|endoftext|>", "Assistant:", "User:"]
+        kwargs["stop"] = ["<|im_end|>", "<|endoftext|>"]
 
     return ChatOpenAI(
         openai_api_key="EMPTY",  # vLLM doesn't require an API key by default

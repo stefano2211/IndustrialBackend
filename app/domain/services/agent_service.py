@@ -325,11 +325,35 @@ class AgentService:
         vl_lora_target = settings.system1_model                 # e.g. "aura_tenant_01-vl"
 
         _captured_session = session
-        expert_llm_factory = lambda sess=_captured_session: LLMFactory.get_llm(
-            provider=LLMProvider.VLLM,
-            model_name=expert_lora_target,
-            session=sess,
-        )
+        # Factory con fallback: intenta el LoRA primero, si falla usa el modelo base
+        # Si system1_force_base_model=True, usa el modelo base directamente (sin intentar LoRA)
+        async def expert_llm_factory(sess=_captured_session):
+            if settings.system1_force_base_model:
+                logger.info(
+                    f"[AgentService] system1_force_base_model=True: Using base model "
+                    f"'{settings.system1_base_model}' directly (skipping LoRA '{expert_lora_target}')"
+                )
+                return await LLMFactory.get_llm(
+                    provider=LLMProvider.VLLM,
+                    model_name=settings.system1_base_model,
+                    session=sess,
+                )
+            try:
+                return await LLMFactory.get_llm(
+                    provider=LLMProvider.VLLM,
+                    model_name=expert_lora_target,
+                    session=sess,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[AgentService] expert_llm_factory: LoRA '{expert_lora_target}' failed, "
+                    f"falling back to base model '{settings.system1_base_model}'"
+                )
+                return await LLMFactory.get_llm(
+                    provider=LLMProvider.VLLM,
+                    model_name=settings.system1_base_model,
+                    session=sess,
+                )
 
         # 4.7 Worker LLM: reuse generalist instance
         worker_llm = ui_generalist_llm
@@ -337,43 +361,101 @@ class AgentService:
         # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
         # Qwen3.5-2B is natively multimodal — if the VL LoRA doesn't exist yet,
         # fall back to the base model so computer-use-agent and sistema1-vl still work.
+        # OPTIMAL Qwen3.5 params for computer use: low temp (deterministic), higher max_tokens (thinking+JSON)
         vision_llm = None
+        _vision_kwargs = {
+            "temperature": 0.2,      # Lower = more deterministic GUI actions
+            "max_tokens": 2048,      # Room for thinking tokens + JSON tool calls
+            "streaming": False,      # Ensure complete JSON responses for tool calls
+        }
         if settings.system1_enabled:
-            try:
-                vision_llm = await LLMFactory.get_llm(
-                    provider=LLMProvider.VLLM,
-                    model_name=vl_lora_target,
-                    session=session,
-                )
-                logger.info(f"[AgentService] Sistema 1 VL model loaded: {vl_lora_target}")
-            except Exception as e:
-                logger.warning(
-                    f"[AgentService] VL LoRA '{vl_lora_target}' unavailable: {e}. "
-                    f"Falling back to base model ({settings.generalist_llm_model}) for vision."
-                )
+            if settings.system1_force_base_model:
+                # Usar modelo base directamente sin intentar LoRA
                 try:
                     vision_llm = await LLMFactory.get_llm(
                         provider=LLMProvider.VLLM,
                         model_name=settings.system1_base_model,
                         session=session,
+                        **_vision_kwargs,
                     )
                     logger.info(
-                        f"[AgentService] Vision fallback OK: using Sistema 1 base model "
-                        f"'{settings.system1_base_model}' (natively multimodal)."
+                        f"[AgentService] Sistema 1 VL: Using base model directly "
+                        f"(system1_force_base_model=True): '{settings.system1_base_model}'"
                     )
-                except Exception as fallback_err:
-                    logger.error(f"[AgentService] Vision fallback also failed: {fallback_err}. No vision.")
+                except Exception as e:
+                    logger.error(f"[AgentService] Failed to load base model for vision: {e}")
+            else:
+                try:
+                    vision_llm = await LLMFactory.get_llm(
+                        provider=LLMProvider.VLLM,
+                        model_name=vl_lora_target,
+                        session=session,
+                        **_vision_kwargs,
+                    )
+                    logger.info(f"[AgentService] Sistema 1 VL model loaded: {vl_lora_target}")
+                except Exception as e:
+                    logger.warning(
+                        f"[AgentService] VL LoRA '{vl_lora_target}' unavailable: {e}. "
+                        f"Falling back to base model ({settings.system1_base_model}) for vision."
+                    )
+                    try:
+                        vision_llm = await LLMFactory.get_llm(
+                            provider=LLMProvider.VLLM,
+                            model_name=settings.system1_base_model,
+                            session=session,
+                            **_vision_kwargs,
+                        )
+                        logger.info(
+                            f"[AgentService] Vision fallback OK: using Sistema 1 base model "
+                            f"'{settings.system1_base_model}' (natively multimodal)."
+                        )
+                    except Exception as fallback_err:
+                        logger.error(f"[AgentService] Vision fallback also failed: {fallback_err}. No vision.")
 
         # 4.9 Expert LLM instance — Sistema 1 Histórico (fine-tuned text LoRA, ZERO tools)
         # Resuelto como instancia directa (no factory) para que sistema1-historico
         # pueda ser ensamblado en tiempo de build del grafo.
+        # FALLBACK: Si el LoRA no existe, usa el modelo base para mantener funcionalidad.
         expert_model_instance = None
         if settings.system1_enabled:
-            try:
-                expert_model_instance = await expert_llm_factory()
-                logger.info(f"[AgentService] Sistema 1 Histórico model loaded: {expert_lora_target}")
-            except Exception as e:
-                logger.warning(f"[AgentService] Sistema 1 Histórico model unavailable: {e}. Continuing without it.")
+            if settings.system1_force_base_model:
+                # Usar modelo base directamente sin intentar LoRA
+                try:
+                    expert_model_instance = await LLMFactory.get_llm(
+                        provider=LLMProvider.VLLM,
+                        model_name=settings.system1_base_model,
+                        session=session,
+                    )
+                    logger.info(
+                        f"[AgentService] Sistema 1 Histórico: Using base model directly "
+                        f"(system1_force_base_model=True): '{settings.system1_base_model}'"
+                    )
+                except Exception as e:
+                    logger.error(f"[AgentService] Failed to load base model for Sistema 1: {e}")
+            else:
+                try:
+                    expert_model_instance = await expert_llm_factory()
+                    logger.info(f"[AgentService] Sistema 1 Histórico model loaded: {expert_lora_target}")
+                except Exception as e:
+                    logger.warning(
+                        f"[AgentService] Sistema 1 Histórico LoRA '{expert_lora_target}' unavailable: {e}. "
+                        f"Falling back to base model ({settings.system1_base_model})."
+                    )
+                    try:
+                        expert_model_instance = await LLMFactory.get_llm(
+                            provider=LLMProvider.VLLM,
+                            model_name=settings.system1_base_model,
+                            session=session,
+                        )
+                        logger.info(
+                            f"[AgentService] Sistema 1 Histórico fallback OK: using base model "
+                            f"'{settings.system1_base_model}' (without LoRA fine-tuning)."
+                        )
+                    except Exception as fallback_err:
+                        logger.error(
+                            f"[AgentService] Sistema 1 Histórico fallback also failed: {fallback_err}. "
+                            f"Continuing without Sistema 1 Histórico."
+                        )
 
         # 5. System prompt composition
         if params and not params.system_prompt and db_model and db_model.system_prompt:

@@ -1,7 +1,7 @@
 """
 Computer Use Subagent — Sistema 1 / Digital Optimus Local
 ==========================================================
-Implementa el loop Observe-Think-Act con Qwen2.5-VL local.
+Implementa el loop Observe-Think-Act con Qwen3.5 nativo multimodal.
 
 Rol en la arquitectura Macrohard:
   - Recibe instrucción de alto nivel del Orchestrator (System 2)
@@ -11,7 +11,7 @@ Rol en la arquitectura Macrohard:
 
 Flujo por step:
   1. take_screenshot() → imagen base64
-  2. Modelo VL (ChatOllama con Qwen2.5-VL) recibe imagen + instrucción
+  2. Modelo Qwen3.5 (nativamente VLM) recibe imagen + instrucción
   3. Modelo devuelve JSON de acción: {"type": "click", "x": N, "y": N}
   4. execute_action(action_json) → ejecuta la acción
   5. VL Replay Buffer guarda (screenshot, instrucción, acción)
@@ -47,9 +47,11 @@ COMPUTER_USE_SYSTEM_PROMPT = """\
 <role>Aura Sistema 1: Computer Use Executor (Digital Optimus)</role>
 
 <environment>
-- OS: Ubuntu Linux (headless, Xvfb virtual display at :99, resolution 1920x1080)
-- Browser: Chromium (launch with: chromium --no-sandbox --disable-dev-shm-usage <url>)
-- All GUI interactions are via pyautogui coordinates (x, y origin = top-left corner)
+- OS: Ubuntu Linux (headless, Xvfb virtual display at :99, actual resolution 1920x1080)
+- Browser: Chromium (launched via run_shell_command — flags injected automatically)
+- Screenshots are delivered at HALF resolution: 960×540 pixels
+- Coordinates: output x,y in IMAGE space (0-960 width, 0-540 height) based on what you SEE.
+  The system automatically scales them ×2 to the actual 1920×1080 screen before executing.
 </environment>
 
 <workflow>Observe → Think → Act (ONE action per step)</workflow>
@@ -58,25 +60,34 @@ COMPUTER_USE_SYSTEM_PROMPT = """\
 - `take_screenshot`: ALWAYS call this FIRST to see current screen state.
 - `execute_action`: Execute EXACTLY ONE action per turn. JSON format:
    {"type": "click|type|press|move|double_click|scroll", "x": int, "y": int, "text": "str", "key": "str", "amount": int}
+- `run_shell_command`: Launch Chromium or other apps with proper flags auto-injected.
 - `task_complete`: Call ONLY when fully done or permanently stuck (3+ failed attempts at same step).
 </action_format>
 
+<thinking>
+Qwen3.5 has native thinking capability. Use it internally (<thinking> tags) to plan:
+  1. Where am I on the screen? What UI elements are visible?
+  2. What is the next logical step toward completing the instruction?
+  3. What are the exact coordinates (in 960×540 image space) for the action?
+After thinking, output ONLY ONE tool call — no conversational filler.
+</thinking>
+
 <browser_instructions>
-To open Chromium and navigate to a URL:
-  execute_action: {"type": "press", "key": "ctrl+F2"}  — or use xterm/terminal shortcut
-  OR: Use the keyboard shortcut to open a terminal, then type: chromium --no-sandbox https://youtube.com
-  
+To open Chromium and navigate to a URL, use run_shell_command directly:
+  command="chromium https://youtube.com &"   ← flags (--no-sandbox etc.) are auto-injected
+  Then call take_screenshot and WAIT 2-3 steps for the browser to fully load before clicking.
+
 Once browser is open:
-  - Address bar is usually near top-center (y≈50, x≈700-900 on 1920x1080)
+  - Address bar is near top-center in IMAGE space (y≈25, x≈350-450 in the 960×540 image)
   - Click address bar → type URL → press Enter to navigate
-  - YouTube search bar: once on youtube.com, click the search input (center-top area) and type
+  - YouTube search bar: once on youtube.com, click the search input (top-center, y≈40 in image) and type
 </browser_instructions>
 
 <rules>
 - ALWAYS call `take_screenshot` before any action to know exact screen state.
 - Output ONLY ONE action per turn. Never chain multiple tool calls.
 - If stuck after 3 attempts at the same step, call `task_complete` with error description.
-- NEVER explain reasoning out loud. Use <think> tags internally if needed.
+- NEVER explain reasoning out loud. Use <thinking> tags internally if needed.
 - NO CONVERSATIONAL FILLER — output only tool calls.
 - After opening a browser, WAIT (1-2 steps of screenshot) for it to fully load before clicking.
 </rules>

@@ -517,6 +517,7 @@ class AgentService:
         return {
             "agent": agent,
             "config": {
+                "recursion_limit": 100,
                 "configurable": {
                     "thread_id": thread_id,
                     "user_id": user_id,

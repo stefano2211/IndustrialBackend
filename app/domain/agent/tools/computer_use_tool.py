@@ -159,7 +159,10 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
     # Producción — ejecutar con pyautogui
     def _execute_sync():
         try:
-            import pyautogui
+            try:
+                import pyautogui
+            except (SystemExit, ImportError) as _pyautogui_err:
+                return f"ERROR: pyautogui no disponible ({_pyautogui_err}). Instala python3-tk en el contenedor."
             pyautogui.FAILSAFE = True  # mover mouse a esquina sup-izq cancela
             pyautogui.PAUSE = 0.1     # pausa entre acciones para estabilidad
 

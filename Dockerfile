@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium chromium-driver \
     # Dependencias gráficas de pyautogui / mss
     python3-xlib libxtst6 libxrandr2 \
+    # tkinter requerido por pyautogui/mouseinfo
+    python3-tk python3-dev \
+    # xauth para autenticación con Xvfb
+    xauth \
     # Utilidades de red
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -37,4 +41,4 @@ RUN chmod +x /start.sh
 
 EXPOSE 8000
 
-CMD ["/start.sh"]
+CMD ["/start.sh"]

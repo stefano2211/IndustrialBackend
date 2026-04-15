@@ -690,13 +690,22 @@ class AgentService:
                                 think_buffer = think_buffer[start_idx + len("<think>"):]
                                 inside_think_block = True
                             else:
-                                # No think block start found.
-                                # Emit everything EXCEPT the last 6 chars, which might be 
-                                # a partial "<think>" tag.
-                                if len(think_buffer) > 6:
-                                    visible += think_buffer[:-6]
-                                    think_buffer = think_buffer[-6:]
-                                break
+                                # No <think> start found.
+                                # Also check for orphan </think> — Qwen3/vLLM sometimes
+                                # streams thinking content WITHOUT emitting the opening
+                                # <think> tag, but DOES emit the closing </think>.
+                                close_idx = think_buffer.find("</think>")
+                                if close_idx != -1:
+                                    # Discard everything up to and including the orphan </think>
+                                    think_buffer = think_buffer[close_idx + len("</think>"):]
+                                    # Continue loop — there may be real content after it
+                                else:
+                                    # No think tag found at all.
+                                    # Keep last 7 chars (partial of either <think> or </think>).
+                                    if len(think_buffer) > 7:
+                                        visible += think_buffer[:-7]
+                                        think_buffer = think_buffer[-7:]
+                                    break
 
                     if visible:
                         any_token_yielded = True

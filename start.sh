@@ -26,6 +26,12 @@ fi
 
 echo "[start.sh] Xvfb corriendo en PID $XVFB_PID"
 echo "[start.sh] DISPLAY=$DISPLAY"
+
+# Create Xauthority file so pyautogui/xdotool can authenticate with Xvfb
+touch /root/.Xauthority
+xauth generate :99 . trusted 2>/dev/null || true
+echo "[start.sh] ~/.Xauthority inicializado."
+
 echo "[start.sh] Iniciando uvicorn..."
 
 # Ejecutar uvicorn en foreground (reemplaza este proceso)

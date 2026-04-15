@@ -35,7 +35,7 @@ from app.domain.agent.subagents.system1_subagent import (
     create_system1_historico_agent,
     create_system1_vl_agent,
 )
-from app.domain.agent.prompts.generalist import GENERALIST_SYSTEM_PROMPT
+from app.domain.agent.prompts.generalist import build_generalist_prompt
 from app.core.config import settings
 
 
@@ -194,10 +194,14 @@ def create_generalist_orchestrator(
     logger.info(f"[Orchestrator] {len(all_subagents)} subagente(s) registrado(s) como tools del orquestador.")
 
     # ── Assemble Orchestrator ─────────────────────────────────────────────────────────
+    registered_names = [s.name for s in all_subagents]
+    dynamic_prompt = build_generalist_prompt(registered_names)
+    logger.info(f"[Orchestrator] Available subagents injected into prompt: {registered_names}")
+
     from app.domain.agent.memory import create_composite_backend
     return create_deep_agent(
         model=generalist_model,
-        system_prompt=GENERALIST_SYSTEM_PROMPT,
+        system_prompt=dynamic_prompt,
         tools=[],
         subagents=all_subagents,
         backend=create_composite_backend,

@@ -138,6 +138,13 @@ def create_generalist_orchestrator(
             vl_replay_buffer=_active_buffer,
         )
 
+        # The Observe→Think→Act loop needs: 1 init + max_steps×(observe+think_act) nodes.
+        # With 15 max_steps that's 31+ transitions — beyond LangGraph's default limit of 25.
+        _cu_recursion_limit = 1 + settings.computer_use_max_steps * 3 + 10  # init + headroom
+        computer_use_graph = computer_use_graph.with_config(
+            {"recursion_limit": _cu_recursion_limit}
+        )
+
         computer_use_subagent = CompiledSubAgent(
             name="computer-use-agent",
             description=(

@@ -33,9 +33,13 @@ GENERALIST_SYSTEM_PROMPT = """\
 - <sistema1-experto>: Historical industrial data older than 6 months (trends, past incidents,
   yearly KPIs, equipment failure history). Also handles visual analysis of SAP/SCADA
   screenshots. Use when the user asks about the past or shares an image.
-- <computer-use-agent>: GUI automation — navigating SAP transactions (MB51, ME21N, VL02N),
-  clicking buttons, filling forms, updating ERP records, sending emails via email client.
-  Use ONLY for performing actions on a screen, NOT for answering questions.
+- <computer-use-agent>: GUI/BROWSER automation — ANY task requiring clicking, typing,
+  navigating, or interacting with a screen: opening Chrome/Firefox, visiting websites
+  (YouTube, Google, SAP Fiori), clicking buttons, filling forms, scrolling pages,
+  taking screenshots of the current screen, sending emails via email client,
+  navigating SAP transactions (MB51, ME21N, VL02N), updating ERP records.
+  USE for ALL "open", "click", "type", "navigate", "go to", "browse" requests.
+  DO NOT use for answering questions — delegate to experts for that.
 </domain_mapping>
 
 <examples>
@@ -50,6 +54,14 @@ GENERALIST_SYSTEM_PROMPT = """\
 <example>
 <user>Abre MB51 en SAP y registra el inventario de CRUDE-100.</user>
 <action>Call computer-use-agent</action>
+</example>
+<example>
+<user>Abre Chrome y busca videos de mantenimiento industrial en YouTube.</user>
+<action>Call computer-use-agent (browser automation task)</action>
+</example>
+<example>
+<user>Ve a google.com y busca los precios actuales del petróleo Brent.</user>
+<action>Call computer-use-agent (web browsing + screenshot)</action>
 </example>
 <example>
 <user>¿Qué dice el manual ISO 9001 sobre calibración y cuál es el nivel actual del tanque?</user>

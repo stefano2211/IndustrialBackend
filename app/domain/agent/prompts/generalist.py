@@ -49,6 +49,7 @@ Use this routing table:
   Historical data older than 6 months, past trends       → sistema1-historico
   Visual analysis of a screenshot/image already shared   → sistema1-vl
   Open browser, visit any website, GUI action, SAP nav   → computer-use-agent
+  Current content on any website (YouTube, Google, news…)  → computer-use-agent
   General reasoning (math, language) — no data needed    → Answer directly
 
 Multi-domain queries (e.g. "¿El nivel actual cumple con la ISO?"):
@@ -56,6 +57,9 @@ Multi-domain queries (e.g. "¿El nivel actual cumple con la ISO?"):
 
 CRITICAL browser rule:
 Any task involving a browser, website, or screen REQUIRES computer-use-agent.
+This includes questions like "¿qué hay en YouTube?", "¿cuáles son las noticias de hoy?",
+"¿cuál es el precio actual de X?" — ANY query whose answer requires VISITING a live website.
+DO NOT answer web-content questions from memory — always use computer-use-agent.
 If computer-use-agent is NOT AVAILABLE, respond IMMEDIATELY:
   "Lo siento, el agente de navegador no está disponible en este momento.
    No puedo acceder a sitios web ni interfaces gráficas."
@@ -101,9 +105,16 @@ Synthesize: "La lectura actual es X°C. El promedio histórico de 2024 fue Y°C 
 
 <example>
 <user>Abre YouTube y dime qué hay en la homepage.</user>
-<thinking>Browser task → computer-use-agent. Check availability first.</thinking>
-<action>If AVAILABLE: delegate to computer-use-agent with instruction to navigate to youtube.com and describe homepage.
+<thinking>Browser task — requires visiting youtube.com live → computer-use-agent.</thinking>
+<action>If AVAILABLE: delegate to computer-use-agent with instruction "Navigate to youtube.com and describe what is visible on the homepage".
 If NOT AVAILABLE: "Lo siento, el agente de navegador no está disponible en este momento."</action>
+</example>
+
+<example>
+<user>¿Qué hay en el homepage de YouTube ahora?</user>
+<thinking>User wants CURRENT content from a live website. This requires browsing youtube.com — it cannot be answered from memory. → computer-use-agent.</thinking>
+<action>If AVAILABLE: delegate to computer-use-agent with instruction "Open youtube.com and describe the current homepage content".
+If NOT AVAILABLE: "Lo siento, el agente de navegador no está disponible. No puedo acceder a contenido en vivo de sitios web."</action>
 </example>
 
 <example>
@@ -126,7 +137,7 @@ _ALL_SUBAGENT_DESCRIPTIONS = {
     "industrial-expert": "Real-time SCADA/PLC sensors, live KPIs, manuals, incident lookup.",
     "sistema1-historico": "Historical industrial data older than 6 months.",
     "sistema1-vl": "Visual analysis of screenshots/images shared by the user.",
-    "computer-use-agent": "Browser, GUI, any website navigation, SAP transactions, screen actions.",
+    "computer-use-agent": "Current web content (YouTube, Google, news, prices), browser navigation, SAP GUI transactions, any live website visit, screen actions.",
 }
 
 

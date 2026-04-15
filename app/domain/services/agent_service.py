@@ -99,11 +99,13 @@ class AgentService:
             elif content.startswith("```") and len(content) > 6:
                 content = content[3:].rstrip("`").strip()
 
+            # Strip invisible Unicode chars (zero-width space, BOM, etc.) that .strip() misses
+            content = ''.join(c for c in content if c.isprintable())
             if not content:
                 return False
 
             data = json.loads(content)
-            return data.get("is_historical_only", False)
+            return bool(data.get("is_historical_only", False))
         except Exception as e:
             logger.warning(f"[TemporalRouter] Failed: {e}. Defaulting to non-historical.")
             return False

@@ -118,13 +118,19 @@ class LLMFactory:
             sys_settings = await settings_repo.get_settings()
 
         if not provider:
-            if model_name and "/" in str(model_name):
+            _openrouter_on = (
+                sys_settings is not None
+                and hasattr(sys_settings, 'openrouter_enabled')
+                and sys_settings.openrouter_enabled
+            )
+            if _openrouter_on and model_name and "/" in str(model_name):
+                # Only treat 'org/model' as OpenRouter when OpenRouter is explicitly enabled.
+                # vLLM models can also have '/' (e.g. Qwen/Qwen3.5-4B) — never assume OpenRouter.
+                provider = LLMProvider.OPENROUTER
+            elif _openrouter_on:
                 provider = LLMProvider.OPENROUTER
             elif sys_settings is not None:
-                if hasattr(sys_settings, 'openrouter_enabled') and sys_settings.openrouter_enabled:
-                    provider = LLMProvider.OPENROUTER
-                else:
-                    provider = LLMProvider.VLLM
+                provider = LLMProvider.VLLM
             else:
                 provider = settings.default_llm_provider
 

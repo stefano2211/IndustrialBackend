@@ -620,6 +620,8 @@ class AgentService:
         last_output_had_tool_calls = False
         inside_think_block = False
         think_buffer = ""
+        # Buffer tokens per model step; flush only when we confirm no tool calls
+        step_text_buffer: list = []
 
         async for event in agent.astream_events(
             {
@@ -638,6 +640,7 @@ class AgentService:
                 last_output_had_tool_calls = False
                 inside_think_block = False
                 think_buffer = ""
+                step_text_buffer = []
 
             # --- Emit Subagent (Tool) running status ---
             if kind == "on_tool_start":
@@ -708,46 +711,47 @@ class AgentService:
                                     break
 
                     if visible:
-                        any_token_yielded = True
-                        yield visible
-                    # Note: if only think-content was processed (no visible text),
-                    # we do NOT set any_token_yielded so the on_chat_model_end fallback can still fire.
+                        step_text_buffer.append(visible)
+                    # Tokens are buffered and flushed at on_chat_model_end only if no tool calls.
 
                 continue
 
-            # --- Fallback: emit content if Ollama returned it without streaming ---
+            # --- Flush buffered tokens / fallback for non-streaming models ---
             if kind == "on_chat_model_end":
+                # Flush any remaining think_buffer into the step buffer
                 if not inside_think_block and think_buffer:
-                    yield think_buffer
-                    any_token_yielded = True
+                    step_text_buffer.append(think_buffer)
                 think_buffer = ""
                 inside_think_block = False
 
                 data = event.get("data", {})
                 output = data.get("output")
                 if output:
-                    # Track whether this turn requested a tool call
                     last_output_had_tool_calls = bool(
                         hasattr(output, "tool_calls") and output.tool_calls
                     )
-                    raw_content = getattr(output, "content", None) or getattr(output, "text", "")
-                    # Only emit via fallback if (a) no tokens were streamed AND (b) it's NOT a pure tool call turn
-                    if not any_token_yielded and not last_output_had_tool_calls:
+                    # Fallback for non-streaming models: if no tokens were buffered
+                    # and this is not a tool-call turn, pull from output.content
+                    if not step_text_buffer and not last_output_had_tool_calls:
+                        raw_content = getattr(output, "content", None) or getattr(output, "text", "")
                         text = raw_content or ""
                         if text:
                             import re as _re
-                            # Try to strip think blocks
                             text_stripped = _re.sub(r'<think>.*?</think>', '', text, flags=_re.DOTALL).strip()
-                            
                             if not text_stripped and text.strip():
-                                # The model ONLY returned a think block! It forgot to write the actual answer.
-                                # Therefore, yield the contents of the think block minus the tags.
                                 text = _re.sub(r'</?think>', '', text).strip()
                             else:
                                 text = text_stripped
-
                         if text:
-                            yield text
+                            step_text_buffer.append(text)
+
+                # Only emit buffered tokens if this step had NO tool calls.
+                # Suppresses orchestrator pre-delegation reasoning (e.g. "I need to call computer-use-agent...").
+                if not last_output_had_tool_calls and step_text_buffer:
+                    for chunk in step_text_buffer:
+                        yield chunk
+                    any_token_yielded = True
+                step_text_buffer = []
 
 
         yield {"model_id": ctx["resolved_model_id"]}

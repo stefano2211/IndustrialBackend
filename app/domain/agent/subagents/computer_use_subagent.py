@@ -248,6 +248,34 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 "steps_taken": steps + 1,
             }
 
+        # Stall detection: if the last 4 actions are clicks within 50px of each other,
+        # the agent is stuck in a loop — abort gracefully.
+        recent_traj = state.get("trajectory", [])
+        if len(recent_traj) >= 4:
+            try:
+                last4 = [json.loads(t["action_json"]) for t in recent_traj[-4:]]
+                clicks = [a for a in last4 if a.get("type") in ("click", "double_click")]
+                if len(clicks) >= 4:
+                    xs = [c["x"] for c in clicks]
+                    ys = [c["y"] for c in clicks]
+                    if max(xs) - min(xs) < 50 and max(ys) - min(ys) < 50:
+                        logger.warning(
+                            f"[ComputerUse] Stall detectado: 4 clicks consecutivos en región "
+                            f"({min(xs)}-{max(xs)}, {min(ys)}-{max(ys)}). Terminando."
+                        )
+                        return {
+                            "is_complete": True,
+                            "result_summary": (
+                                "Stall detectado: el agente estuvo clickeando en la misma región "
+                                "4 veces consecutivas sin cambio de pantalla. "
+                                "Es posible que el contenido de la página no sea interactivo en ese punto. "
+                                "Se completó la observación de la pantalla hasta ese momento."
+                            ),
+                            "steps_taken": steps + 1,
+                        }
+            except Exception:
+                pass
+
         # Construir mensaje multimodal para el VL model
         user_content = [
             {

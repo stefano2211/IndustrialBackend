@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # Computer Use — Macrohard Digital Optimus Local
     computer_use_enabled: bool = True          # Feature flag global
-    computer_use_demo_mode: bool = True        # True=mock screenshots, False=pantalla real
+    computer_use_demo_mode: bool = False       # True=mock screenshots, False=pantalla real
     computer_use_max_steps: int = 15           # Máximo de pasos por tarea (evita loops infinitos)
 
     # MLOps Architecture (Cloud Sync)

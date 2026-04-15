@@ -4,6 +4,13 @@
 
 set -e
 
+echo "[start.sh] Limpiando posibles lock files de Xvfb anteriores..."
+# Eliminar lock file si existe (contenedor anterior crasheó)
+rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
+
+# Matar cualquier Xvfb existente en :99 (si quedó zombie)
+pkill -f "Xvfb :99" 2>/dev/null || true
+
 echo "[start.sh] Iniciando Xvfb en :99 (1920x1080x24)..."
 Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
 XVFB_PID=$!

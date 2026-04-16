@@ -184,12 +184,16 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
     Ejecuta una acción en la interfaz gráfica de la pantalla.
     
     Formatos de acción soportados:
-      click:      {"type": "click", "x": 1450, "y": 280}
-      type:       {"type": "type", "text": "MB51"}
-      press:      {"type": "press", "key": "enter"}
-      move:       {"type": "move", "x": 200, "y": 50}
-      scroll:     {"type": "scroll", "x": 800, "y": 400, "amount": 3}
+      click:        {"type": "click", "x": 1450, "y": 280}
       double_click: {"type": "double_click", "x": 1450, "y": 280}
+      type:         {"type": "type", "text": "MB51"}  ← usa clipboard para texto >80 chars
+      press:        {"type": "press", "key": "enter"}  ← soporta ctrl+t, ctrl+w, ctrl+l, ctrl+Tab
+      move:         {"type": "move", "x": 200, "y": 50}
+      scroll:       {"type": "scroll", "x": 800, "y": 400, "amount": 3}  ← positivo=abajo
+      new_tab:      {"type": "new_tab"}  ← abre nueva pestaña del browser
+      close_tab:    {"type": "close_tab"}  ← cierra pestaña actual
+      focus_address_bar: {"type": "focus_address_bar"}  ← Ctrl+L, listo para escribir URL
+      navigate:     {"type": "navigate", "url": "https://..."}  ← abre URL en pestaña actual
     
     En DEMO_MODE: loguea la acción pero NO la ejecuta realmente.
     En producción: usa pyautogui de forma async (asyncio.to_thread).
@@ -252,11 +256,27 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
 
             elif action_type == "type":
                 text = action.get("text", "")
+                # For long text (>80 chars): use clipboard paste — faster and handles special chars
+                if len(text) > 80:
+                    try:
+                        import base64 as _b64
+                        b64_text = _b64.b64encode(text.encode()).decode()
+                        subprocess.run(
+                            f"echo {b64_text} | base64 -d | xclip -selection clipboard",
+                            shell=True, check=True, timeout=5
+                        )
+                        subprocess.run(
+                            "DISPLAY=:99 xdotool key ctrl+v",
+                            shell=True, check=True, timeout=5
+                        )
+                        return f"Texto pegado via clipboard: '{text[:50]}...'"
+                    except Exception:
+                        pass  # fall through to xdotool type
                 safe_text = text.replace("'", "'\''")
                 try:
                     subprocess.run(
-                        f"DISPLAY=:99 xdotool type --clearmodifiers --delay 50 '{safe_text}'",
-                        shell=True, check=True, timeout=15
+                        f"DISPLAY=:99 xdotool type --clearmodifiers --delay 30 '{safe_text}'",
+                        shell=True, check=True, timeout=30
                     )
                 except Exception:
                     pyautogui.typewrite(text, interval=0.04)
@@ -268,8 +288,12 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                     "Return": "Return", "enter": "Return", "Tab": "Tab", "tab": "Tab",
                     "Escape": "Escape", "esc": "Escape", "ctrl+a": "ctrl+a",
                     "ctrl+c": "ctrl+c", "ctrl+v": "ctrl+v", "ctrl+z": "ctrl+z",
-                    "ctrl+f": "ctrl+f", "BackSpace": "BackSpace", "Delete": "Delete",
-                    "F5": "F5", "F11": "F11",
+                    "ctrl+f": "ctrl+f", "ctrl+l": "ctrl+l", "ctrl+t": "ctrl+t",
+                    "ctrl+w": "ctrl+w", "ctrl+r": "ctrl+r", "ctrl+Tab": "ctrl+Tab",
+                    "ctrl+shift+Tab": "ctrl+shift+Tab", "alt+Left": "alt+Left",
+                    "alt+Right": "alt+Right", "BackSpace": "BackSpace", "Delete": "Delete",
+                    "F5": "F5", "F11": "F11", "space": "space", "Home": "Home", "End": "End",
+                    "Page_Up": "Page_Up", "Page_Down": "Page_Down",
                 }
                 xdotool_key = xdotool_key_map.get(key, key)
                 try:
@@ -286,12 +310,43 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 return f"Mouse movido a ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
             elif action_type == "scroll":
-                pyautogui.scroll(
-                    action.get("amount", 3),
-                    x=x,
-                    y=y,
+                amount = action.get("amount", 3)
+                # xdotool scroll: button 4 = up, button 5 = down
+                btn = "5" if amount > 0 else "4"
+                clicks = abs(amount)
+                try:
+                    subprocess.run(
+                        f"DISPLAY=:99 xdotool mousemove {x} {y} click --repeat {clicks} {btn}",
+                        shell=True, check=True, timeout=5
+                    )
+                except Exception:
+                    pyautogui.scroll(-amount, x=x, y=y)  # pyautogui: negative=down
+                return f"Scroll {'abajo' if amount > 0 else 'arriba'} ×{abs(amount)} en ({x},{y})"
+
+            elif action_type == "new_tab":
+                subprocess.run("DISPLAY=:99 xdotool key ctrl+t", shell=True, timeout=5)
+                return "Nueva pestaña abierta (Ctrl+T)"
+
+            elif action_type == "close_tab":
+                subprocess.run("DISPLAY=:99 xdotool key ctrl+w", shell=True, timeout=5)
+                return "Pestaña cerrada (Ctrl+W)"
+
+            elif action_type == "focus_address_bar":
+                subprocess.run("DISPLAY=:99 xdotool key ctrl+l", shell=True, timeout=5)
+                return "Barra de dirección enfocada (Ctrl+L) — ya puedes escribir la URL"
+
+            elif action_type == "navigate":
+                url = action.get("url", "")
+                # Focus address bar, clear it, type URL and navigate
+                subprocess.run("DISPLAY=:99 xdotool key ctrl+l", shell=True, timeout=5)
+                import time as _time; _time.sleep(0.3)
+                safe_url = url.replace("'", "'\''")
+                subprocess.run(
+                    f"DISPLAY=:99 xdotool type --clearmodifiers '{safe_url}'",
+                    shell=True, timeout=5
                 )
-                return f"Scroll {action.get('amount', 3)} en ({x}, {y})"
+                subprocess.run("DISPLAY=:99 xdotool key Return", shell=True, timeout=5)
+                return f"Navegando a: {url}"
 
             else:
                 return f"Tipo de acción desconocido: {action_type}"
@@ -336,12 +391,15 @@ async def run_shell_command(config: RunnableConfig, command: str) -> str:
     _cmd = command.strip()
     if _cmd.startswith("chromium") or _cmd.startswith("chromium-browser"):
         _required = "--no-sandbox --disable-dev-shm-usage"
+        _profile = "--user-data-dir=/tmp/chromium-profile --profile-directory=Default"
         if "--no-sandbox" not in _cmd:
-            # Insert flags right after the binary name
             _binary, _, _rest = _cmd.partition(" ")
-            _cmd = f"{_binary} {_required} {_rest}".strip()
-            command = _cmd
-            logger.debug(f"[ComputerUse] Chromium flags auto-injected: {command}")
+            _cmd = f"{_binary} {_required} {_profile} {_rest}".strip()
+        elif "--user-data-dir" not in _cmd:
+            _binary, _, _rest = _cmd.partition(" ")
+            _cmd = f"{_binary} {_profile} {_rest}".strip()
+        command = _cmd
+        logger.debug(f"[ComputerUse] Chromium flags auto-injected: {command}")
 
     try:
         proc = await asyncio.create_subprocess_shell(

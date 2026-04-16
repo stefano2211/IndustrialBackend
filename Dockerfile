@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdotool \
     # wmctrl: gestión de ventanas (focus, raise)
     wmctrl \
+    # xclip: clipboard support para pegar texto largo sin xdotool type lento
+    xclip \
     # Utilidades de red
     curl \
     && rm -rf /var/lib/apt/lists/*

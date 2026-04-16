@@ -390,11 +390,15 @@ class AgentService:
         # OPTIMAL Qwen3.5 params for computer use: low temp (deterministic), higher max_tokens (thinking+JSON)
         vision_llm = None
         _vision_kwargs = {
-            "temperature": 0.2,      # Lower = more deterministic GUI actions
-            "max_tokens": 2048,      # Room for thinking tokens + JSON tool calls
-            "streaming": False,      # Ensure complete JSON responses for tool calls
-            "stop": [],              # Disable stop tokens: VL model needs to generate full XML tool calls
-                                     # without EOS tokens cutting them mid-generation (Bug 4 fix)
+            "temperature": 0.6,      # Qwen3.5 thinking mode: recommended temp is 0.6 (Qwen docs)
+            "max_tokens": 4096,      # 4096 needed: <thinking> block (~1500t) + XML tool call (~500t) + margin
+            "streaming": False,      # Ensure complete responses for tool calls
+            "stop": [],              # Disable stop tokens: VL needs to generate full XML tool calls
+            "model_kwargs": {
+                "extra_body": {
+                    "chat_template_kwargs": {"enable_thinking": True},
+                }
+            },
         }
         if settings.system1_enabled:
             if settings.system1_force_base_model:

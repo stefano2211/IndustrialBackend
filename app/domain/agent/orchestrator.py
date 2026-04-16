@@ -141,17 +141,17 @@ def create_generalist_orchestrator(
         computer_use_subagent = CompiledSubAgent(
             name="computer-use-agent",
             description=(
-                "USE for ANY task requiring a real browser or screen interaction: "
-                "(1) Getting CURRENT content from any website (YouTube homepage, Google results, "
-                "news, prices, stock quotes, any live web page) — the agent opens a real browser "
-                "and SEES what is on screen right now. "
-                "(2) Navigating SAP GUI transactions (MB51, ME21N, VL02N, etc.), "
-                "clicking buttons, filling forms, updating records in ERP/database screens. "
-                "(3) Sending emails via an email client. "
-                "This agent SEES the screen and ACTS on it step by step. "
-                "Provide a clear instruction describing what to accomplish. "
-                "ALWAYS use this agent when the answer requires visiting a website — "
-                "do NOT try to answer web-content questions from memory."
+                "USE for ANY task requiring a real browser, website visit, or screen interaction. "
+                "Capabilities: "
+                "(1) LIVE WEB ACCESS — searches (Google, Bing, news), current prices, weather, "
+                "any live page content, web forms, online services. Opens a real browser and SEES "
+                "exactly what is on screen at this moment. "
+                "(2) EMAIL — compose, send, and read emails via Gmail or any web email client. "
+                "(3) SAP/ERP GUI — navigate transactions (MB51, ME21N, VL02N, etc.), click buttons, "
+                "fill forms, read and update records in any ERP or industrial web interface. "
+                "(4) ANY WEBSITE — if the task requires visiting a URL, this is the correct agent. "
+                "Pass a clear, self-contained instruction: target site + action + what to report back. "
+                "Do NOT answer live web-content questions from memory — always use this agent."
             ),
             runnable=computer_use_graph,
         )

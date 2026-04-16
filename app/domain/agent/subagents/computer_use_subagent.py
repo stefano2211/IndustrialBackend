@@ -226,6 +226,22 @@ def _build_observe_node(llm: BaseChatModel):
         # El resultado es "data:image/png;base64,<data>"
         b64_data = screenshot_result.split(",", 1)[-1] if "," in screenshot_result else screenshot_result
 
+        
+        # Mejora B: Loading state detection
+        import hashlib
+        prev_b64 = state.get("last_screenshot_b64")
+        if prev_b64 and b64_data:
+            # Quick hash comparison
+            prev_hash = hashlib.md5(prev_b64[:1000].encode()).hexdigest()
+            new_hash = hashlib.md5(b64_data[:1000].encode()).hexdigest()
+            if prev_hash == new_hash:
+                logger.info("[ComputerUse] Pantalla idéntica a la anterior. Esperando 1.5s (Loading state)...")
+                import asyncio
+                await asyncio.sleep(1.5)
+                # Re-capture after wait
+                screenshot_result = await take_screenshot.ainvoke({}, config=config)
+                b64_data = screenshot_result.split(",", 1)[-1] if "," in screenshot_result else screenshot_result
+
         return {"last_screenshot_b64": b64_data}
 
     return observe
@@ -290,9 +306,13 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
             })
 
+        # Mejora C: Truncate history to avoid context window explosion
+        # Only keep last 4 messages (2 full AI-Human interactions)
+        recent_messages = state["messages"][-4:] if len(state["messages"]) > 4 else state["messages"]
+        
         messages_for_llm = [
             SystemMessage(content=COMPUTER_USE_SYSTEM_PROMPT),
-        ] + state["messages"] + [
+        ] + recent_messages + [
             HumanMessage(content=user_content),
         ]
 
@@ -344,8 +364,12 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
             tool_args = tc.get("args", {})
 
             if tool_name == "take_screenshot":
-                # El modelo quiere ver la pantalla de nuevo (ya fue capturada en observe)
-                pass
+                # Bug 2 Fix: El modelo explícitamente pidió una foto. La tomamos ahora.
+                logger.info("[ComputerUse] El modelo solicitó explicitamente take_screenshot.")
+                sc_res = await take_screenshot.ainvoke({}, config=config)
+                screenshot_b64 = sc_res.split(",", 1)[-1] if "," in sc_res else sc_res
+                # Update screenshot inline for the buffer
+                state["last_screenshot_b64"] = screenshot_b64
 
             elif tool_name == "execute_action":
                 action_json = tool_args.get("action_json", "{}")
@@ -406,6 +430,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
 
         return {
             "steps_taken": steps + 1,
+            "last_screenshot_b64": None,  # Bug 2 Fix: forces recapture in next observe
             "is_complete": is_complete,
             "result_summary": result_summary,
             "trajectory": new_trajectory,

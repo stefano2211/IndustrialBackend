@@ -74,14 +74,13 @@ def _get_demo_screenshot() -> str:
     if os.path.isdir(demo_dir):
         screens = sorted(f for f in os.listdir(demo_dir) if f.endswith(".png"))
         if screens:
-            # Retorna el primer screenshot disponible (se puede rotar con un state)
             screen_path = os.path.join(demo_dir, screens[0])
             with open(screen_path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
 
     # Fallback: imagen placeholder 800x600 gris con texto "DEMO"
     try:
-        from PIL import Image, ImageDraw, ImageFont
+        from PIL import Image, ImageDraw
         img = Image.new("RGB", (800, 600), color=(40, 40, 40))
         draw = ImageDraw.Draw(img)
         draw.text((300, 260), "DEMO MODE - SAP GUI Placeholder", fill=(180, 180, 180))
@@ -90,8 +89,57 @@ def _get_demo_screenshot() -> str:
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
     except ImportError:
-        # Ultra-fallback: 1x1 pixel transparente
         return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+
+def _add_coordinate_grid(b64_png: str) -> str:
+    """
+    Mejora A (Digital Optimus / OmniParser): Pinta una cuadricula de coordenadas
+    semi-transparente sobre el screenshot. El VL model puede leer los numeros
+    directamente en la imagen en lugar de adivinar las coordenadas.
+
+    La cuadricula dibuja marcas cada 100px con el numero de coordenada.
+    Para una imagen 960x540, las marcas son: 0, 100, 200, ..., 900 (x) y 0, 100, ..., 500 (y).
+
+    Si PIL no esta disponible, retorna el screenshot sin modificar.
+    """
+    try:
+        from PIL import Image, ImageDraw
+
+        img_bytes = base64.b64decode(b64_png)
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        draw = ImageDraw.Draw(img, "RGBA")
+
+        w, h = img.size
+        grid_step = 100
+        line_color = (255, 255, 0, 60)   # amarillo semi-transparente
+        text_color = (255, 255, 0, 200)  # amarillo mas opaco para numeros
+        dot_color  = (255, 100, 100, 180) # punto rojo en intersecciones
+
+        # Lineas verticales y etiquetas X
+        for x in range(0, w, grid_step):
+            draw.line([(x, 0), (x, h)], fill=line_color, width=1)
+            if x > 0:
+                draw.text((x + 2, 2), str(x), fill=text_color)
+
+        # Lineas horizontales y etiquetas Y
+        for y in range(0, h, grid_step):
+            draw.line([(0, y), (w, y)], fill=line_color, width=1)
+            if y > 0:
+                draw.text((2, y + 2), str(y), fill=text_color)
+
+        # Puntos en intersecciones para referencia visual
+        for x in range(0, w, grid_step):
+            for y in range(0, h, grid_step):
+                draw.ellipse([(x-3, y-3), (x+3, y+3)], fill=dot_color)
+
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG", optimize=True)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    except Exception as e:
+        logger.debug(f"[ComputerUse] _add_coordinate_grid skipped: {e}")
+        return b64_png
 
 
 # ── LangChain Tools ───────────────────────────────────────────────────────────
@@ -121,6 +169,10 @@ async def take_screenshot(config: RunnableConfig) -> str:
         except Exception as e:
             logger.error(f"[ComputerUse] Error capturando pantalla: {e}")
             b64 = _get_demo_screenshot()  # fallback a demo si falla
+
+    # Mejora A: Pintar cuadricula de coordenadas para que el VL model
+    # lea las coordenadas directamente en la imagen (OmniParser concept)
+    b64 = _add_coordinate_grid(b64)
 
     return f"data:image/png;base64,{b64}"
 
@@ -180,9 +232,20 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 pyautogui.doubleClick(x, y)
                 return f"Double-click en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
+
+
+
             elif action_type == "type":
                 text = action.get("text", "")
-                pyautogui.typewrite(text, interval=0.04)
+                import subprocess
+                safe_text = text.replace("'", "'\''")
+                try:
+                    subprocess.run(
+                        f"DISPLAY=:99 xdotool type --clearmodifiers --delay 50 '{safe_text}'",
+                        shell=True, check=True, timeout=15
+                    )
+                except Exception as e:
+                    pyautogui.typewrite(text, interval=0.04)
                 return f"Texto escrito: '{text[:50]}{'...' if len(text) > 50 else ''}'"
 
             elif action_type == "press":

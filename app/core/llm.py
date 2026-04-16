@@ -34,9 +34,12 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
     # (Qwen3.5 doesn't use top_k; temperature and top_p are sufficient)
     kwargs.pop("top_k", None)
 
-    # Qwen3.5 stop tokens — only the official EOS tokens, no corrupted entries
-    if "stop" not in kwargs:
-        kwargs["stop"] = ["<|im_end|>", "<|endoftext|>"]
+    # Qwen3.5 stop tokens — applied only when the caller has NOT specified 'stop'.
+    # Computer-use VL model passes stop=[] explicitly to disable stop tokens,
+    # preventing EOS tokens from cutting XML tool calls mid-generation.
+    if 'stop' not in kwargs:
+        kwargs['stop'] = ['<|im_end|>', '<|endoftext|>']
+
 
     return ChatOpenAI(
         openai_api_key="EMPTY",  # vLLM doesn't require an API key by default

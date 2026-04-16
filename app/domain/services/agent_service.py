@@ -393,6 +393,8 @@ class AgentService:
             "temperature": 0.2,      # Lower = more deterministic GUI actions
             "max_tokens": 2048,      # Room for thinking tokens + JSON tool calls
             "streaming": False,      # Ensure complete JSON responses for tool calls
+            "stop": [],              # Disable stop tokens: VL model needs to generate full XML tool calls
+                                     # without EOS tokens cutting them mid-generation (Bug 4 fix)
         }
         if settings.system1_enabled:
             if settings.system1_force_base_model:

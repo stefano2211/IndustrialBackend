@@ -15,6 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-tk python3-dev \
     # xauth para autenticación con Xvfb
     xauth \
+    # xdotool: click/type/key via X11 (usado por computer_use_tool.py como método primario)
+    xdotool \
+    # wmctrl: gestión de ventanas (focus, raise)
+    wmctrl \
     # Utilidades de red
     curl \
     && rm -rf /var/lib/apt/lists/*

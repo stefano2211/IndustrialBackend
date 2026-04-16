@@ -20,6 +20,7 @@ import base64
 import io
 import json
 import os
+import subprocess
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -225,32 +226,59 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
             y = action.get("y", 0) * sx
 
             if action_type == "click":
-                pyautogui.click(x, y)
-                return f"Click ejecutado en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
+                try:
+                    subprocess.run(
+                        f"DISPLAY=:99 xdotool mousemove {x} {y} click 1",
+                        shell=True, check=True, timeout=5
+                    )
+                    return f"Click ejecutado en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
+                except Exception:
+                    pyautogui.click(x, y)
+                    return f"Click ejecutado en ({x}, {y}) [fallback pyautogui]"
 
             elif action_type == "double_click":
-                pyautogui.doubleClick(x, y)
-                return f"Double-click en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
+                try:
+                    subprocess.run(
+                        f"DISPLAY=:99 xdotool mousemove {x} {y} click --repeat 2 --delay 100 1",
+                        shell=True, check=True, timeout=5
+                    )
+                    return f"Double-click en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
+                except Exception:
+                    pyautogui.doubleClick(x, y)
+                    return f"Double-click en ({x}, {y}) [fallback pyautogui]"
 
 
 
 
             elif action_type == "type":
                 text = action.get("text", "")
-                import subprocess
                 safe_text = text.replace("'", "'\''")
                 try:
                     subprocess.run(
                         f"DISPLAY=:99 xdotool type --clearmodifiers --delay 50 '{safe_text}'",
                         shell=True, check=True, timeout=15
                     )
-                except Exception as e:
+                except Exception:
                     pyautogui.typewrite(text, interval=0.04)
                 return f"Texto escrito: '{text[:50]}{'...' if len(text) > 50 else ''}'"
 
             elif action_type == "press":
                 key = action.get("key", "")
-                pyautogui.press(key)
+                xdotool_key_map = {
+                    "Return": "Return", "enter": "Return", "Tab": "Tab", "tab": "Tab",
+                    "Escape": "Escape", "esc": "Escape", "ctrl+a": "ctrl+a",
+                    "ctrl+c": "ctrl+c", "ctrl+v": "ctrl+v", "ctrl+z": "ctrl+z",
+                    "ctrl+f": "ctrl+f", "BackSpace": "BackSpace", "Delete": "Delete",
+                    "F5": "F5", "F11": "F11",
+                }
+                xdotool_key = xdotool_key_map.get(key, key)
+                try:
+                    subprocess.run(
+                        f"DISPLAY=:99 xdotool key {xdotool_key}",
+                        shell=True, check=True, timeout=5
+                    )
+                except Exception:
+                    pyautogui.press(key)
                 return f"Tecla presionada: {key}"
 
             elif action_type == "move":

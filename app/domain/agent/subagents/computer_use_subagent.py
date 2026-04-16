@@ -39,6 +39,7 @@ from app.domain.agent.tools.computer_use_tool import (
     task_complete,
     COMPUTER_USE_TOOLS,
 )
+from app.domain.agent.tools.omniparser_service import get_omniparser
 from app.persistence.vl_replay_buffer import VLReplayBuffer
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
@@ -69,12 +70,27 @@ Every turn follows exactly this sequence:
 Step 1 — OBSERVE: Call take_screenshot to see the current screen state.
 Step 2 — THINK (internally in <thinking> tags):
   a. Where am I? What application/page is currently visible?
-  b. What is the next concrete step toward completing the instruction?
-  c. What UI element do I need to interact with?
-  d. What are its exact coordinates in the 960×540 image?
-  e. Have I already tried this exact action and failed? If so, try an alternative.
+  b. What changed since the previous screenshot (compare with action history)?
+  c. What is the next concrete step toward completing the instruction?
+  d. If <detected_elements> are provided, which element ID should I interact with?
+     Otherwise, what are the coordinates in the 960×540 image?
+  e. Are any of these elements listed under FAILED CLICKS? If so, skip them and try alternatives.
 Step 3 — ACT: Output EXACTLY ONE tool call. No text before or after.
 </core_loop>
+
+<action_history_context>
+When shown previous screenshots and actions, use them to understand:
+- What has already been done (avoid repeating failed steps)
+- Whether actions had visible effects (if screen didn't change, the element was not interactive)
+- Current navigation progress (what page/state you reached)
+</action_history_context>
+
+<som_grounding>
+If <detected_elements> is present in the message, ALWAYS prefer selecting elements by ID:
+  "click element #N"  ← the system resolves this to exact coordinates
+  "type in element #N, text: '...'"
+Only fall back to raw coordinates when no elements are detected.
+</som_grounding>
 
 <tools>
 take_screenshot()
@@ -169,6 +185,14 @@ class ComputerUseState(TypedDict):
     trajectory: Annotated[List, operator.add]  # lista de steps para VL Buffer
     is_complete: bool
     result_summary: str
+    # UI-TARS style: rolling window of last N (screenshot_thumb, action) pairs for VLM context
+    action_history: List[dict]
+    # Elements that were clicked but produced no visible screen change
+    failed_elements: List[str]
+    # OmniParser V2: numbered element list text for SoM grounding
+    parsed_elements: Optional[str]
+    # OmniParser V2: annotated screenshot with numbered bounding boxes
+    annotated_screenshot_b64: Optional[str]
 
 
 # ── Graph Nodes ───────────────────────────────────────────────────────────────
@@ -209,40 +233,108 @@ def _build_init_node():
             "trajectory": state.get("trajectory", []),
             "is_complete": state.get("is_complete", False),
             "result_summary": state.get("result_summary", ""),
+            "action_history": state.get("action_history", []),
+            "failed_elements": state.get("failed_elements", []),
+            "parsed_elements": state.get("parsed_elements", None),
+            "annotated_screenshot_b64": state.get("annotated_screenshot_b64", None),
         }
 
     return init
 
 
+def _make_history_thumbnail(b64_data: str) -> str:
+    """
+    Reduce el screenshot a ~480×270 para guardarlo en action_history sin saturar el estado.
+    Retorna el b64 reducido, o el original si PIL no está disponible.
+    """
+    try:
+        import base64 as _b64
+        from PIL import Image
+        import io as _io
+        img_bytes = _b64.b64decode(b64_data)
+        img = Image.open(_io.BytesIO(img_bytes)).convert("RGB")
+        img.thumbnail((480, 270), Image.LANCZOS)
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        return _b64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return b64_data[:5000]  # fallback: recortar si PIL no disponible
+
+
 def _build_observe_node(llm: BaseChatModel):
-    """Nodo: captura screenshot y lo inyecta en el state."""
+    """
+    Nodo: captura screenshot, corre OmniParser si está activo,
+    detecta clicks fallidos y actualiza el estado.
+    """
 
     async def observe(state: ComputerUseState, config: RunnableConfig) -> dict:
+        import hashlib
+
         logger.info(f"[ComputerUse] Step {state['steps_taken'] + 1} — Observando pantalla...")
 
         # Captura pantalla
         screenshot_result = await take_screenshot.ainvoke({}, config=config)
-
-        # El resultado es "data:image/png;base64,<data>"
         b64_data = screenshot_result.split(",", 1)[-1] if "," in screenshot_result else screenshot_result
 
-        
-        # Mejora B: Loading state detection
-        import hashlib
+        # ── Loading state detection ─────────────────────────────────────────────
         prev_b64 = state.get("last_screenshot_b64")
+        screen_changed = True
         if prev_b64 and b64_data:
-            # Quick hash comparison
             prev_hash = hashlib.md5(prev_b64[:1000].encode()).hexdigest()
             new_hash = hashlib.md5(b64_data[:1000].encode()).hexdigest()
             if prev_hash == new_hash:
-                logger.info("[ComputerUse] Pantalla idéntica a la anterior. Esperando 1.5s (Loading state)...")
-                import asyncio
+                screen_changed = False
+                logger.info("[ComputerUse] Pantalla idéntica a la anterior. Esperando 1.5s...")
                 await asyncio.sleep(1.5)
-                # Re-capture after wait
                 screenshot_result = await take_screenshot.ainvoke({}, config=config)
                 b64_data = screenshot_result.split(",", 1)[-1] if "," in screenshot_result else screenshot_result
+                # Check again after wait
+                new_hash2 = hashlib.md5(b64_data[:1000].encode()).hexdigest()
+                screen_changed = new_hash2 != prev_hash
 
-        return {"last_screenshot_b64": b64_data}
+        # ── Failed click detection ──────────────────────────────────────────────
+        # If the screen didn't change after a click action, that element is non-interactive
+        failed_elements = list(state.get("failed_elements", []))
+        history = state.get("action_history", [])
+        if not screen_changed and history:
+            last = history[-1]
+            last_action = last.get("action_json", "")
+            if last_action:
+                try:
+                    import json as _json
+                    act = _json.loads(last_action)
+                    if act.get("type") in ("click", "double_click"):
+                        fail_desc = f"click at ({act.get('x')},{act.get('y')}) step {last.get('step','?')}"
+                        if fail_desc not in failed_elements:
+                            failed_elements.append(fail_desc)
+                            logger.warning(f"[ComputerUse] Failed click detected: {fail_desc}")
+                except Exception:
+                    pass
+
+        # ── OmniParser V2 — Set-of-Marks grounding ─────────────────────────────
+        parsed_elements: Optional[str] = None
+        annotated_b64: Optional[str] = None
+
+        if settings.omniparser_enabled:
+            omniparser = get_omniparser()
+            if omniparser.is_available(settings.omniparser_model_dir):
+                try:
+                    result = await omniparser.parse(b64_data)
+                    if result.elements:
+                        annotated_b64 = result.annotated_b64
+                        parsed_elements = result.element_list_text
+                        logger.info(
+                            f"[ComputerUse] OmniParser: {len(result.elements)} elements detected."
+                        )
+                except Exception as e:
+                    logger.warning(f"[ComputerUse] OmniParser error: {e}")
+
+        return {
+            "last_screenshot_b64": b64_data,
+            "annotated_screenshot_b64": annotated_b64,
+            "parsed_elements": parsed_elements,
+            "failed_elements": failed_elements,
+        }
 
     return observe
 
@@ -292,29 +384,57 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
             except Exception:
                 pass
 
-        # Construir mensaje multimodal para el VL model
-        user_content = [
-            {
-                "type": "text",
-                "text": f"Instruction: {instruction}\nStep {steps + 1}: Decide next action.",
-            }
-        ]
+        # ── Decide which screenshot to show (annotated with SoM > raw) ────────
+        display_screenshot = state.get("annotated_screenshot_b64") or screenshot_b64
+        parsed_elements = state.get("parsed_elements")
+        failed_elements = state.get("failed_elements", [])
+        action_history = state.get("action_history", [])
+        max_history = settings.computer_use_context_screenshots
 
-        if screenshot_b64:
+        # ── Build current turn message ──────────────────────────────────────
+        text_parts = [f"Instruction: {instruction}\nStep {steps + 1}: Decide next action."]
+
+        if failed_elements:
+            text_parts.append(
+                "\n⚠️ FAILED CLICKS (no visible screen change — skip these, try alternatives):\n"
+                + "\n".join(f"  - {e}" for e in failed_elements[-6:])
+            )
+
+        if parsed_elements:
+            text_parts.append(
+                f"\n<detected_elements>\n{parsed_elements}\n</detected_elements>\n"
+                "Prefer 'click element #N' over raw coordinates when elements are listed above."
+            )
+
+        user_content = [{"type": "text", "text": "\n".join(text_parts)}]
+        if display_screenshot:
             user_content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"},
+                "image_url": {"url": f"data:image/png;base64,{display_screenshot}"},
             })
 
-        # Mejora C: Truncate history to avoid context window explosion
-        # Only keep last 4 messages (2 full AI-Human interactions)
-        recent_messages = state["messages"][-4:] if len(state["messages"]) > 4 else state["messages"]
-        
-        messages_for_llm = [
-            SystemMessage(content=COMPUTER_USE_SYSTEM_PROMPT),
-        ] + recent_messages + [
-            HumanMessage(content=user_content),
-        ]
+        # ── Build UI-TARS style action history context ──────────────────────
+        # Show last N (screenshot, action) pairs so the model can reason about what changed
+        history_messages = []
+        for hist in action_history[-max_history:]:
+            hist_content = []
+            thumb = hist.get("screenshot_thumb")
+            if thumb:
+                hist_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{thumb}"},
+                })
+            hist_content.append({
+                "type": "text",
+                "text": f"[Step {hist.get('step', '?')}] → Action taken: {hist.get('action_summary', 'unknown')}",
+            })
+            history_messages.append(HumanMessage(content=hist_content))
+
+        messages_for_llm = (
+            [SystemMessage(content=COMPUTER_USE_SYSTEM_PROMPT)]
+            + history_messages
+            + [HumanMessage(content=user_content)]
+        )
 
         # Llamar al VL model con herramientas
         llm_with_tools = llm.bind_tools(COMPUTER_USE_TOOLS)
@@ -350,47 +470,64 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
         new_trajectory = []
         is_complete = False
         result_summary = ""
+        executed_action_json: Optional[str] = None
 
-        if not tool_calls:
-            # El modelo respondió texto en vez de tool call — ignorar y continuar
-            logger.warning(f"[ComputerUse] El modelo no retornó tool_call. Respuesta: {response.content[:100]}")
-            return {
-                "steps_taken": steps + 1,
-                "messages": [HumanMessage(content=user_content), response],
-            }
-
-        for tc in tool_calls:
-            tool_name = tc.get("name", "")
-            tool_args = tc.get("args", {})
+        for tool_call in tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call.get("args", {})
 
             if tool_name == "take_screenshot":
-                # Bug 2 Fix: El modelo explícitamente pidió una foto. La tomamos ahora.
                 logger.info("[ComputerUse] El modelo solicitó explicitamente take_screenshot.")
                 sc_res = await take_screenshot.ainvoke({}, config=config)
                 screenshot_b64 = sc_res.split(",", 1)[-1] if "," in sc_res else sc_res
-                # Update screenshot inline for the buffer
                 state["last_screenshot_b64"] = screenshot_b64
 
             elif tool_name == "execute_action":
-                action_json = tool_args.get("action_json", "{}")
+                action_json_raw = tool_args.get("action_json", "{}")
+
+                # ── SoM element ID resolution ──────────────────────────────
+                # If the model output {"element_id": N}, resolve to {"type":"click","x":cx,"y":cy}
+                try:
+                    act_parsed = json.loads(action_json_raw)
+                    elem_id = act_parsed.get("element_id") or act_parsed.get("id")
+                    if elem_id is not None and parsed_elements:
+                        resolved = False
+                        for line in parsed_elements.splitlines():
+                            if line.startswith(f"[{elem_id}]"):
+                                import re as _re
+                                m = _re.search(r"center\((\d+),(\d+)\)", line)
+                                if m:
+                                    cx, cy = int(m.group(1)), int(m.group(2))
+                                    action_json_raw = json.dumps({
+                                        "type": act_parsed.get("type", "click"),
+                                        "x": cx, "y": cy
+                                    })
+                                    logger.info(f"[ComputerUse] SoM element #{elem_id} → ({cx},{cy})")
+                                    resolved = True
+                                    break
+                        if not resolved:
+                            logger.warning(f"[ComputerUse] SoM element #{elem_id} not found in parsed_elements")
+                except Exception:
+                    pass
+
                 action_result = await execute_action.ainvoke(
-                    {"action_json": action_json}, config=config
+                    {"action_json": action_json_raw}, config=config
                 )
+                executed_action_json = action_json_raw
                 logger.info(f"[ComputerUse] Acción ejecutada: {action_result}")
 
-                # Guardar step en el VL Replay Buffer
                 if vl_replay_buffer and screenshot_b64:
                     try:
                         await vl_replay_buffer.append_trajectory_step(
                             instruction=instruction,
                             screenshot_b64=screenshot_b64,
-                            action_json=action_json,
+                            action_json=action_json_raw,
                             tool_name="computer_use",
                         )
                         new_trajectory.append({
                             "instruction": instruction,
                             "screenshot_b64": screenshot_b64,
-                            "action_json": action_json,
+                            "action_json": action_json_raw,
                         })
                     except Exception as e:
                         logger.warning(f"[ComputerUse] Error guardando en VL buffer: {e}")
@@ -400,41 +537,68 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 action_result = await run_shell_command.ainvoke(
                     {"command": command}, config=config
                 )
+                executed_action_json = json.dumps({"type": "shell", "command": command})
                 logger.info(f"[ComputerUse] Shell command disparado: {action_result}")
-                
-                # Para comandos de shell, guardamos el action_json simulado para el replay buffer
+
                 if vl_replay_buffer and screenshot_b64:
                     try:
                         await vl_replay_buffer.append_trajectory_step(
                             instruction=instruction,
                             screenshot_b64=screenshot_b64,
-                            action_json=json.dumps({"type": "shell", "command": command}),
+                            action_json=executed_action_json,
                             tool_name="run_shell_command",
                         )
                         new_trajectory.append({
                             "instruction": instruction,
                             "screenshot_b64": screenshot_b64,
-                            "action_json": json.dumps({"type": "shell", "command": command}),
+                            "action_json": executed_action_json,
                         })
                     except Exception as e:
                         logger.warning(f"[ComputerUse] Error guardando en VL buffer: {e}")
 
             elif tool_name == "task_complete":
                 summary = tool_args.get("summary", "Tarea completada.")
-                task_result = await task_complete.ainvoke(
-                    {"summary": summary}, config=config
-                )
+                await task_complete.ainvoke({"summary": summary}, config=config)
                 is_complete = True
                 result_summary = summary
                 logger.info(f"[ComputerUse] ✅ Tarea completada: {summary}")
 
+        # ── Update action_history (UI-TARS rolling window) ──────────────────
+        new_action_history = list(action_history)
+        if executed_action_json:
+            try:
+                act = json.loads(executed_action_json)
+                action_summary = f"{act.get('type','?')}"
+                if act.get('type') in ('click', 'double_click'):
+                    action_summary += f" at ({act.get('x')},{act.get('y')})"
+                elif act.get('type') == 'type':
+                    action_summary += f" '{act.get('text','')[:40]}'"
+                elif act.get('type') == 'press':
+                    action_summary += f" '{act.get('key','')}'"  
+                elif act.get('type') == 'shell':
+                    action_summary = f"shell: {act.get('command','')[:60]}"
+            except Exception:
+                action_summary = executed_action_json[:80]
+
+            thumb = _make_history_thumbnail(screenshot_b64) if screenshot_b64 else None
+            new_action_history.append({
+                "step": steps + 1,
+                "action_summary": action_summary,
+                "action_json": executed_action_json,
+                "screenshot_thumb": thumb,
+            })
+            if len(new_action_history) > max_history + 1:
+                new_action_history = new_action_history[-(max_history + 1):]
+
         return {
             "steps_taken": steps + 1,
-            "last_screenshot_b64": None,  # Bug 2 Fix: forces recapture in next observe
+            "last_screenshot_b64": None,
             "is_complete": is_complete,
             "result_summary": result_summary,
             "trajectory": new_trajectory,
             "messages": [HumanMessage(content=user_content), response],
+            "action_history": new_action_history,
+            "failed_elements": failed_elements,
         }
 
     return think_act
@@ -521,6 +685,10 @@ async def run_computer_use_task(
         "trajectory": [],
         "is_complete": False,
         "result_summary": "",
+        "action_history": [],
+        "failed_elements": [],
+        "parsed_elements": None,
+        "annotated_screenshot_b64": None,
     }
 
     try:

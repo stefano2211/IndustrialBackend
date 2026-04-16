@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     computer_use_enabled: bool = True          # Feature flag global
     computer_use_demo_mode: bool = False       # True=mock screenshots, False=pantalla real
     computer_use_max_steps: int = 15           # Máximo de pasos por tarea (evita loops infinitos)
+    computer_use_context_screenshots: int = 3  # Historial de screenshots pasados inyectados al VLM (UI-TARS style)
+
+    # OmniParser V2 — Set-of-Marks grounding (Microsoft)
+    # Activar cuando los pesos estén descargados en omniparser_model_dir
+    omniparser_enabled: bool = False
+    omniparser_model_dir: str = "/omniparser/weights"  # Ruta local de los pesos (icon_detect + icon_caption)
 
     # MLOps Architecture (Cloud Sync)
     mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port

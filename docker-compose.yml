@@ -53,7 +53,7 @@ services:
       # Con 2 GPUs: poner GPU_DEVICE_ORDINAL=0 aqui y =1 en vllm-orchestrator.
       - CUDA_VISIBLE_DEVICES=0
     command:
-      - "--model"
+      # Modelo como argumento posicional (formato vLLM >= 0.13)
       - "Qwen/Qwen3.5-9B"
       - "--enable-lora"
       - "--max-loras"
@@ -74,7 +74,6 @@ services:
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"
-      - "--disable-log-requests"  # Reduce spam de logs en produccion
     volumes:
       - ./loras:/loras
       - hf_cache:/root/.cache/huggingface
@@ -104,7 +103,7 @@ services:
       # Si solo 1 GPU: dejar en 0 (ambos comparten) y reducir utilization a 0.40
       - CUDA_VISIBLE_DEVICES=0
     command:
-      - "--model"
+      # Modelo como argumento posicional (formato vLLM >= 0.13)
       - "Qwen/Qwen3.5-4B"
       - "--gpu-memory-utilization"
       # 48GB GPU: 0.35 = 16.8GB → 8GB pesos 4B + 1GB KV cache + 2GB activaciones + 5.8GB margen
@@ -115,7 +114,6 @@ services:
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"
-      - "--disable-log-requests"
     volumes:
       - hf_cache:/root/.cache/huggingface
     ipc: host

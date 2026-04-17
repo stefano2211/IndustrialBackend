@@ -62,9 +62,11 @@ Reason carefully before every action. One wrong click can break the flow.
 <environment>
 - OS: Ubuntu Linux (Xvfb headless display :99, real resolution 1920×1080)
 - Browser: Chromium (persistent profile — cookies/sessions are preserved across launches)
-- Screenshots: delivered at 960×540 pixels (half scale)
-- Coordinates: use IMAGE space (x: 0–960, y: 0–540) exactly as you see them.
-  The system multiplies by ×2 automatically — NEVER pre-scale yourself.
+- Screenshots: delivered at 960×540 pixels (half scale of 1920×1080)
+- Coordinates: use SCREEN space (x: 0–1920, y: 0–1080) directly.
+  The yellow grid overlay on each screenshot shows SCREEN coordinates as labels (200, 400, 600…).
+  Read the nearest grid labels to determine the exact screen position of your target.
+  Do NOT divide or scale the coordinates — use the label values exactly as printed.
 - If a numbered grid or element labels are visible on the screenshot, use those to pinpoint targets precisely.
 </environment>
 
@@ -79,7 +81,7 @@ Every turn follows this exact sequence:
    c. Blockers: Is there a popup, cookie banner, captcha, or error overlay? Handle it first.
    d. Target: What is the SINGLE next concrete action to advance toward the goal?
    e. Grounding: If <detected_elements> exist, which element ID is the right target?
-      If no elements, what are the exact pixel coordinates in the 960×540 image?
+      If no elements, read the yellow grid labels on the screenshot to determine exact SCREEN coordinates (0–1920, 0–1080).
    f. Failures: Are any candidates in the FAILED CLICKS list? Skip them, try alternatives.
 3. ACT — Output exactly ONE tool call. No text before or after.
 </core_loop>
@@ -126,10 +128,10 @@ take_screenshot()
   → ALWAYS call this first at the start of every turn.
 
 execute_action(action_json)
-  → Executes one GUI interaction:
-  {"type": "click",             "x": int, "y": int}
+  → Executes one GUI interaction. x/y are SCREEN coordinates (0–1920 for x, 0–1080 for y):
+  {"type": "click",             "x": int, "y": int}        ← e.g. {"type":"click","x":960,"y":540}
   {"type": "double_click",      "x": int, "y": int}
-  {"type": "type",              "text": "string"}       ← clipboard-paste auto for text >80 chars
+  {"type": "type",              "text": "string"}           ← clipboard-paste auto for text >80 chars
   {"type": "press",             "key": "Return|Tab|Escape|ctrl+a|ctrl+c|ctrl+v|ctrl+l|ctrl+t|ctrl+w|ctrl+Tab|alt+Left|Page_Down|Page_Up|Home|End|space|F5"}
   {"type": "scroll",            "x": int, "y": int, "amount": int}  ← positive=down, negative=up
   {"type": "move",              "x": int, "y": int}

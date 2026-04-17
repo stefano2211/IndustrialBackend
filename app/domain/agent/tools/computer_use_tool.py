@@ -127,17 +127,17 @@ def _add_coordinate_grid(b64_png: str) -> str:
         text_color = (255, 255, 0, 200)  # amarillo mas opaco para numeros
         dot_color  = (255, 100, 100, 180) # punto rojo en intersecciones
 
-        # Lineas verticales y etiquetas X
+        # Lineas verticales y etiquetas X — labels en screen space (imagen × SCREENSHOT_SCALE)
         for x in range(0, w, grid_step):
             draw.line([(x, 0), (x, h)], fill=line_color, width=1)
             if x > 0:
-                draw.text((x + 2, 2), str(x), fill=text_color)
+                draw.text((x + 2, 2), str(x * SCREENSHOT_SCALE), fill=text_color)
 
-        # Lineas horizontales y etiquetas Y
+        # Lineas horizontales y etiquetas Y — labels en screen space (imagen × SCREENSHOT_SCALE)
         for y in range(0, h, grid_step):
             draw.line([(0, y), (w, y)], fill=line_color, width=1)
             if y > 0:
-                draw.text((2, y + 2), str(y), fill=text_color)
+                draw.text((2, y + 2), str(y * SCREENSHOT_SCALE), fill=text_color)
 
         # Puntos en intersecciones para referencia visual
         for x in range(0, w, grid_step):
@@ -237,11 +237,10 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
             pyautogui.FAILSAFE = True  # mover mouse a esquina sup-izq cancela
             pyautogui.PAUSE = 0.1     # pausa entre acciones para estabilidad
 
-            # The model outputs coordinates in the downscaled image space (960×540).
-            # Multiply by SCREENSHOT_SCALE to map back to actual screen space (1920×1080).
-            sx = SCREENSHOT_SCALE
-            x = action.get("x", 0) * sx
-            y = action.get("y", 0) * sx
+            # The model outputs coordinates in screen space (1920×1080), read directly
+            # from the grid labels on the screenshot. Use them as-is — no scaling needed.
+            x = int(action.get("x", 0))
+            y = int(action.get("y", 0))
 
             if action_type == "click":
                 try:

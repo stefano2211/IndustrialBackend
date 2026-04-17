@@ -321,6 +321,9 @@ class AgentService:
                 merged_params["stop"] = [stop_val]
 
         # 3. Create Orchestrator LLM
+        # Cap output tokens: orchestrator routes/synthesizes only — prevents context overflow
+        # (12289 input + 4096 default = 16385 > 16384 max_model_len on vllm-orchestrator)
+        merged_params.setdefault("max_tokens", 1024)
         ui_generalist_llm = await LLMFactory.get_llm(
             provider=provider,
             model_name=model_name,

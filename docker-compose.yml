@@ -46,6 +46,10 @@ services:
     container_name: vllm-sistema1
     ports:
       - "8002:8000"
+    # Wait for orchestrator to be healthy before starting (sequential startup to avoid GPU contention)
+    depends_on:
+      vllm-orchestrator:
+        condition: service_healthy
     environment:
       # Requerido para carga dinámica de LoRA en runtime (POST /v1/load_lora_adapter)
       - VLLM_ALLOW_RUNTIME_LORA_UPDATING=true

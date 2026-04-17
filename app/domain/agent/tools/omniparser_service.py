@@ -107,7 +107,7 @@ class OmniParserService:
             icon_detect_path = os.path.join(model_dir, "icon_detect", "model.pt")
             icon_caption_path = os.path.join(model_dir, "icon_caption_florence")
 
-            if not os.path.exists(icon_detect_path):
+            if not os.path.exists(icon_detect_path) or not os.path.isdir(icon_caption_path):
                 logger.info(
                     f"[OmniParser] Pesos no encontrados en {model_dir}. "
                     "Descarga en progreso (background) — usando cuadrícula de coordenadas por ahora."
@@ -122,11 +122,12 @@ class OmniParserService:
             self._yolo.to(self._device)
 
             self._caption_processor = AutoProcessor.from_pretrained(
-                icon_caption_path, trust_remote_code=True
+                icon_caption_path, trust_remote_code=True, local_files_only=True
             )
             self._caption_model = AutoModelForCausalLM.from_pretrained(
                 icon_caption_path,
                 trust_remote_code=True,
+                local_files_only=True,
                 torch_dtype=torch.float16 if self._device == "cuda" else torch.float32,
             ).to(self._device)
 

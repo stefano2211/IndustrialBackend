@@ -32,6 +32,16 @@ from loguru import logger
 from app.core.config import settings
 
 
+# ── Clean screenshot store (for Live Screen Viewer — no coordinate grid) ──────
+# Set by take_screenshot() before grid overlay; read by observe node for SSE display.
+_clean_b64: str = ""
+
+
+def get_clean_b64() -> str:
+    """Returns the last clean screenshot (no coordinate grid) for the live viewer."""
+    return _clean_b64
+
+
 # ── Screenshot capture ────────────────────────────────────────────────────────
 
 # Screenshot is downscaled by this factor to save VL context tokens.
@@ -170,6 +180,10 @@ async def take_screenshot(config: RunnableConfig) -> str:
         except Exception as e:
             logger.error(f"[ComputerUse] Error capturando pantalla: {e}")
             b64 = _get_demo_screenshot()  # fallback a demo si falla
+
+    # Save clean screenshot BEFORE grid overlay — used by live viewer for display
+    global _clean_b64
+    _clean_b64 = b64
 
     # Mejora A: Pintar cuadricula de coordenadas para que el VL model
     # lea las coordenadas directamente en la imagen (OmniParser concept)

@@ -40,6 +40,7 @@ from app.domain.agent.tools.computer_use_tool import (
     run_shell_command,
     task_complete,
     COMPUTER_USE_TOOLS,
+    get_clean_b64,
 )
 from app.domain.agent.tools.omniparser_service import get_omniparser
 from app.persistence.vl_replay_buffer import VLReplayBuffer
@@ -350,6 +351,18 @@ def _build_init_node():
     return init
 
 
+def _get_b64_dimensions(b64_data: str) -> tuple:
+    """Return (width, height) of a base64 PNG. Falls back to (683, 384) if PIL fails."""
+    try:
+        import base64 as _b64
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(_b64.b64decode(b64_data)))
+        return img.size  # (width, height)
+    except Exception:
+        return (683, 384)  # half of 1366x768 default virtual display
+
+
 def _make_history_thumbnail(b64_data: str) -> str:
     """
     Reduce el screenshot a ~480×270 para guardarlo en action_history sin saturar el estado.
@@ -441,11 +454,40 @@ def _build_observe_node(llm: BaseChatModel):
                 except Exception as e:
                     logger.warning(f"[ComputerUse] OmniParser error: {e}")
 
-        # ── Live Screen Viewer — stream screenshot to frontend via SSE ──────────
-        display_b64 = annotated_b64 if annotated_b64 else b64_data
+        # ── Live Screen Viewer — stream screenshot to frontend via SSE ──────────────
+        clean_b64 = get_clean_b64()
+        display_b64 = annotated_b64 if annotated_b64 else (clean_b64 or b64_data)
+
+        # Extract last action info for the viewer (action label + click ripple)
+        last_action_str = None
+        click_pct = None
+        if state.get("action_history"):
+            last_entry = state["action_history"][-1]
+            if isinstance(last_entry, dict):
+                last_action_str = last_entry.get("action_summary")
+                last_action_json = last_entry.get("action_json")
+                if last_action_json:
+                    try:
+                        act = json.loads(last_action_json)
+                        if act.get("type") in ("click", "double_click"):
+                            img_w, img_h = _get_b64_dimensions(display_b64)
+                            click_pct = {
+                                "x": round(act["x"] / img_w * 100, 2),
+                                "y": round(act["y"] / img_h * 100, 2),
+                                "type": act["type"],
+                            }
+                    except Exception:
+                        pass
+
         await adispatch_custom_event(
             "screenshot",
-            {"b64": display_b64, "step": state["steps_taken"] + 1, "has_omniparser": annotated_b64 is not None},
+            {
+                "b64": display_b64,
+                "step": state["steps_taken"] + 1,
+                "has_omniparser": annotated_b64 is not None,
+                "action": last_action_str,
+                "click": click_pct,
+            },
             config=config,
         )
 

@@ -54,7 +54,7 @@ services:
       - CUDA_VISIBLE_DEVICES=0
     command:
       - "--model"
-      - "Qwen/Qwen3.5-2B"
+      - "Qwen/Qwen3.5-9B"
       - "--enable-lora"
       - "--max-loras"
       - "4"
@@ -62,13 +62,15 @@ services:
       - "16"
       - "--enforce-eager"  # Ahorra ~3GB desactivando CUDA Graphs (recomendado al usar muchos LoRAs)
       - "--gpu-memory-utilization"
-      # 48GB GPU: 0.55 = 26.4GB → 4GB pesos + 22GB KV cache para VL con historial largo
-      # GPU <24GB compartida: bajar a 0.40
-      - "0.55"
-      # 32768 tokens: necesario para VL con historial de 3 screenshots (3×2000 + 8000 imagen actual)
-      # NUNCA bajar de 24576 si computer_use_context_screenshots >= 2
+      # 48GB GPU: 0.53 = 25.4GB → 18GB pesos 9B + 2GB MM cache + 1GB KV + 2GB activaciones + 2.4GB margen
+      # GPU <24GB compartida: bajar a 0.35 y reducir max-model-len a 8192
+      - "0.53"
+      # 16384 tokens: suficiente para el loop Observe-Think-Act (15 steps × ~900 tokens = ~13500 max)
+      # 3 context screenshots × ~150 image tokens + historial = ~2500 tokens por step → 16K es holgado
       - "--max-model-len"
-      - "32768"
+      - "16384"
+      - "--mm-processor-cache-gb"  # Cache de procesamiento multimodal — limitar para dejar VRAM al KV cache
+      - "2"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"
@@ -83,7 +85,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 180s  # vLLM needs ~2-3 min for model load + CUDA graph warmup
+      start_period: 240s  # Qwen3.5-9B necesita ~3-4 min para carga de pesos (18GB) + warmup
     deploy:
       resources:
         reservations:
@@ -105,9 +107,9 @@ services:
       - "--model"
       - "Qwen/Qwen3.5-4B"
       - "--gpu-memory-utilization"
-      # 48GB GPU: 0.38 = 18.2GB → 8GB pesos + 10GB KV cache (suficiente para routing de texto)
-      # Total con sistema1: 26.4 + 18.2 = 44.6GB / 48GB (93%)
-      - "0.38"
+      # 48GB GPU: 0.35 = 16.8GB → 8GB pesos 4B + 1GB KV cache + 2GB activaciones + 5.8GB margen
+      # Total con sistema1: 25.4 + 16.8 = 42.2GB / 48GB (88%) — margen libre ~5.8GB
+      - "0.35"
       - "--max-model-len"
       - "16384"  # Orchestrator es texto puro (routing), 16k es suficiente
       - "--enable-auto-tool-choice"

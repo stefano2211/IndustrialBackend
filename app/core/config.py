@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     # Generalist Orchestrator (larger — for routing decisions)
     generalist_llm_model: str = "Qwen/Qwen3.5-4B"  # Director model — bigger = better routing (NO LORA)
 
-    # Sistema 1 — Fine-tuned models (always 2B base + their LoRA)
-    system1_base_model: str = "Qwen/Qwen3.5-2B"        # Base backbone for ALL Sistema 1 subagents (hardcoded)
+    # Sistema 1 — Fine-tuned models (9B base + their LoRA)
+    system1_base_model: str = "Qwen/Qwen3.5-9B"        # Base backbone for ALL Sistema 1 subagents (hardcoded, upgraded 2B→9B)
     system1_historico_model: str = "aura_tenant_01-v2"  # Text LoRA tag in vLLM (historico subagent)
     system1_model: str = "aura_tenant_01-vl"             # VL LoRA tag in vLLM (VL + computer-use subagents)
     system1_enabled: bool = True                         # Toggle; set False if neither LoRA is deployed yet

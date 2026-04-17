@@ -385,7 +385,7 @@ class AgentService:
         worker_llm = ui_generalist_llm
 
         # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
-        # Qwen3.5-2B is natively multimodal — if the VL LoRA doesn't exist yet,
+        # Qwen3.5-9B is natively multimodal — if the VL LoRA doesn't exist yet,
         # fall back to the base model so sistema1-vl (computer use loop) still works.
         # OPTIMAL Qwen3.5 params for computer use: low temp (deterministic), higher max_tokens (thinking+JSON)
         vision_llm = None

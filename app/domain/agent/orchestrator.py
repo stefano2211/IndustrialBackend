@@ -5,19 +5,18 @@ Routes queries to the appropriate specialist via a flat 2-level hierarchy:
 
   Orchestrator (generalist_model — Sistema 2)
     │
-    ├── SISTEMA 1 (fine-tuned, ZERO tools — respond from weights)
+    ├── SISTEMA 1 (fine-tuned specialists)
     │     ├── sistema1-historico  (expert_model_instance — Text LoRA) ← historical data
-    │     └── sistema1-vl        (vision_model — VL LoRA)            ← visual analysis
-    │
+    │     └── sistema1-vl        (vision_model — VL LoRA)            ← Observe-Think-Act loop
+    │                                                                   (browser, web, SAP GUI)
     └── SISTEMA 2 tools (access to external world)
-          ├── computer-use-agent  (vision_model — VL)                ← Observe-Think-Act loop
           └── industrial-expert   (expert_model factory — Text LoRA) ← RAG + MCP live data
 
 Design principles:
-  - Sistema 1 has ZERO tools — knowledge is baked into fine-tuned weights.
-  - Sistema 2 (industrial-expert, computer-use-agent) accesses external data/GUIs.
-  - The orchestrator LLM decides which subagents to invoke (one, several, or all)
-    based on the user query — like parallel tool calls. No forced ordering.
+  - sistema1-historico has ZERO tools — knowledge baked into fine-tuned weights.
+  - sistema1-vl runs the Observe-Think-Act computer use loop (browser, GUI, email, SAP).
+  - industrial-expert accesses real-time sensors and internal documents via RAG + MCP.
+  - The orchestrator LLM decides which subagents to invoke based on the user query.
   - All Sistema 1 subagents degrade gracefully if their model is unavailable.
 
 IMPORTANT:
@@ -74,8 +73,8 @@ def create_generalist_orchestrator(
         mcp_tools_context: Formatted MCP tools string for IndustrialExpert.
         enable_knowledge: Whether IndustrialExpert can use the RAG knowledge base.
         enable_mcp: Whether IndustrialExpert can call real-time MCP tools.
-        enable_system1: Toggle for Sistema 1 subagents (historical + VL).
-        enable_computer_use: Toggle for Computer Use Agent (Digital Optimus Local).
+        enable_system1: Toggle for sistema1-historico (Text LoRA, historical data).
+        enable_computer_use: Toggle for sistema1-vl (VL LoRA, Observe-Think-Act loop).
         vl_replay_buffer: VLReplayBuffer instance to store training trajectories.
 
     Returns:
@@ -87,8 +86,7 @@ def create_generalist_orchestrator(
     logger.info(
         f"[Orchestrator] Assembling. "
         f"sistema1_historico={enable_system1 and _has_expert}, "
-        f"sistema1_vl={enable_system1 and _has_vision}, "
-        f"computer_use={enable_computer_use and _has_vision and settings.computer_use_enabled}, "
+        f"sistema1_vl={enable_computer_use and _has_vision and settings.computer_use_enabled}, "
         f"knowledge={enable_knowledge}, mcp={enable_mcp}"
     )
 
@@ -110,60 +108,31 @@ def create_generalist_orchestrator(
                 "Historical queries will fall through to industrial-expert."
             )
 
-    # ── Sistema 1: VL (VL LoRA — ZERO tools — visual analysis from weights) ──────────
-    if enable_system1:
-        s1_vl = create_system1_vl_agent(
-            vision_model=vision_model,
-            checkpointer=checkpointer,
-            store=store,
-        )
-        if s1_vl is not None:
-            all_subagents.append(s1_vl)
-            logger.info("[Orchestrator] Sistema 1 VL registrado.")
-        else:
-            logger.warning(
-                "[Orchestrator] Sistema 1 VL skipped (vision_model unavailable). "
-                "Visual queries will fall through to industrial-expert."
-            )
-
-    # ── Sistema 2: Computer Use Agent (GUI Observe→Think→Act) ────────────────────────
+    # ── Sistema 1: VL (VL LoRA — Observe-Think-Act computer use loop) ─────────────
     if enable_computer_use and _has_vision and settings.computer_use_enabled:
-        from app.domain.agent.subagents.computer_use_subagent import create_computer_use_agent
         from app.persistence.vl_replay_buffer import vl_replay_buffer as default_vl_buffer
 
         _active_buffer = vl_replay_buffer or default_vl_buffer
 
-        computer_use_graph = create_computer_use_agent(
-            vision_llm=vision_model,
+        s1_vl = create_system1_vl_agent(
+            vision_model=vision_model,
             vl_replay_buffer=_active_buffer,
         )
-
-        computer_use_subagent = CompiledSubAgent(
-            name="computer-use-agent",
-            description=(
-                "USE for ANY task requiring a real browser, website visit, or screen interaction. "
-                "Capabilities: "
-                "(1) LIVE WEB ACCESS — searches (Google, Bing, news), current prices, weather, "
-                "any live page content, web forms, online services. Opens a real browser and SEES "
-                "exactly what is on screen at this moment. "
-                "(2) EMAIL — compose, send, and read emails via Gmail or any web email client. "
-                "(3) SAP/ERP GUI — navigate transactions (MB51, ME21N, VL02N, etc.), click buttons, "
-                "fill forms, read and update records in any ERP or industrial web interface. "
-                "(4) ANY WEBSITE — if the task requires visiting a URL, this is the correct agent. "
-                "Pass a clear, self-contained instruction: target site + action + what to report back. "
-                "Do NOT answer live web-content questions from memory — always use this agent."
-            ),
-            runnable=computer_use_graph,
-        )
-        all_subagents.append(computer_use_subagent)
-        logger.info(
-            f"[Orchestrator] Computer Use Agent registrado "
-            f"(demo_mode={settings.computer_use_demo_mode}, "
-            f"max_steps={settings.computer_use_max_steps})."
-        )
+        if s1_vl is not None:
+            all_subagents.append(s1_vl)
+            logger.info(
+                f"[Orchestrator] Sistema 1 VL (Computer Use) registrado "
+                f"(demo_mode={settings.computer_use_demo_mode}, "
+                f"max_steps={settings.computer_use_max_steps})."
+            )
+        else:
+            logger.warning(
+                "[Orchestrator] Sistema 1 VL skipped (vision_model unavailable). "
+                "GUI/web queries will not be handled."
+            )
     elif enable_computer_use and not _has_vision:
         logger.warning(
-            "[Orchestrator] Computer Use Agent skipped (vision_model unavailable). "
+            "[Orchestrator] Sistema 1 VL skipped (vision_model unavailable). "
             "Deploy VL model via OTA to activate."
         )
 
@@ -187,8 +156,7 @@ def create_generalist_orchestrator(
             "and incident report lookup. "
             "DO NOT use for historical data older than 6 months — "
             "use sistema1-historico for that. "
-            "DO NOT use for visual screenshot analysis — use sistema1-vl for that. "
-            "DO NOT use for GUI actions — use computer-use-agent for that."
+            "DO NOT use for browser, GUI, or web tasks — use sistema1-vl for that."
         ),
         runnable=industrial_expert_graph,
     )

@@ -272,11 +272,11 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                         return f"Texto pegado via clipboard: '{text[:50]}...'"
                     except Exception:
                         pass  # fall through to xdotool type
-                safe_text = text.replace("'", "'\''")
                 try:
                     subprocess.run(
-                        f"DISPLAY=:99 xdotool type --clearmodifiers --delay 30 '{safe_text}'",
-                        shell=True, check=True, timeout=30
+                        ["xdotool", "type", "--clearmodifiers", "--delay", "30", text],
+                        env={**os.environ, "DISPLAY": ":99"},
+                        check=True, timeout=30,
                     )
                 except Exception:
                     pyautogui.typewrite(text, interval=0.04)
@@ -306,7 +306,13 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 return f"Tecla presionada: {key}"
 
             elif action_type == "move":
-                pyautogui.moveTo(x, y, duration=0.2)
+                try:
+                    subprocess.run(
+                        f"DISPLAY=:99 xdotool mousemove {x} {y}",
+                        shell=True, check=True, timeout=5
+                    )
+                except Exception:
+                    pyautogui.moveTo(x, y, duration=0.2)
                 return f"Mouse movido a ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
             elif action_type == "scroll":

@@ -1,25 +1,23 @@
 """
-Sistema 1 Subagents — Fine-tuned experts with ZERO tools.
+Sistema 1 Subagents.
 
 Sistema 1 = the two fine-tuned models that receive OTA updates from ApiLLMOps.
-They answer exclusively from their trained weights — no RAG, no MCP, no external calls.
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  SISTEMA 1                                                          │
 │  ├── sistema1-historico  Text LoRA (aura_tenant_01-v2)             │
-│  │     → Historical SCADA/SAP data > 6 months from weights         │
+│  │     → Historical SCADA/SAP data > 6 months (from weights)       │
 │  └── sistema1-vl         VL LoRA   (aura_tenant_01-vl)             │
-│        → Visual analysis of industrial app screenshots from weights │
+│        → Observe-Think-Act loop: browser, web, SAP GUI, email      │
 └─────────────────────────────────────────────────────────────────────┘
 
-The Generalist Orchestrator (Sistema 2) exposes both as callable tools
-and invokes whichever are needed based on the user's query — one, both, or neither.
+The Generalist Orchestrator exposes both as callable tools and invokes
+whichever are needed based on the user's query.
 """
 
 from deepagents import create_deep_agent, CompiledSubAgent
 from loguru import logger
 
-from app.domain.agent.prompts.system1 import SISTEMA1_SYSTEM_PROMPT
 from app.domain.agent.prompts.system1_historico import SISTEMA1_HISTORICO_PROMPT
 from app.domain.agent.memory import create_composite_backend
 
@@ -83,21 +81,21 @@ def create_system1_historico_agent(
 
 def create_system1_vl_agent(
     vision_model,
-    checkpointer=None,
-    store=None,
+    vl_replay_buffer=None,
 ) -> CompiledSubAgent | None:
     """
     Creates the Sistema 1 VL subagent.
 
-    Uses the fine-tuned VL LoRA (aura_tenant_01-vl) to analyze screenshots
-    and visual content of industrial applications from its trained weights.
+    Implements the Observe-Think-Act computer use loop using the VL LoRA
+    (aura_tenant_01-vl). This is the primary agent for any task requiring
+    browser navigation, GUI interaction, SAP/ERP transactions, email, or
+    any website visit.
 
     Args:
         vision_model: A resolved multimodal BaseChatModel instance pointing to the VL LoRA
                       (e.g., vLLM with model_name='aura_tenant_01-vl').
                       If None, the subagent is skipped gracefully.
-        checkpointer: LangGraph checkpointer for conversation persistence.
-        store: LangGraph store for user-scoped long-term memory.
+        vl_replay_buffer: Optional VLReplayBuffer to store training trajectories.
 
     Returns:
         CompiledSubAgent ready to be registered in the orchestrator,
@@ -106,33 +104,33 @@ def create_system1_vl_agent(
     if vision_model is None:
         logger.warning(
             "[Sistema1-VL] vision_model is None — skipping. "
-            "Deploy VL LoRA via OTA to activate visual analysis subagent."
+            "Deploy VL LoRA via OTA to activate computer use subagent."
         )
         return None
 
-    logger.info("[Sistema1-VL] Assembling (no tools — fine-tuned VL weights).")
+    logger.info("[Sistema1-VL] Assembling (Observe-Think-Act computer use loop).")
 
-    graph = create_deep_agent(
-        model=vision_model,
-        tools=[],                            # ← ZERO tools by design
-        system_prompt=SISTEMA1_SYSTEM_PROMPT,
-        backend=create_composite_backend,
-        memory=["/AGENTS.md"],
-        subagents=[],
-        checkpointer=checkpointer,
-        store=store,
+    from app.domain.agent.subagents.computer_use_subagent import create_computer_use_agent
+
+    graph = create_computer_use_agent(
+        vision_llm=vision_model,
+        vl_replay_buffer=vl_replay_buffer,
     )
 
     return CompiledSubAgent(
         name="sistema1-vl",
         description=(
-            "USE when the query includes a SCREENSHOT or IMAGE of an industrial application "
-            "(SAP GUI, SCADA HMI, PLC panel, or any industrial UI) that requires visual analysis: "
-            "reading screen values, describing interface state, identifying UI elements, "
-            "or interpreting what is displayed. "
-            "This model analyzes visuals from its fine-tuned VL weights — NO external tools. "
-            "DO NOT use for real-time sensor data — use industrial-expert instead. "
-            "DO NOT use for performing GUI ACTIONS (clicking, typing) — use computer-use-agent instead."
+            "USE for ANY task requiring a real browser, website visit, or screen interaction. "
+            "Capabilities: "
+            "(1) LIVE WEB ACCESS — searches (Google, Bing, news), current prices, weather, "
+            "any live page content, web forms, online services. Opens a real browser and SEES "
+            "exactly what is on screen. "
+            "(2) EMAIL — compose, send, and read emails via Gmail or any web email client. "
+            "(3) SAP/ERP GUI — navigate transactions (MB51, ME21N, VL02N, etc.), click buttons, "
+            "fill forms, read and update records in any ERP or industrial web interface. "
+            "(4) ANY WEBSITE — if the task requires visiting a URL, this is the correct agent. "
+            "Pass a clear, self-contained instruction: target site + action + what to report back. "
+            "Do NOT answer live web-content questions from memory — always use this agent."
         ),
         runnable=graph,
     )
@@ -143,12 +141,11 @@ def create_system1_vl_agent(
 # ---------------------------------------------------------------------------
 def create_system1_agent(
     vision_model,
-    checkpointer=None,
-    store=None,
+    vl_replay_buffer=None,
 ) -> CompiledSubAgent | None:
     """Deprecated: use create_system1_vl_agent() instead."""
     logger.warning(
         "[Sistema1] create_system1_agent() is deprecated. "
         "Use create_system1_vl_agent() or create_system1_historico_agent()."
     )
-    return create_system1_vl_agent(vision_model, checkpointer, store)
+    return create_system1_vl_agent(vision_model, vl_replay_buffer)

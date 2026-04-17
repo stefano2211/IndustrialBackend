@@ -386,7 +386,7 @@ class AgentService:
 
         # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
         # Qwen3.5-2B is natively multimodal — if the VL LoRA doesn't exist yet,
-        # fall back to the base model so computer-use-agent and sistema1-vl still work.
+        # fall back to the base model so sistema1-vl (computer use loop) still works.
         # OPTIMAL Qwen3.5 params for computer use: low temp (deterministic), higher max_tokens (thinking+JSON)
         vision_llm = None
         _vision_kwargs = {
@@ -752,7 +752,7 @@ class AgentService:
                             step_text_buffer.append(text)
 
                 # Only emit buffered tokens if this step had NO tool calls.
-                # Suppresses orchestrator pre-delegation reasoning (e.g. "I need to call computer-use-agent...").
+                # Suppresses orchestrator pre-delegation reasoning (e.g. "I need to call sistema1-vl...").
                 if not last_output_had_tool_calls and step_text_buffer:
                     for chunk in step_text_buffer:
                         yield chunk

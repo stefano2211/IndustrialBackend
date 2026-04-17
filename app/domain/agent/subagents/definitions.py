@@ -152,7 +152,7 @@ GENERAL_SUBAGENT = {
         "- Plant-specific sensor readings or equipment status → industrial-expert\n"
         "- Regulation/document text or compliance rules → industrial-expert\n"
         "- Historical plant data (>6 months) → sistema1-historico\n"
-        "- Any live website, browser, or email task → computer-use-agent\n"
+        "- Any live website, browser, or email task → sistema1-vl\n"
         "</scope>\n\n"
 
         "<rules>\n"

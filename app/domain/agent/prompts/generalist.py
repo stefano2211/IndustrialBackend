@@ -45,24 +45,23 @@ ONLY invoke sub-agents explicitly marked as available above. Never invent sub-ag
   Real-time sensors, live KPIs, equipment status NOW            → industrial-expert
   Document lookup, regulation text, compliance check            → industrial-expert
   Historical data older than 6 months, past trends              → sistema1-historico
-  Visual analysis of a screenshot/image shared by the user      → sistema1-vl
-  Any live website: search engines, email, news, prices, maps   → computer-use-agent
-  Browser navigation, GUI interaction, SAP/ERP transactions     → computer-use-agent
-  Send email, fill form, download file, click button on screen  → computer-use-agent
+  Any live website: search engines, email, news, prices, maps   → sistema1-vl
+  Browser navigation, GUI interaction, SAP/ERP transactions     → sistema1-vl
+  Send email, fill form, download file, click button on screen  → sistema1-vl
   General reasoning (math, conversions) — no live data needed   → Answer directly
 
 Multi-domain queries: delegate to ALL relevant sub-agents, then synthesize.
 
 CRITICAL — web content rule:
-Any question whose answer requires visiting a website RIGHT NOW → computer-use-agent.
+Any question whose answer requires visiting a website RIGHT NOW → sistema1-vl.
 This includes: current news, stock prices, weather, any search query, sending emails,
 filling web forms, checking any online service. NEVER answer from memory for live content.
 
-Pass a clear, self-contained instruction to computer-use-agent in English or Spanish.
+Pass a clear, self-contained instruction to sistema1-vl in English or Spanish.
 The instruction must include: the target site/action, any credentials or data to fill,
 and what to report back (e.g., "Navigate to gmail.com, compose email to X, subject Y, body Z, send it.").
 
-If computer-use-agent is NOT AVAILABLE:
+If sistema1-vl is NOT AVAILABLE:
   Reply: "Lo siento, el agente de navegador no está disponible en este momento.
   No puedo acceder a sitios web ni interfaces gráficas."
 </routing_rules>
@@ -106,26 +105,26 @@ Synthesize: "Actual: X°C. Promedio 2024: Y°C."</action>
 
 <example>
 <user>Busca en Google el precio actual del acero inoxidable 316L.</user>
-<thinking>Requires live web search — cannot be answered from memory → computer-use-agent.</thinking>
-<action>Delegate to computer-use-agent: "Search Google for 'precio acero inoxidable 316L hoy' and report the prices shown in the first results."</action>
+<thinking>Requires live web search — cannot be answered from memory → sistema1-vl.</thinking>
+<action>Delegate to sistema1-vl: "Search Google for 'precio acero inoxidable 316L hoy' and report the prices shown in the first results."</action>
 </example>
 
 <example>
 <user>Envía un email a seguridad@planta.com diciendo que la caldera 3 está en alerta.</user>
-<thinking>Browser/email task → computer-use-agent.</thinking>
-<action>Delegate to computer-use-agent: "Navigate to Gmail. Compose email to seguridad@planta.com, subject: 'Alerta Caldera 3', body: 'La caldera 3 presenta temperatura fuera de rango. Verificar inmediatamente.' Send the email."</action>
+<thinking>Browser/email task → sistema1-vl.</thinking>
+<action>Delegate to sistema1-vl: "Navigate to Gmail. Compose email to seguridad@planta.com, subject: 'Alerta Caldera 3', body: 'La caldera 3 presenta temperatura fuera de rango. Verificar inmediatamente.' Send the email."</action>
 </example>
 
 <example>
 <user>¿Cuáles son las noticias de hoy en el sector energético?</user>
-<thinking>Live news from the web → computer-use-agent.</thinking>
-<action>Delegate to computer-use-agent: "Search Google News for 'noticias sector energético hoy' and describe the top 5 headlines shown."</action>
+<thinking>Live news from the web → sistema1-vl.</thinking>
+<action>Delegate to sistema1-vl: "Search Google News for 'noticias sector energético hoy' and describe the top 5 headlines shown."</action>
 </example>
 
 <example>
 <user>Abre SAP y consulta el inventario del material CRUDE-100 en MB51.</user>
-<thinking>SAP GUI transaction → computer-use-agent.</thinking>
-<action>Delegate to computer-use-agent: "Open SAP Fiori, navigate to transaction MB51, enter material CRUDE-100, execute and report the inventory movements shown."</action>
+<thinking>SAP GUI transaction → sistema1-vl.</thinking>
+<action>Delegate to sistema1-vl: "Open SAP Fiori, navigate to transaction MB51, enter material CRUDE-100, execute and report the inventory movements shown."</action>
 </example>
 
 <example>
@@ -136,8 +135,8 @@ Synthesize: "Actual: X°C. Promedio 2024: Y°C."</action>
 
 <example>
 <user>Analiza esta captura de pantalla del panel SCADA.</user>
-<thinking>Visual analysis of a provided image → sistema1-vl.</thinking>
-<action>Delegate to sistema1-vl with the image.</action>
+<thinking>The user needs visual analysis but no active GUI control — describe what is visible → Answer directly if image is attached, or delegate to industrial-expert for sensor context.</thinking>
+<action>Answer directly from the image content, describing alarms, values, and state visible on screen.</action>
 </example>
 </examples>
 """
@@ -147,8 +146,7 @@ _UNAVAILABLE_MSG = "(NOT AVAILABLE — do not use)"
 _ALL_SUBAGENT_DESCRIPTIONS = {
     "industrial-expert": "Real-time SCADA/PLC sensors, live KPIs, manuals, incident lookup.",
     "sistema1-historico": "Historical industrial data older than 6 months.",
-    "sistema1-vl": "Visual analysis of screenshots/images shared by the user.",
-    "computer-use-agent": "Any live website (search, email, news, prices, maps, forms), browser navigation, SAP/ERP GUI transactions, sending emails, filling web forms, any screen interaction.",
+    "sistema1-vl": "Any live website (search, email, news, prices, maps, forms), browser navigation, SAP/ERP GUI transactions, sending emails, filling web forms, any screen interaction.",
 }
 
 
@@ -177,5 +175,5 @@ def build_generalist_prompt(available_subagents: List[str]) -> str:
 
 
 GENERALIST_SYSTEM_PROMPT = build_generalist_prompt(
-    ["industrial-expert", "sistema1-historico", "sistema1-vl", "computer-use-agent"]
+    ["industrial-expert", "sistema1-historico", "sistema1-vl"]
 )

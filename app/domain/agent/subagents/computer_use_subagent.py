@@ -387,8 +387,8 @@ def _build_observe_node(llm: BaseChatModel):
         prev_b64 = state.get("last_screenshot_b64")
         screen_changed = True
         if prev_b64 and b64_data:
-            prev_hash = hashlib.md5(prev_b64[:1000].encode()).hexdigest()
-            new_hash = hashlib.md5(b64_data[:1000].encode()).hexdigest()
+            prev_hash = hashlib.md5(prev_b64[:10000].encode()).hexdigest()
+            new_hash = hashlib.md5(b64_data[:10000].encode()).hexdigest()
             if prev_hash == new_hash:
                 screen_changed = False
                 logger.info("[ComputerUse] Pantalla idéntica a la anterior. Esperando 1.5s...")
@@ -396,7 +396,7 @@ def _build_observe_node(llm: BaseChatModel):
                 screenshot_result = await take_screenshot.ainvoke({}, config=config)
                 b64_data = screenshot_result.split(",", 1)[-1] if "," in screenshot_result else screenshot_result
                 # Check again after wait
-                new_hash2 = hashlib.md5(b64_data[:1000].encode()).hexdigest()
+                new_hash2 = hashlib.md5(b64_data[:10000].encode()).hexdigest()
                 screen_changed = new_hash2 != prev_hash
 
         # ── Failed click detection ──────────────────────────────────────────────
@@ -417,6 +417,10 @@ def _build_observe_node(llm: BaseChatModel):
                             logger.warning(f"[ComputerUse] Failed click detected: {fail_desc}")
                 except Exception:
                     pass
+
+        # Prune failed_elements to avoid unbounded state growth
+        if len(failed_elements) > 15:
+            failed_elements = failed_elements[-15:]
 
         # ── OmniParser V2 — Set-of-Marks grounding ─────────────────────────────
         parsed_elements: Optional[str] = None
@@ -579,15 +583,25 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
         result_summary = ""
         executed_action_json: Optional[str] = None
 
+        # Process tool calls: only the first executable action (execute_action / run_shell_command /
+        # task_complete) is honoured per turn. The system prompt enforces 1 action/turn, but the
+        # model may occasionally emit multiple; executing them without re-observing the screen
+        # would create inconsistent state. take_screenshot is always allowed (it is read-only).
+        _action_executed = False
         for tool_call in tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call.get("args", {})
+            if _action_executed and tool_name != "take_screenshot":
+                logger.warning(
+                    f"[ComputerUse] Extra tool call '{tool_name}' ignored — "
+                    "only 1 action per turn is allowed."
+                )
+                continue
 
             if tool_name == "take_screenshot":
                 logger.info("[ComputerUse] El modelo solicitó explicitamente take_screenshot.")
                 sc_res = await take_screenshot.ainvoke({}, config=config)
                 screenshot_b64 = sc_res.split(",", 1)[-1] if "," in sc_res else sc_res
-                state["last_screenshot_b64"] = screenshot_b64
 
             elif tool_name == "execute_action":
                 action_json_raw = tool_args.get("action_json", "{}")
@@ -621,6 +635,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                     {"action_json": action_json_raw}, config=config
                 )
                 executed_action_json = action_json_raw
+                _action_executed = True
                 logger.info(f"[ComputerUse] Acción ejecutada: {action_result}")
 
                 if vl_replay_buffer and screenshot_b64:
@@ -645,6 +660,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                     {"command": command}, config=config
                 )
                 executed_action_json = json.dumps({"type": "shell", "command": command})
+                _action_executed = True
                 logger.info(f"[ComputerUse] Shell command disparado: {action_result}")
 
                 if vl_replay_buffer and screenshot_b64:
@@ -667,6 +683,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 summary = tool_args.get("summary", "Tarea completada.")
                 await task_complete.ainvoke({"summary": summary}, config=config)
                 is_complete = True
+                _action_executed = True
                 result_summary = summary
                 logger.info(f"[ComputerUse] ✅ Tarea completada: {summary}")
 
@@ -699,7 +716,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
 
         return {
             "steps_taken": steps + 1,
-            "last_screenshot_b64": None,
+            "last_screenshot_b64": screenshot_b64,
             "is_complete": is_complete,
             "result_summary": result_summary,
             "trajectory": new_trajectory,

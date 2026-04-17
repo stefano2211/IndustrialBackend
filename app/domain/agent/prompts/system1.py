@@ -1,12 +1,9 @@
 """
-System prompt for Sistema 1 — Fine-tuned Vision-Language Expert.
+System prompt for Sistema 1 VL — DEPRECATED.
 
-This model is fine-tuned with:
-  1. Historical industrial data (>6 months) — answers from its weights, no RAG needed.
-  2. Screen/application visual patterns — for future computer use capabilities.
-
-It does NOT use any tools. All its knowledge is baked into the model weights
-via the OTA fine-tuning pipeline (ApiLLMOps Mothership).
+NOTE: This prompt is no longer used. sistema1-vl now runs the Computer Use
+Observe-Think-Act loop (computer_use_subagent.py), which uses COMPUTER_USE_SYSTEM_PROMPT.
+This file is kept for reference only and will be removed in a future cleanup.
 """
 
 SISTEMA1_SYSTEM_PROMPT = """\

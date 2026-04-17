@@ -135,6 +135,8 @@ async def chat_stream_endpoint(
                         resolved_model_id = chunk["model_id"]
                     elif chunk.get("type") == "subagent":
                         yield f"data: {json.dumps(chunk)}\n\n"
+                    elif chunk.get("type") == "screenshot":
+                        yield f"data: {json.dumps(chunk)}\n\n"
                     continue
                     
                 full_content += chunk

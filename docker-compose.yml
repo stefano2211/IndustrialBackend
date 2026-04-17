@@ -152,6 +152,7 @@ services:
       - ./loras:/loras # Shared with vLLM — OTA service extracts adapters here
       - hf_cache:/root/.cache/huggingface
       - chromium_profile:/tmp/chromium-profile  # Perfil Chromium persistente: cookies/sesiones sobreviven reinicios
+      - omniparser_weights:/omniparser/weights    # OmniParser V2 weights (YOLO icon_detect + Florence-2 icon_caption)
     restart: unless-stopped
     depends_on:
       vllm-sistema1:
@@ -176,3 +177,5 @@ volumes:
     name: postgres-data
   chromium_profile:
     name: chromium-profile  # Perfil Chromium persistente — pre-autenticar aqui para evitar Google bot detection
+  omniparser_weights:
+    name: omniparser-weights  # Descargar con: docker compose exec api huggingface-cli download microsoft/OmniParser-v2.0 --local-dir /omniparser/weights

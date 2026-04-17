@@ -23,6 +23,7 @@ import json
 import re
 from typing import Optional
 
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
@@ -439,6 +440,14 @@ def _build_observe_node(llm: BaseChatModel):
                         )
                 except Exception as e:
                     logger.warning(f"[ComputerUse] OmniParser error: {e}")
+
+        # ── Live Screen Viewer — stream screenshot to frontend via SSE ──────────
+        display_b64 = annotated_b64 if annotated_b64 else b64_data
+        await adispatch_custom_event(
+            "screenshot",
+            {"b64": display_b64, "step": state["steps_taken"] + 1, "has_omniparser": annotated_b64 is not None},
+            config=config,
+        )
 
         return {
             "last_screenshot_b64": b64_data,

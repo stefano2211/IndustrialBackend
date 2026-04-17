@@ -108,10 +108,9 @@ class OmniParserService:
             icon_caption_path = os.path.join(model_dir, "icon_caption_florence")
 
             if not os.path.exists(icon_detect_path):
-                logger.warning(
-                    f"[OmniParser] Pesos no encontrados en {icon_detect_path}. "
-                    "Descarga con: huggingface-cli download microsoft/OmniParser-v2.0 "
-                    "Fallback: cuadrícula de coordenadas."
+                logger.info(
+                    f"[OmniParser] Pesos no encontrados en {model_dir}. "
+                    "Descarga en progreso (background) — usando cuadrícula de coordenadas por ahora."
                 )
                 self._available = False
                 return False
@@ -179,6 +178,36 @@ class OmniParserService:
         except Exception as e:
             logger.debug(f"[OmniParser] Error captioning element: {e}")
             return "UI element"
+
+    async def ensure_weights(self, model_dir: str) -> None:
+        """
+        Background task: descarga microsoft/OmniParser-v2.0 si los pesos no existen.
+        Llamar una vez desde el lifespan de FastAPI con asyncio.create_task().
+        No bloquea el event loop — usa run_in_executor.
+        Cuando termina, resetea _initialized para que el próximo is_available() cargue los modelos.
+        """
+        icon_detect_path = os.path.join(model_dir, "icon_detect", "model.pt")
+        if os.path.exists(icon_detect_path):
+            return  # Ya descargados
+
+        def _download():
+            try:
+                from huggingface_hub import snapshot_download
+                logger.info("[OmniParser] Descargando microsoft/OmniParser-v2.0 (background)...")
+                snapshot_download(
+                    repo_id="microsoft/OmniParser-v2.0",
+                    local_dir=model_dir,
+                    ignore_patterns=["*.md", "*.txt", ".gitattributes"],
+                )
+                logger.success(f"[OmniParser] ✓ Pesos descargados en {model_dir}. Se cargarán en el próximo paso.")
+                # Reset so the next is_available() call loads the models
+                self._initialized = False
+                self._available = False
+            except Exception as e:
+                logger.error(f"[OmniParser] Error en descarga automática: {e}")
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _download)
 
     def _parse_sync(self, screenshot_b64: str) -> OmniParserResult:
         """Síncrono — ejecutar via run_in_executor."""

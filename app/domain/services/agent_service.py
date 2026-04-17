@@ -658,6 +658,10 @@ class AgentService:
             if kind == "on_tool_error":
                 yield {"type": "subagent", "status": "error", "name": name}
 
+            # --- Live Screen Viewer: forward screenshot events from computer_use observe node ---
+            if kind == "on_custom_event" and name == "screenshot":
+                yield {"type": "screenshot", "data": event.get("data", {})}
+
             # --- Primary: stream tokens as they arrive ---
             if kind in ["on_chat_model_stream", "on_llm_stream"]:
                 data = event.get("data", {})

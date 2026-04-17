@@ -44,6 +44,8 @@ dependencies = [
     "mss",
     "pyautogui",
     "pillow",
+    "ultralytics",
+    "huggingface_hub",
 ]
 
 [tool.uv]

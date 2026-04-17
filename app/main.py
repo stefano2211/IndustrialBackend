@@ -24,6 +24,8 @@ from app.persistence.memoryAI.checkpointer import get_checkpointer, close_pool
 from app.persistence.memoryAI.store import get_store
 from app.core.llm import LLMFactory, LLMProvider
 from app.domain.db_collector.scheduler import collector_scheduler
+from app.domain.agent.tools.omniparser_service import get_omniparser
+from app.core.config import settings as _settings
 
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -105,6 +107,12 @@ async def lifespan(app: FastAPI):
 
     # Start the DB Collector scheduler (loads all enabled sources as cron jobs)
     await collector_scheduler.start()
+
+    # Auto-download OmniParser V2 weights if not present (non-blocking background task)
+    if _settings.omniparser_enabled:
+        asyncio.create_task(
+            get_omniparser().ensure_weights(_settings.omniparser_model_dir)
+        )
 
     yield
 

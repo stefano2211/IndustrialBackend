@@ -95,6 +95,7 @@ class MothershipClient:
         tenant_id: str = "aura_tenant_01",
         epochs: int = 3,
         webhook_url: Optional[str] = None,
+        base_model: Optional[str] = None,
     ) -> bool:
         """
         Dispara el pipeline de fine-tuning de texto (LoRA) en el Celery Worker de ApiLLMOps.
@@ -105,9 +106,12 @@ class MothershipClient:
         if not webhook_url:
             webhook_url = f"{settings.edge_public_url.rstrip('/')}/mlops/webhook/model-ready"
 
+        # Usa el base_model proporcionado o el default de settings
+        effective_base_model = base_model or settings.system1_base_model
+
         payload = {
             "tenant_id": tenant_id,
-            "base_model": settings.system1_base_model, # Matches exactly the model running in vllm-sistema1
+            "base_model": effective_base_model,  # Usa el modelo seleccionado por el usuario
             "epochs": epochs,
             "webhook_url": webhook_url,
         }
@@ -135,6 +139,7 @@ class MothershipClient:
         vl_epochs: int = 2,
         text_epochs: int = 1,
         webhook_url: Optional[str] = None,
+        base_model: Optional[str] = None,
     ) -> bool:
         """
         Dispara el pipeline VL unificado (2 fases) en el Celery Worker de ApiLLMOps.
@@ -145,9 +150,13 @@ class MothershipClient:
         if not webhook_url:
             webhook_url = f"{settings.edge_public_url.rstrip('/')}/mlops/webhook/model-ready"
 
+        # Usa el base_model proporcionado o el default VL de settings (o el modelo del contenedor)
+        default_vl_model = getattr(settings, 'system1_vl_base_model', "unsloth/Qwen2.5-VL-3B-Instruct-bnb-4bit")
+        effective_base_model = base_model or default_vl_model
+
         payload = {
             "tenant_id": tenant_id,
-            "base_model": "unsloth/Qwen2.5-VL-3B-Instruct-bnb-4bit",  # 3B: edge-friendly (2.5 GB VRAM inferencia)
+            "base_model": effective_base_model,  # Usa el modelo seleccionado por el usuario
             "vl_epochs": vl_epochs,
             "text_epochs": text_epochs,
             "webhook_url": webhook_url,

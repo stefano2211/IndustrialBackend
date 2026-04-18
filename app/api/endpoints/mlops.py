@@ -91,6 +91,7 @@ class TrainingLaunchRequest(BaseModel):
     tenant_id: str = "aura_tenant_01"
     epochs: int = 3
     webhook_url: Optional[str] = None
+    base_model: Optional[str] = None  # Si no se especifica, usa settings.system1_base_model
 
 
 @router.post("/training/launch")
@@ -106,6 +107,7 @@ async def launch_training_on_cloud(
         tenant_id=req.tenant_id,
         epochs=req.epochs,
         webhook_url=req.webhook_url,
+        base_model=req.base_model,
     )
     if not success:
         raise HTTPException(
@@ -119,6 +121,7 @@ class VLTrainingLaunchRequest(BaseModel):
     vl_epochs: int = 2
     text_epochs: int = 1
     webhook_url: Optional[str] = None
+    base_model: Optional[str] = None  # Si no se especifica, usa el modelo VL por defecto
 
 
 @router.post("/training/launch-vl")
@@ -138,6 +141,7 @@ async def launch_vl_training_on_cloud(
         vl_epochs=req.vl_epochs,
         text_epochs=req.text_epochs,
         webhook_url=req.webhook_url,
+        base_model=req.base_model,
     )
     if not success:
         raise HTTPException(

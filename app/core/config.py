@@ -66,7 +66,7 @@ class Settings(BaseSettings):
 
     # OmniParser V2 — Set-of-Marks grounding (Microsoft)
     # Activar cuando los pesos estén descargados en omniparser_model_dir
-    omniparser_enabled: bool = True
+    omniparser_enabled: bool = False
     omniparser_model_dir: str = "/omniparser/weights"  # Ruta local de los pesos (icon_detect + icon_caption)
 
     # MLOps Architecture (Cloud Sync)

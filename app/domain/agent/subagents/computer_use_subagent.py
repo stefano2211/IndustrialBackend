@@ -62,8 +62,8 @@ Reason carefully before every action. One wrong click can break the flow.
 <environment>
 - OS: Ubuntu Linux (Xvfb headless display :99, real resolution 1920×1080)
 - Browser: Chromium (persistent profile — cookies/sessions are preserved across launches)
-- Screenshots: delivered at 960×540 pixels (half scale of 1920×1080)
-- Coordinates: use SCREEN space (x: 0–1920, y: 0–1080) directly.
+- Screenshots: delivered at native resolution of 1920×1080 pixels
+- Coordinates: use SCREEN space (x: 0–1920, y: 0–1080) natively.
   The yellow grid overlay on each screenshot shows SCREEN coordinates as labels (200, 400, 600…).
   Read the nearest grid labels to determine the exact screen position of your target.
   Do NOT divide or scale the coordinates — use the label values exactly as printed.
@@ -116,10 +116,10 @@ CAPTCHA: If a CAPTCHA appears that requires human interaction:
 </thinking_strategies>
 
 <som_grounding>
-When <detected_elements> is provided, ALWAYS prefer element IDs over raw coordinates:
-  {"type": "click", "element_id": N}   ← system resolves to exact center coordinates
-  {"type": "type",  "element_id": N, "text": "value"}
-Only use raw x,y coordinates when no elements are detected.
+If <detected_elements> is populated, prefer using 'element_id'.
+However, since we are moving towards Vision-Only pure multimodal behavior,
+if there are no elements or you feel confident, directly predict the raw (x, y) coordinates
+based purely on your visual spatial awareness out of 1920x1080.
 </som_grounding>
 
 <tools>
@@ -181,14 +181,14 @@ READING PAGE CONTENT:
   After the page loads, take_screenshot and describe what you can see.
   If content is below the fold: scroll down → take_screenshot → repeat.
 
-TYPICAL ELEMENT POSITIONS (960×540 image — always verify with screenshot):
-  Chromium address bar:  y≈25,  x≈350–450
-  Chromium tabs row:     y≈10,  x varies per tab
-  Google search bar:     y≈270, x≈480  (homepage) or y≈35, x≈400 (results page)
-  Gmail compose button:  y≈135, x≈75  (left sidebar, red button)
-  Gmail compose window:  y≈320–530 (bottom-right overlay)
-  SAP Fiori search:      y≈55,  x≈480
-  Generic page content:  y≈100–480, x≈0–960
+TYPICAL ELEMENT POSITIONS (1920×1080 image — always verify with screenshot):
+  Chromium address bar:  y≈50,  x≈700–900
+  Chromium tabs row:     y≈20,  x varies per tab
+  Google search bar:     y≈540, x≈960  (homepage) or y≈70, x≈800 (results page)
+  Gmail compose button:  y≈270, x≈150  (left sidebar)
+  Gmail compose window:  y≈640–1060 (bottom-right overlay)
+  SAP Fiori search:      y≈110,  x≈960
+  Generic page content:  y≈200–960, x≈0–1920
 </browser_workflow>
 
 <adaptive_strategies>
@@ -218,7 +218,7 @@ Never repeat the exact same failed action more than once.
 - Use <thinking> tags for all reasoning. Never output reasoning as plain text.
 - No conversational filler. Output is tool calls only.
 - Wait for pages/apps to load: take 2–3 screenshots if content is still appearing.
-- Coordinates are always in 960×540 IMAGE space. The system handles ×2 scaling.
+- Coordinates are ALWAYS in native 1920×1080 IMAGE space. Act precise.
 - Never guess content from memory — only act on what you SEE in the screenshot.
 </rules>
 

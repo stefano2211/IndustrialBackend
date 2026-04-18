@@ -44,10 +44,9 @@ def get_clean_b64() -> str:
 
 # ── Screenshot capture ────────────────────────────────────────────────────────
 
-# Screenshot is downscaled by this factor to save VL context tokens.
-# execute_action MUST multiply coordinates by the same factor before calling pyautogui
-# so that image-space coords map back to actual 1920×1080 screen-space coords.
-SCREENSHOT_SCALE = 2  # image sent to model = actual_resolution / SCREENSHOT_SCALE
+# Screenshot no sufre downscaling para exprimir capacidades VL nativas (resolución 1:1)
+# Si es necesario reducir contexto, realizar recortes espaciales (cropping).
+SCREENSHOT_SCALE = 1  # image sent to model = actual_resolution / SCREENSHOT_SCALE
 
 
 def _capture_screen_sync() -> str:
@@ -59,13 +58,7 @@ def _capture_screen_sync() -> str:
         monitor = sct.monitors[1]  # pantalla principal (monitor 0 = all screens)
         shot = sct.grab(monitor)
         img = Image.frombytes("RGB", shot.size, shot.rgb)
-        # Reducir resolución para ahorrar tokens en el contexto VL.
-        # IMPORTANT: execute_action re-escalará las coordenadas × SCREENSHOT_SCALE
-        # para que los coords del modelo (imagen reducida) coincidan con la pantalla real.
-        img = img.resize(
-            (img.width // SCREENSHOT_SCALE, img.height // SCREENSHOT_SCALE),
-            Image.LANCZOS,
-        )
+        # Mantenemos resolución 100% nativa. El VLM procesa en alta resolución.
         buffer = io.BytesIO()
         img.save(buffer, format="PNG", optimize=True)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")

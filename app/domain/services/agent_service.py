@@ -103,11 +103,16 @@ class AgentService:
                 content = content[3:].rstrip("`").strip()
 
             # Strip invisible Unicode chars (zero-width space, BOM, etc.) that .strip() misses
-            content = ''.join(c for c in content if c.isprintable())
+            content = ''.join(c for c in content if c.isprintable()).strip()
             if not content:
                 return False
 
-            data = json.loads(content)
+            # Extract JSON object via regex — handles cases where reasoning text surrounds the JSON
+            # (e.g. when Qwen3.5 puts everything inside <think> and the fallback is raw reasoning)
+            json_match = re.search(r'\{[^{}]*\}', content)
+            if not json_match:
+                return False
+            data = json.loads(json_match.group(0))
             return bool(data.get("is_historical_only", False))
         except Exception as e:
             logger.warning(f"[TemporalRouter] Failed: {e}. Defaulting to non-historical.")

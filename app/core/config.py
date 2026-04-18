@@ -40,9 +40,7 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://vllm-sistema1:8000/v1"
     vllm_orchestrator_url: str = "http://vllm-orchestrator:8000/v1"
 
-    # OpenRouter configuration
-    openrouter_api_key: Optional[str] = None
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # OpenRouter configuration - REMOVED
 
     # Defaults
     default_llm_provider: str = "vllm"

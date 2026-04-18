@@ -96,17 +96,12 @@ async def list_providers(
     sys_settings = await repo.get_settings()
     
     providers = []
-    if hasattr(sys_settings, 'vllm_enabled') and sys_settings.vllm_enabled:
-        providers.append({"id": "vllm", "name": "vLLM", "base_url": sys_settings.vllm_base_url})
-    if sys_settings.openrouter_enabled or settings.openrouter_api_key:
-        providers.append({
-            "id": "openrouter", 
-            "name": "OpenRouter", 
-            "base_url": sys_settings.openrouter_base_url or settings.openrouter_base_url
-        })
-    
-    # Always include OpenAI if it's the internal default or manually enabled (mocked for now)
-    providers.append({"id": "openai", "name": "OpenAI (GPT-4o)", "base_url": "https://api.openai.com/v1"})
+    # Dejar solo vLLM, usando la URL del orquestador
+    providers.append({
+        "id": "vllm", 
+        "name": "vLLM Orchestrator", 
+        "base_url": getattr(settings, "vllm_orchestrator_url", settings.vllm_base_url)
+    })
     
     return providers
 
@@ -121,23 +116,14 @@ async def list_provider_models(
         repo = SettingsRepository(session)
         sys_settings = await repo.get_settings()
 
-        # Consultar ambos contenedores vLLM en paralelo
         urls_to_query = []
 
-        # URL principal (Sistema 1 - con LoRAs): usa VLLM_BASE_URL del .env
-        base_url = settings.vllm_base_url  # e.g. http://vllm-sistema1:8000/v1
-        if base_url:
-            urls_to_query.append(("Sistema 1 (LoRA)", base_url))
-
-        # URL del orquestador (Qwen 4B): usa VLLM_ORCHESTRATOR_URL del .env
-        orchestrator_url = getattr(settings, 'vllm_orchestrator_url', None)  # e.g. http://vllm-orchestrator:8000/v1
+        # Como corremos 2 vllm con diferentes modelos, solo mostramos el modelo orquestador
+        orchestrator_url = getattr(settings, 'vllm_orchestrator_url', None)
         if orchestrator_url:
             urls_to_query.append(("Orchestrator", orchestrator_url))
-
-        # Si no hay URLs configuradas, usar el fallback de settings DB
-        if not urls_to_query:
-            db_url = sys_settings.vllm_base_url if hasattr(sys_settings, 'vllm_base_url') else base_url
-            urls_to_query.append(("vLLM", db_url))
+        else:
+            urls_to_query.append(("vLLM", settings.vllm_base_url))
 
         all_models = []
         seen_ids = set()
@@ -174,24 +160,6 @@ async def list_provider_models(
         # Fallback: retornar el modelo default como Offline
         return [{"id": settings.default_llm_model, "name": f"{settings.default_llm_model} (Offline)", "error": "Could not connect to vLLM servers"}]
 
-    if provider_id == "openrouter":
-        # Dynamic fetch would be better, but sticking to requested models
-        return [
-            {"id": "qwen/qwen3-vl-30b-a3b-thinking", "name": "Qwen3 VL 30B A3B Thinking"},
-            {"id": "qwen/qwen3-vl-30b-a3b-instruct", "name": "Qwen3 VL 30B A3B Instruct"},
-
-            {"id": "openai/gpt-4o", "name": "GPT-4o"},
-            {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini"},
-            {"id": "anthropic/claude-3.5-sonnet", "name": "Claude 3.5 Sonnet"},
-            {"id": "meta-llama/llama-3.1-405b", "name": "Llama 3.1 405B"},
-            {"id": "google/gemini-pro-1.5", "name": "Gemini Pro 1.5"},
-        ]
-
-
-    if provider_id == "openai":
-         return [
-            {"id": "gpt-4o", "name": "GPT-4o"},
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
-        ]
+    return []
 
     return []

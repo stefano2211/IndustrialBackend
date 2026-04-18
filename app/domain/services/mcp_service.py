@@ -67,14 +67,28 @@ class MCPService:
     # -------------------------------------------------------------------------
 
     def _get_nested_value(self, record: dict, key: str):
-        """Retrieve a value from a dot-notated nested path (supports [] notation)."""
+        """Retrieve a value from a dot-notated nested path (supports [] notation) case-insensitively."""
         keys = key.replace("[]", "").split(".")
         current = record
         for k in keys:
             if isinstance(current, list):
                 current = current[0] if current else None
             if isinstance(current, dict):
-                current = current.get(k)
+                # Intentar exact match primero por eficiencia
+                res = current.get(k)
+                if res is not None:
+                    current = res
+                    continue
+                # Fallback: case-insensitive match (El LLM puede equivocarse en casing)
+                k_lower = k.lower()
+                matched = False
+                for dict_k, dict_v in current.items():
+                    if str(dict_k).lower() == k_lower:
+                        current = dict_v
+                        matched = True
+                        break
+                if not matched:
+                    return None
             else:
                 return None
         return current

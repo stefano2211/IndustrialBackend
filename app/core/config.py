@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
 
     # Generalist Orchestrator (larger — for routing decisions)
-    generalist_llm_model: str = "mattbucci/gemma-4-26B-A4B-it-AWQ-GPTQ-v2-fixed"  # Director model — bigger = better routing (NO LORA)
+    generalist_llm_model: str = "Qwen/Qwen3.5-9B"  # Director model
 
     # Sistema 1 — Fine-tuned models (9B base + their LoRA)
     system1_base_model: str = "Qwen/Qwen3.5-9B"        # Base backbone for ALL Sistema 1 subagents (hardcoded, upgraded 2B→9B)

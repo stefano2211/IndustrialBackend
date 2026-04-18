@@ -104,7 +104,7 @@ services:
       # Si tienes 2 GPUs: cambiar a CUDA_VISIBLE_DEVICES=1 para aislar de vllm-sistema1
       # Si solo 1 GPU: dejar en 0 (ambos comparten) y reducir utilization a 0.40
       - CUDA_VISIBLE_DEVICES=0
-      - VLLM_USE_V1=0   # Forzar el motor clásico estable V0 de vLLM (esquiva bugs del feature_extractor en Gemma)
+      # VLLM_USE_V1=0 ya no tiene efecto en vLLM >= 0.8 (V0 fue eliminado permanentemente)
     command:
       - "mattbucci/gemma-4-26B-A4B-it-AWQ-GPTQ-v2-fixed"
       - "--quantization"
@@ -119,6 +119,10 @@ services:
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "gemma4"
+      # El repo cuantizado no incluye preprocessor_config.json / feature_extractor_config.json.
+      # --processor-name redirige la carga del procesador al repo canónico de Gemma4 en HF.
+      - "--processor-name"
+      - "google/gemma-4-27b-it"
     volumes:
       - hf_cache:/root/.cache/huggingface
     ipc: host

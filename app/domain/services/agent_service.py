@@ -92,7 +92,10 @@ class AgentService:
         try:
             res = await llm.ainvoke(prompt)
             content = res.content.strip()
+            think_match = re.search(r'<think>(.*?)</think>', content, flags=re.DOTALL)
             content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+            if not content and think_match:
+                content = think_match.group(1).strip()
 
             if content.startswith("```json") and len(content) > 10:
                 content = content[7:].rstrip("`").strip()
@@ -365,6 +368,7 @@ class AgentService:
                     provider=LLMProvider.VLLM,
                     model_name=settings.system1_base_model,
                     session=sess,
+                    base_url=settings.vllm_base_url,
                 )
             lora_ready = await _vllm_model_exists(settings.vllm_base_url, expert_lora_target)
             if lora_ready:
@@ -372,6 +376,7 @@ class AgentService:
                     provider=LLMProvider.VLLM,
                     model_name=expert_lora_target,
                     session=sess,
+                    base_url=settings.vllm_base_url,
                 )
             logger.warning(
                 f"[AgentService] LoRA '{expert_lora_target}' not loaded in vLLM — "
@@ -382,6 +387,7 @@ class AgentService:
                 provider=LLMProvider.VLLM,
                 model_name=settings.system1_base_model,
                 session=sess,
+                base_url=settings.vllm_base_url,
             )
 
         # 4.7 Worker LLM: reuse generalist instance
@@ -397,11 +403,8 @@ class AgentService:
             "max_tokens": 4096,      # 4096 needed: <thinking> block (~1500t) + XML tool call (~500t) + margin
             "streaming": False,      # Ensure complete responses for tool calls
             "stop": [],              # Disable stop tokens: VL needs to generate full XML tool calls
-            "model_kwargs": {
-                "extra_body": {
-                    "chat_template_kwargs": {"enable_thinking": True},
-                }
-            },
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
+            "base_url": settings.vllm_base_url,
         }
         if settings.system1_enabled:
             if settings.system1_force_base_model:

@@ -56,16 +56,19 @@ class QdrantManager:
             wait=True
         )
 
-    async def search(self, query=None, limit=5, filter_dict=None):
+    async def search(self, query=None, limit=5, filter_dict=None, prefetch=None):
         await self._ensure_collection()
-        # Usamos query_points (Query API v1.10+) para soportar Fusion/Prefetch
-        return await self.client.query_points(
+        # Usamos query_points (Query API v1.10+) para soportar Fusion/Prefetch.
+        # prefetch must be a top-level param — FusionQuery only accepts `fusion=`.
+        result = await self.client.query_points(
             collection_name=self.collection_name,
+            prefetch=prefetch,
             query=query,
             query_filter=filter_dict,
             limit=limit,
             with_payload=True
         )
+        return result.points
 
     async def get_document_chunks(self, doc_id: str, user_id: str):
         await self._ensure_collection()

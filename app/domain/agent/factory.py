@@ -125,8 +125,6 @@ def create_industrial_agent(
         system_prompt=full_prompt,
         subagents=subagents,
         backend=create_composite_backend,
-        memory=["/AGENTS.md"],
-        skills=["/skills/industrial_safety/"],
         checkpointer=checkpointer,
         store=store,
     )

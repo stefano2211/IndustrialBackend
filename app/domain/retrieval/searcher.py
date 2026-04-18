@@ -57,31 +57,31 @@ class SemanticSearcher:
         # NOTE: RRF fusion scores are rank-based (sum of 1/(k+rank)), not cosine similarity.
         # A min_score threshold does not apply here; the Reranker handles quality filtering.
         candidates_pool_size = max(20, final_limit * 4)
-        
-        fusion_query = qmodels.FusionQuery(
-            prefetch=[
-                # Branch 1: Sparse (Keyword importance via SPLADE)
-                qmodels.Prefetch(
-                    query=qmodels.SparseVector(
-                        indices=query_sparse.indices.tolist(),
-                        values=query_sparse.values.tolist()
-                    ),
-                    using="sparse",
-                    limit=candidates_pool_size
+
+        # prefetch is a top-level query_points argument — FusionQuery only takes fusion=
+        prefetch_list = [
+            # Branch 1: Sparse (Keyword importance via SPLADE)
+            qmodels.Prefetch(
+                query=qmodels.SparseVector(
+                    indices=query_sparse.indices.tolist(),
+                    values=query_sparse.values.tolist()
                 ),
-                # Branch 2: Dense (Semantic context)
-                qmodels.Prefetch(
-                    query=query_dense,
-                    using="dense",
-                    limit=candidates_pool_size
-                )
-            ],
-            fusion=qmodels.Fusion.RRF
-        )
+                using="sparse",
+                limit=candidates_pool_size
+            ),
+            # Branch 2: Dense (Semantic context)
+            qmodels.Prefetch(
+                query=query_dense,
+                using="dense",
+                limit=candidates_pool_size
+            ),
+        ]
+        fusion_query = qmodels.FusionQuery(fusion=qmodels.Fusion.RRF)
 
         logger.debug(f"[Searcher] Executing hybrid query (RRF) for: {query[:50]}...")
         hits = await self.vector_store.search(
             query=fusion_query,
+            prefetch=prefetch_list,
             limit=candidates_pool_size,
             filter_dict=filter_dict
         )

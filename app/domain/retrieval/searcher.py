@@ -76,7 +76,7 @@ class SemanticSearcher:
                     limit=candidates_pool_size
                 )
             ],
-            query=qmodels.Fusion.RRF
+            fusion=qmodels.Fusion.RRF
         )
 
         logger.debug(f"[Searcher] Executing hybrid query (RRF) for: {query[:50]}...")

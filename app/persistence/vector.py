@@ -14,13 +14,24 @@ class QdrantManager:
     async def _ensure_collection(self):
         if self._initialized: return
         try:
+            from qdrant_client.http import models
             exists = await self.client.collection_exists(self.collection_name)
             if not exists:
                 await self.client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+                    vectors_config={
+                        "dense": models.VectorParams(
+                            size=768, # Ajustar si el modelo cambia
+                            distance=models.Distance.COSINE
+                        )
+                    },
+                    sparse_vectors_config={
+                        "sparse": models.SparseVectorParams(
+                            index=models.SparseIndexParams(on_disk=False)
+                        )
+                    }
                 )
-                logger.info(f"Collection '{self.collection_name}' created")
+                logger.info(f"Collection '{self.collection_name}' created with hybrid config")
             self._initialized = True
         except Exception as e:
             error_msg = str(e).lower()
@@ -45,13 +56,14 @@ class QdrantManager:
             wait=True
         )
 
-    async def search(self, query_vector, limit=5, filter_dict=None):
+    async def search(self, query=None, limit=5, filter_dict=None):
         await self._ensure_collection()
-        return await self.client.search(
+        # Usamos query_points (Query API v1.10+) para soportar Fusion/Prefetch
+        return await self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=limit,
+            query=query,
             query_filter=filter_dict,
+            limit=limit,
             with_payload=True
         )
 

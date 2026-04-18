@@ -1,14 +1,9 @@
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 import re
 
 class HierarchicalSplitter:
-    def __init__(self, chunk_size=1000, chunk_overlap=200):
-        self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
-            separators=["\n\n", "\n", " ", ""]
-        )
+    def __init__(self):
+        pass
 
     def split_documents(self, documents: list[Document]) -> list[Document]:
         chunks = []
@@ -20,7 +15,12 @@ class HierarchicalSplitter:
 
             for line in lines:
                 clean_line = line.strip()
-                if re.match(r"^\d+\.?\s|[A-ZÁÉÍÓÚÑ\s]{3,}$", clean_line) and len(clean_line) < 100:
+                # Numbered section ("1. Title", "2.3 ") OR all-uppercase header (must have ≥1 cased char)
+                is_section_header = (
+                    bool(re.match(r"^\d+\.?\d*\.?\s+[A-Za-záéíóúñÁÉÍÓÚÑ]", clean_line))
+                    or (clean_line.isupper() and len(clean_line.replace(" ", "")) >= 3)
+                ) and len(clean_line) < 100
+                if is_section_header:
                     if current_content:
                         chunks.append(self._create_chunk("\n".join(current_content), current_section, doc))
                         current_content = []
@@ -31,8 +31,9 @@ class HierarchicalSplitter:
             if current_content:
                 chunks.append(self._create_chunk("\n".join(current_content), current_section, doc))
 
-        # Asegurar que todos los chunks (vengan de secciones o no) respeten el tamaño máximo
-        return self.splitter.split_documents(chunks)
+        # Size enforcement is handled entirely by pipeline.py (RecursiveCharacterTextSplitter
+        # with DB-configurable chunk_size/overlap). This stage only adds section metadata.
+        return chunks
 
     def _create_chunk(self, content, section, original_doc):
         return Document(

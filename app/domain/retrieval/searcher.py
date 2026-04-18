@@ -1,12 +1,16 @@
 from app.domain.ingestion.embedder import Embedder
 from app.persistence.vector import QdrantManager
+from app.domain.retrieval.reranker import Reranker
+from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 from typing import Optional, Any
+from loguru import logger
 
 class SemanticSearcher:
     def __init__(self):
         self.embedder = Embedder()
         self.vector_store = QdrantManager()
+        self.reranker = Reranker()
 
     async def search(
         self, 
@@ -19,22 +23,20 @@ class SemanticSearcher:
     ):
         # Fetch dynamic settings once
         final_limit = 5
-        final_min_score = 0.45  # Default score threshold — filters out irrelevant chunks
         if session:
             from app.persistence.repositories.settings_repository import SettingsRepository
             repo = SettingsRepository(session)
             system_settings = await repo.get_settings()
             if limit is None:
                 final_limit = system_settings.retrieval_search_results
-            if min_score is None and hasattr(system_settings, 'retrieval_min_score'):
-                final_min_score = system_settings.retrieval_min_score
         if limit is not None:
             final_limit = limit
-        if min_score is not None:
-            final_min_score = min_score
 
-        query_vector = self.embedder.embed_query(query)
-        
+        # 1. Embed Query (Dual: Dense + Sparse SPLADE)
+        query_dense = await self.embedder.embed_query(query)
+        query_sparse = await self.embedder.embed_sparse_query(query)
+
+        # 2. Build Filter
         conditions = [
             FieldCondition(
                 key="metadata.user_id",
@@ -48,29 +50,48 @@ class SemanticSearcher:
                     match=MatchValue(value=knowledge_base_id)
                 )
             )
-        
         filter_dict = Filter(must=conditions) if conditions else None
+
+        # 3. Hybrid Search with RRF (Initial Retrieval)
+        # Fetch a pool of candidates (4x final_limit) to be refined by the Reranker.
+        # NOTE: RRF fusion scores are rank-based (sum of 1/(k+rank)), not cosine similarity.
+        # A min_score threshold does not apply here; the Reranker handles quality filtering.
+        candidates_pool_size = max(20, final_limit * 4)
         
-        results = await self.vector_store.search(
-            query_vector, 
-            limit=final_limit, 
+        fusion_query = qmodels.FusionQuery(
+            prefetch=[
+                # Branch 1: Sparse (Keyword importance via SPLADE)
+                qmodels.Prefetch(
+                    query=qmodels.SparseVector(
+                        indices=query_sparse.indices.tolist(),
+                        values=query_sparse.values.tolist()
+                    ),
+                    using="sparse",
+                    limit=candidates_pool_size
+                ),
+                # Branch 2: Dense (Semantic context)
+                qmodels.Prefetch(
+                    query=query_dense,
+                    using="dense",
+                    limit=candidates_pool_size
+                )
+            ],
+            query=qmodels.Fusion.RRF
+        )
+
+        logger.debug(f"[Searcher] Executing hybrid query (RRF) for: {query[:50]}...")
+        hits = await self.vector_store.search(
+            query=fusion_query,
+            limit=candidates_pool_size,
             filter_dict=filter_dict
         )
 
-        from loguru import logger
-        logger.debug(f"Search results for query '{query}': {len(results)} hits found.")
-        filtered_results = []
-        for i, hit in enumerate(results):
-            source = hit.payload.get("metadata", {}).get("source", "unknown")
-            logger.debug(f"Hit {i}: score={hit.score:.4f}, source={source}")
-            if hit.score >= final_min_score:
-                filtered_results.append(hit)
-            else:
-                logger.debug(f"Hit {i} dropped (score {hit.score:.4f} < min {final_min_score})")
+        if not hits:
+            logger.warning(f"[Searcher] No results found in hybrid retrieval.")
+            return []
 
-        logger.debug(f"After score filter ({final_min_score}): {len(filtered_results)}/{len(results)} hits kept")
-
-        return [
+        # 4. Format candidates for Reranking
+        candidates = [
             {
                 "text": hit.payload["text"],
                 "score": float(hit.score),
@@ -80,5 +101,12 @@ class SemanticSearcher:
                     "section": hit.payload.get("metadata", {}).get("section", ""),
                 },
             }
-            for hit in filtered_results
+            for hit in hits
         ]
+
+        # 5. Rerank (Final refinement stage)
+        # The reranker will select the best `final_limit` results out of the `candidates`
+        results = await self.reranker.rerank(query, candidates, top_k=final_limit)
+
+        logger.info(f"[Searcher] Final results after hybrid + rerank: {len(results)}")
+        return results

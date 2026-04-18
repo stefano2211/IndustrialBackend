@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     qdrant_port: int 
     qdrant_collection: str = "documents"
     embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
+    sparse_embedding_model: str = "prithivida/Splade_PP_en_v1"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     
     
     # MinIO 1.0

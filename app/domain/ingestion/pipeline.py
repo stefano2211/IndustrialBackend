@@ -11,6 +11,7 @@ import asyncio
 import uuid
 from typing import Optional, Any, List
 
+from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import PointStruct
 from pathlib import Path
 from langchain_core.documents import Document
@@ -65,13 +66,8 @@ class DocumentProcessor:
             chunk_size = system_settings.document_chunk_size
             chunk_overlap = system_settings.document_chunk_overlap
 
-        # 2. Extract Text & Classify Category
-        # Assuming self.loader has an extract_text method or similar
-        # The original code used self.loader.load which returns a list of Documents
-        # The new snippet implies a direct text extraction.
-        # For now, let's adapt to the original loader's output and then classify.
+        # 2. Extract Text
         docs = self.loader.load(file_path)
-        full_text = "\n".join([doc.page_content for doc in docs])
         for doc in docs:
             doc.metadata["doc_id"] = doc_id # Ensure doc_id is set for initial docs
 
@@ -105,32 +101,40 @@ class DocumentProcessor:
         total_chunks = len(chunks)
         logger.info(f"Document split into {total_chunks} chunks")
 
-        # 4. Embed
+        # 4. Embed (Dual: Dense + Sparse SPLADE)
         texts = [chunk.page_content for chunk in chunks]
-        vectors = self.embedder.embed_documents(texts)
+        dense_vectors = await self.embedder.embed_documents(texts)
+        sparse_vectors = await self.embedder.embed_sparse_documents(texts)
 
-        # 6. Store
-        points = [
-            PointStruct(
-                id=str(uuid.uuid4()),
-                vector=vector,
-                payload={
-                    "text": chunk.page_content,
-                    "metadata": {
-                        **chunk.metadata,
-                        "doc_id": doc_id,
-                        "user_id": user_id,
-                        "chunk_index": i,
-                        "knowledge_base_id": knowledge_base_id,
+        # 5. Store
+        points = []
+        for i, (chunk, d_vec, s_vec) in enumerate(zip(chunks, dense_vectors, sparse_vectors)):
+            points.append(
+                PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        "dense": d_vec,
+                        "sparse": qmodels.SparseVector(
+                            indices=s_vec.indices.tolist(),
+                            values=s_vec.values.tolist()
+                        )
                     },
-                },
+                    payload={
+                        "text": chunk.page_content,
+                        "metadata": {
+                            **chunk.metadata,
+                            "doc_id": doc_id,
+                            "user_id": user_id,
+                            "chunk_index": i,
+                            "knowledge_base_id": knowledge_base_id,
+                        },
+                    },
+                )
             )
-            for i, (chunk, vector) in enumerate(zip(chunks, vectors))
-        ]
         await self.vector_store.upsert(points)
         logger.success(
             f"Document {doc_id} processed: "
             f"{total_chunks} chunks"
         )
         return {"doc_id": doc_id, "chunks": total_chunks, "category": doc_category}
-
+

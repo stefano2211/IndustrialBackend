@@ -59,6 +59,7 @@ class DocumentService:
             background_tasks.add_task(
                 self._process_and_cleanup,
                 temp_path,
+                safe_filename,
                 user_id,
                 file_id,
                 knowledge_base_id
@@ -70,7 +71,7 @@ class DocumentService:
                 "file_id": file_id,
             }
         else:
-            await self._process_and_cleanup(temp_path, user_id, file_id, knowledge_base_id)
+            await self._process_and_cleanup(temp_path, safe_filename, user_id, file_id, knowledge_base_id)
             return {
                 "task_id": file_id,
                 "filename": file.filename,
@@ -78,7 +79,7 @@ class DocumentService:
                 "file_id": file_id,
             }
 
-    async def _process_and_cleanup(self, temp_path: str, user_id: str, file_id: str, knowledge_base_id: Optional[str]):
+    async def _process_and_cleanup(self, temp_path: str, minio_filename: str, user_id: str, file_id: str, knowledge_base_id: Optional[str]):
         try:
             await self.processor.process_file(
                 temp_path,
@@ -87,7 +88,12 @@ class DocumentService:
                 knowledge_base_id=knowledge_base_id,
             )
         except Exception as e:
-            logger.error(f"Error processing background document {file_id}: {e}")
+            logger.error(f"Error processing document {file_id}: {e}")
+            try:
+                minio_client.delete_file(minio_filename)
+                logger.info(f"Cleaned up MinIO object '{minio_filename}' after processing failure")
+            except Exception as cleanup_err:
+                logger.warning(f"Failed to clean up MinIO object '{minio_filename}': {cleanup_err}")
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)

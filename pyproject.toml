@@ -46,6 +46,7 @@ dependencies = [
     "pillow",
     "ultralytics",
     "huggingface_hub",
+    "fastembed",
 ]
 
 [tool.uv]

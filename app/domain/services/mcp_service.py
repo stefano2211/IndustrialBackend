@@ -171,43 +171,11 @@ class MCPService:
                 return response
 
             if all(isinstance(item, dict) for item in data):
-                # Aggregate all records: collect all numeric values and all string values
-                figures_acc: Dict[str, List[float]] = {}
-                values_acc: Dict[str, set] = {}
-
-                def _scan_record(record: dict, prefix: str = "", depth: int = 0):
-                    for key, val in record.items():
-                        name = f"{prefix}{key}" if prefix else key
-                        if isinstance(val, (int, float)) and not isinstance(val, bool):
-                            figures_acc.setdefault(name, []).append(float(val))
-                        elif isinstance(val, dict) and depth < 3:
-                            _scan_record(val, f"{name}.", depth + 1)
-                        elif isinstance(val, list) and val:
-                            if isinstance(val[0], dict) and depth < 2:
-                                _scan_record(val[0], f"{name}[].", depth + 1)
-                            elif all(isinstance(v, (str, int, float)) for v in val):
-                                values_acc.setdefault(name, set()).update(str(v) for v in val[:20])
-                        elif isinstance(val, str) and val:
-                            values_acc.setdefault(name, set()).add(val)
-
-                for item in data:
-                    _scan_record(item)
-
-                # Emit key_figures: one entry per field with the aggregated values summary
-                for field_name, nums in figures_acc.items():
-                    # If all values are identical, emit a single value; otherwise emit range
-                    if len(set(nums)) == 1:
-                        response.key_figures.append(KeyFigure(name=field_name, value=nums[0]))
-                    else:
-                        # Emit min / max as separate entries so LLM can reason about ranges
-                        response.key_figures.append(KeyFigure(name=f"{field_name}.min", value=min(nums)))
-                        response.key_figures.append(KeyFigure(name=f"{field_name}.max", value=max(nums)))
-
-                # Emit key_values: unique values per categorical field
-                for field_name, vals in values_acc.items():
-                    sorted_vals = sorted(vals)[:20]
-                    response.key_values.append(KeyValue(name=field_name, value=", ".join(sorted_vals)))
-
+                import json
+                # Enviamos el JSON íntegro y estructurado al agente (limitando a 50 registros por tokens context limit)
+                subset = data[:50]
+                json_str = json.dumps(subset, separators=(',', ':'), ensure_ascii=False)
+                response.key_values.append(KeyValue(name="json_records", value=json_str))
                 return response
             else:
                 # List of scalars

@@ -59,6 +59,8 @@ services:
     command:
       # Modelo como argumento posicional (formato vLLM >= 0.13)
       - "Qwen/Qwen3.5-9B"
+      - "--quantization"
+      - "fp8"
       - "--enable-lora"
       - "--max-loras"
       - "4"
@@ -66,14 +68,10 @@ services:
       - "16"
       - "--enforce-eager"  # Ahorra ~3GB desactivando CUDA Graphs (recomendado al usar muchos LoRAs)
       - "--gpu-memory-utilization"
-      # 48GB GPU: 0.53 = 25.4GB → 18GB pesos 9B + 2GB MM cache + 1GB KV + 2GB activaciones + 2.4GB margen
-      # GPU <24GB compartida: bajar a 0.35 y reducir max-model-len a 8192
-      - "0.53"
-      # 16384 tokens: suficiente para el loop Observe-Think-Act (15 steps × ~900 tokens = ~13500 max)
-      # 3 context screenshots × ~150 image tokens + historial = ~2500 tokens por step → 16K es holgado
+      - "0.28"
       - "--max-model-len"
       - "16384"
-      - "--mm-processor-cache-gb"  # Cache de procesamiento multimodal — limitar para dejar VRAM al KV cache
+      - "--mm-processor-cache-gb"  # Cache de procesamiento multimodal
       - "2"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
@@ -107,17 +105,16 @@ services:
       # Si solo 1 GPU: dejar en 0 (ambos comparten) y reducir utilization a 0.40
       - CUDA_VISIBLE_DEVICES=0
     command:
-      # Modelo como argumento posicional (formato vLLM >= 0.13)
-      - "Qwen/Qwen3.5-4B"
+      - "mattbucci/gemma-4-26B-A4B-it-AWQ-GPTQ-v2-fixed"
+      - "--quantization"
+      - "awq"
       - "--gpu-memory-utilization"
-      # 48GB GPU: 0.35 = 16.8GB → 8GB pesos 4B + 1GB KV cache + 2GB activaciones + 5.8GB margen
-      # Total con sistema1: 25.4 + 16.8 = 42.2GB / 48GB (88%) — margen libre ~5.8GB
-      - "0.35"
+      - "0.52"
       - "--max-model-len"
-      - "16384"  # Orchestrator es texto puro (routing), 16k es suficiente
+      - "32768"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
-      - "qwen3_xml"
+      - "gemma4"
     volumes:
       - hf_cache:/root/.cache/huggingface
     ipc: host
@@ -127,7 +124,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 180s
+      start_period: 300s
     deploy:
       resources:
         reservations:

@@ -37,8 +37,9 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
     # Qwen3.5 stop tokens — applied only when the caller has NOT specified 'stop'.
     # Computer-use VL model passes stop=[] explicitly to disable stop tokens,
     # preventing EOS tokens from cutting XML tool calls mid-generation.
+    # previene que tokens EOS corten tool calls XML o de Gemma.
     if 'stop' not in kwargs:
-        kwargs['stop'] = ['<|im_end|>', '<|endoftext|>']
+        kwargs['stop'] = ['<|im_end|>', '<|endoftext|>', '<end_of_turn>']
 
 
     return ChatOpenAI(

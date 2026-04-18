@@ -49,8 +49,8 @@ async def call_dynamic_mcp(
         - If the user specifies a category, status, or name → use key_values.
         - If the user specifies a numeric threshold or range → use key_figures.
         - You can combine both filters in a single call.
-        - The available fields for filtering will be listed in each tool's context under
-          'Filterable fields'. Always use field names exactly as listed there.
+        - CRITICAL: You MUST use the exact field names provided in 'Filterable fields' under the tool's context (e.g., 'Value', 'TagName'). DO NOT guess or invent field names.
+        - CRITICAL TOKEN LIMIT: If your filter returns empty results ("No structured data could be extracted"), DO NOT call the tool again without filters. Calling a tool without filters just to read raw JSON will consume too many tokens and crash the system. Instead, just inform the user that no items matched their filter criteria.
 
     Returns structured JSON with key_figures (metrics) and key_values (info).
     """

@@ -102,16 +102,9 @@ class MCPService:
         """
         Applies categorical and numeric range filters to a list of records BEFORE
         mapping to key_figures / key_values.
-
-        Args:
-            data: list of raw records from the API
-            key_values_filter: {"FieldName": ["v1", "v2"]} — keep records where
-                               record[FieldName] is in the list (case-insensitive)
-            key_figures_filter: [{"field": "FieldName", "min": X, "max": Y}] — keep
-                               records where the numeric value is within [min, max]
-
-        Returns:
-            Filtered list. If no filters provided, returns data unchanged.
+        
+        Now includes 'Smart-Safety': if the filter fields don't exist in the data,
+        it raises a ValueError to inform the LLM instead of returning [] and causing retries.
         """
         if not data:
             return data
@@ -122,6 +115,30 @@ class MCPService:
 
         if not kv_filters and not kf_filters:
             return data
+
+        # --- Validation: Check if requested fields exist at least once ---
+        all_sample_keys = set()
+        for r in data[:5]: # Sample some records to see available keys
+            if isinstance(r, dict):
+                all_sample_keys.update(r.keys())
+        
+        missing_fields = []
+        for f in kv_filters.keys():
+            # Check case-insensitively
+            if not any(str(k).lower() == f.lower() for k in all_sample_keys):
+                missing_fields.append(f)
+        for flt in kf_filters:
+            f = flt["field"]
+            if not any(str(k).lower() == f.lower() for k in all_sample_keys):
+                missing_fields.append(f)
+
+        if missing_fields:
+            available = sorted(list(all_sample_keys))
+            raise ValueError(
+                f"Filter error: Field(s) {missing_fields} not found in dataset. "
+                f"Available fields for filtering are: {available}. "
+                f"Please update your tool call arguments using these exact names."
+            )
 
         filtered = []
         for record in data:

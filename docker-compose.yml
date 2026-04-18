@@ -104,10 +104,12 @@ services:
       # Si tienes 2 GPUs: cambiar a CUDA_VISIBLE_DEVICES=1 para aislar de vllm-sistema1
       # Si solo 1 GPU: dejar en 0 (ambos comparten) y reducir utilization a 0.40
       - CUDA_VISIBLE_DEVICES=0
+      - VLLM_USE_V1=0   # Forzar el motor clásico estable V0 de vLLM (esquiva bugs del feature_extractor en Gemma)
     command:
       - "mattbucci/gemma-4-26B-A4B-it-AWQ-GPTQ-v2-fixed"
       - "--quantization"
       - "awq"
+      - "--trust-remote-code"
       - "--dtype"
       - "float16"
       - "--gpu-memory-utilization"

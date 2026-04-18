@@ -108,6 +108,8 @@ services:
       - "mattbucci/gemma-4-26B-A4B-it-AWQ-GPTQ-v2-fixed"
       - "--quantization"
       - "awq"
+      - "--dtype"
+      - "float16"
       - "--gpu-memory-utilization"
       - "0.52"
       - "--max-model-len"

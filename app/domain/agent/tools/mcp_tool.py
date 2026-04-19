@@ -45,7 +45,7 @@ async def call_dynamic_mcp(
                       Example: [{"field": "Value", "min": 0, "max": 50}] — values in 0-50 range.
 
     Rules:
-        - If the user asks for ALL data, omit key_values and key_figures entirely.
+        - STRICT FILTERING MANDATE: You MUST use `key_values` or `key_figures` filters to narrow down the data based on the user's requirement. NEVER fetch the entire dataset lazily without filtering unless the user explicitly demands "all records without exception".
         - If the user specifies a category, status, or name → use key_values.
         - If the user specifies a numeric threshold or range → use key_figures.
         - You can combine both filters in a single call.

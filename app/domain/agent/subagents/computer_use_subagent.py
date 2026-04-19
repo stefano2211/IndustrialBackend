@@ -92,9 +92,14 @@ Use these strategies when stuck or uncertain:
 LOADING: If the page looks incomplete, take 1–2 more screenshots before clicking.
   Signs of loading: spinner, progress bar, grayed-out elements, blank sections.
 
-POPUP / MODAL: If a dialog box, cookie banner, or permission prompt covers the page:
-  → Dismiss it first (look for "Accept", "Close", "X", "Decline", "Not now").
-  → Then proceed with the original task.
+POPUP / MODAL: If ANY overlay, dialog, cookie banner, or permission prompt is visible:
+  → Handle it IMMEDIATELY before anything else — it blocks all other interactions.
+  → For cookie banners: look for "Accept", "Accept all", "Aceptar", "Agree", "I agree", "OK",
+     "Reject" or the X close button. Click the most prominent option.
+  → For Google consent screens: the blue "Accept all" button is usually at the bottom center
+     of the dialog (~y=490, x=660 for 1920x1080). Always take a fresh screenshot first to confirm.
+  → After dismissing: take_screenshot to verify it's gone before proceeding.
+  → Only then proceed with the original task.
 
 SCROLL TO FIND: If the target element is not visible in the screenshot:
   → Scroll down (amount: 3–5) and take a new screenshot. Repeat until found.
@@ -103,7 +108,9 @@ SCROLL TO FIND: If the target element is not visible in the screenshot:
 WRONG CLICK: If a click had no effect or opened the wrong thing:
   → Take a screenshot to assess the new state.
   → Try clicking a visually adjacent element or a more precise location.
-  → If a text label is visible on/near the button, aim for the center of that label.
+  → If a text label is visible on/near the button, aim for the CENTER of that text, not the edge.
+  → If the button still doesn't respond, try clicking 10-15px ABOVE or BELOW your previous coordinate.
+  → As a last resort, try pressing Enter or Space after moving the mouse to the target element.
 
 FORM INPUT: When filling a form field:
   1. Click the field first to focus it.
@@ -520,8 +527,9 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 "steps_taken": steps + 1,
             }
 
-        # Stall detection: if the last 4 actions are clicks within 50px of each other,
+        # Stall detection: if the last 4 actions are clicks within 120px of each other,
         # the agent is stuck in a loop — abort gracefully.
+        # Radius is 120px (not 50px) to avoid false positives on small buttons/cookie banners.
         recent_traj = state.get("trajectory", [])
         if len(recent_traj) >= 4:
             try:
@@ -530,7 +538,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 if len(clicks) >= 4:
                     xs = [c["x"] for c in clicks]
                     ys = [c["y"] for c in clicks]
-                    if max(xs) - min(xs) < 50 and max(ys) - min(ys) < 50:
+                    if max(xs) - min(xs) < 120 and max(ys) - min(ys) < 120:
                         logger.warning(
                             f"[ComputerUse] Stall detectado: 4 clicks consecutivos en región "
                             f"({min(xs)}-{max(xs)}, {min(ys)}-{max(ys)}). Terminando."
@@ -540,8 +548,8 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                             "result_summary": (
                                 "Stall detectado: el agente estuvo clickeando en la misma región "
                                 "4 veces consecutivas sin cambio de pantalla. "
-                                "Es posible que el contenido de la página no sea interactivo en ese punto. "
-                                "Se completó la observación de la pantalla hasta ese momento."
+                                "Posibles causas: popup no dismissable, botón fuera de foco, página en carga lenta. "
+                                "Intenta de nuevo con una instrucción más específica o verifica el estado del navegador."
                             ),
                             "steps_taken": steps + 1,
                         }
@@ -690,6 +698,9 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 executed_action_json = action_json_raw
                 _action_executed = True
                 logger.info(f"[ComputerUse] Acción ejecutada: {action_result}")
+                # Post-action pause: give the UI time to react (animations, page transitions)
+                # before the next observe cycle captures the screen.
+                await asyncio.sleep(1.5)
 
                 if vl_replay_buffer and screenshot_b64:
                     try:
@@ -715,6 +726,8 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 executed_action_json = json.dumps({"type": "shell", "command": command})
                 _action_executed = True
                 logger.info(f"[ComputerUse] Shell command disparado: {action_result}")
+                # Post-shell pause: give launched apps (Chromium etc) time to open
+                await asyncio.sleep(2.5)
 
                 if vl_replay_buffer and screenshot_b64:
                     try:

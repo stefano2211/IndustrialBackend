@@ -1,32 +1,28 @@
-import re
 import os
-import json
+import tarfile
 import httpx
 import hashlib
 import asyncio
 from loguru import logger
 
 from app.core.config import settings
-from app.core.mothership_client import mothership_client
 
 
 class MLOpsService:
     """
     MLOps Service — gestiona actualizaciones OTA de modelos desde la Mothership (ApiLLMOps).
 
-    Responsabilidad única: recibir webhook de modelo listo → descargar GGUF → registrar en Ollama.
+    Responsabilidad única: recibir webhook del Worker → descargar tar.gz LoRA → extraer en /loras/ → notificar vLLM.
     La recolección de datos es responsabilidad exclusiva del DB Collector.
     """
 
-    async def process_ota_webhook(self, new_model_tag: str, tenant_id: str = "aura_tenant_01"):
+    async def process_ota_webhook(self, new_model_tag: str, tenant_id: str = "aura_tenant_01", download_url: str = None):
         """
-        Recibe una señal del Hub Central de que el nuevo adaptador LoRA está listo.
-        1. Obtiene presigned URL (.tar.gz) desde ApiLLMOps.
-        2. Descarga el artefacto en streaming al /tmp/.
-        3. Extrae directamente el adaptador LoRA a la carpeta montada en vLLM (/loras/).
-        4. Limpia archivos temporales. No es necesario reiniciar vLLM.
+        Recibe una download_url pre-firmada desde el webhook del Worker.
+        1. Descarga el artefacto tar.gz en streaming al /tmp/.
+        2. Extrae el adaptador LoRA a /loras/ (volumen compartido con vLLM).
+        3. Notifica a vLLM para carga dinámica sin reinicio.
         """
-        import tarfile
         logger.info(f"[MLOps OTA] Iniciando actualización OTA para adaptador LoRA: {new_model_tag}")
 
         tar_path = f"/tmp/{new_model_tag}.tar.gz"
@@ -34,23 +30,13 @@ class MLOpsService:
         hash_flag = f"/loras/{new_model_tag}/.artifact_hash"
 
         try:
-            # --- PASO 1: Obtener presigned URL del adaptador desde Mothership ---
-            # La API devuelve el url del snapshot Zippeado
-            config_url = f"{mothership_client.base_url}/api/v1/models/{tenant_id}/latest/config"
-            headers = {"x-api-key": mothership_client.api_key}
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(config_url, headers=headers)
-                resp.raise_for_status()
-                config = resp.json()
-
-            # En la Mothership hemos cambiado la lógica para que gguf_url devuelva el archivo tar.gz del adaptador
-            tar_url = config.get("gguf_url") or config.get("lora_url")
+            tar_url = download_url
             if not tar_url:
-                raise ValueError("La Mothership no retornó un URL para el adaptador LoRA.")
+                raise ValueError("No se proporcionó una download_url en el webhook y el fallback no está configurado.")
 
-            logger.info("[MLOps OTA] URLs de descarga obtenidas correctamente. Descargando adaptador...")
+            logger.info("[MLOps OTA] Iniciando descarga directa del adaptador por Push-Trigger...")
 
-            # --- PASO 2: Descargar el .tar.gz en streaming ---
+            # --- Descargar el .tar.gz en streaming ---
             async with httpx.AsyncClient(timeout=3600.0) as client:
                 async with client.stream("GET", tar_url) as r:
                     r.raise_for_status()
@@ -87,7 +73,7 @@ class MLOpsService:
             
             logger.success(f"[MLOps OTA] Adaptador '{new_model_tag}' extraído en '{lora_base_dir}'.")
 
-            # --- BUG 7 fix: Notificar a vLLM para que cargue el adaptador dinámicamente ---
+            # Notificar a vLLM para que cargue el adaptador dinámicamente
             # Requiere VLLM_ALLOW_RUNTIME_LORA_UPDATING=true en el contenedor vLLM
             vllm_base = settings.vllm_base_url.rstrip("/")  # e.g. http://vllm:8000/v1
             vllm_host = vllm_base.removesuffix("/v1")       # e.g. http://vllm:8000

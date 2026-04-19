@@ -14,7 +14,6 @@ from loguru import logger
 import tarfile
 
 from app.core.config import settings
-from app.core.mothership_client import mothership_client
 
 
 class VLMLOpsService:
@@ -28,6 +27,7 @@ class VLMLOpsService:
         model_tag: str,
         mmproj_tag: str = None, # Deprecated with vLLM
         tenant_id: str = "aura_tenant_01",
+        download_url: str = None,
     ):
         """
         Procesa el webhook de modelo VL listo desde ApiLLMOps.
@@ -44,20 +44,11 @@ class VLMLOpsService:
         hash_flag = f"/loras/{model_tag}/.artifact_hash"
 
         try:
-            # ── PASO 1: Obtener presigned URL del registry VL ─────────────────────
-            config_url = f"{mothership_client.base_url}/api/v1/vl/models/{tenant_id}/vl/config"
-            headers = {"x-api-key": mothership_client.api_key}
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(config_url, headers=headers)
-                resp.raise_for_status()
-                config = resp.json()
-
-            tar_url = config.get("gguf_url") or config.get("lora_url")
+            tar_url = download_url
             if not tar_url:
-                raise ValueError("La Mothership no retornó un URL para el adaptador LoRA VL.")
+                raise ValueError("No se proporcionó una download_url en el webhook y el fallback no está configurado.")
 
-            # ── PASO 2: Descargar el .tar.gz en streaming ──────
+            # Descargar el .tar.gz en streaming
             logger.info("[VL OTA] Descargando Tarball LoRA VL...")
             async with httpx.AsyncClient(timeout=3600.0) as client:
                  async with client.stream("GET", tar_url) as r:

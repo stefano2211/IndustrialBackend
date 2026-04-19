@@ -20,6 +20,7 @@ class WebhookPayload(BaseModel):
     model_type: str = "text"            # "text" | "vision"
     mmproj_tag: Optional[str] = None    # Solo requerido cuando model_type="vision"
     tenant_id: str = "aura_tenant_01"   # Identificador del tenant para obtener URLs correctas
+    download_url: Optional[str] = None  # URL directa de descarga pre-firmada por el worker
 
 
 def get_mlops_service() -> MLOpsService:
@@ -74,6 +75,7 @@ async def ota_model_update(
             payload.model_tag,
             payload.mmproj_tag,  # Sigue aceptado por compatibilidad (se ignora internamente)
             payload.tenant_id,
+            payload.download_url
         )
         return {
             "status": "accepted",
@@ -81,7 +83,7 @@ async def ota_model_update(
             "message": f"OTA VL agendado: {payload.model_tag}",
         }
     else:
-        bg_tasks.add_task(service.process_ota_webhook, payload.model_tag, payload.tenant_id)
+        bg_tasks.add_task(service.process_ota_webhook, payload.model_tag, payload.tenant_id, payload.download_url)
         return {
             "status": "accepted",
             "model_type": "text",

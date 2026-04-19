@@ -639,6 +639,9 @@ class AgentService:
         think_buffer = ""
         # Buffer tokens per model step; flush only when we confirm no tool calls
         step_text_buffer: list = []
+        # Nesting depth: >0 means we are inside a subagent tool call.
+        # Only stream tokens when depth == 0 (top-level orchestrator).
+        subagent_depth = 0
 
         async for event in agent.astream_events(
             {
@@ -651,23 +654,27 @@ class AgentService:
             kind = event.get("event", "")
             name = event.get("name", "")
 
-            # Reset per-model-turn counters when a new LLM call starts
-            if kind == "on_chat_model_start":
+            # --- Emit Subagent (Tool) running status ---
+            if kind == "on_tool_start":
+                subagent_depth += 1
+                yield {"type": "subagent", "status": "running", "name": name, "input": event.get("data", {}).get("input", {})}
+
+            if kind == "on_tool_end":
+                subagent_depth = max(0, subagent_depth - 1)
+                yield {"type": "subagent", "status": "complete", "name": name}
+
+            if kind == "on_tool_error":
+                subagent_depth = max(0, subagent_depth - 1)
+                yield {"type": "subagent", "status": "error", "name": name}
+
+            # Reset per-model-turn counters when a new top-level LLM call starts.
+            # Gated on depth==0 to avoid subagent LLM turns clobbering orchestrator state.
+            if kind == "on_chat_model_start" and subagent_depth == 0:
                 any_token_yielded = False
                 last_output_had_tool_calls = False
                 inside_think_block = False
                 think_buffer = ""
                 step_text_buffer = []
-
-            # --- Emit Subagent (Tool) running status ---
-            if kind == "on_tool_start":
-                yield {"type": "subagent", "status": "running", "name": name, "input": event.get("data", {}).get("input", {})}
-
-            if kind == "on_tool_end":
-                yield {"type": "subagent", "status": "complete", "name": name}
-
-            if kind == "on_tool_error":
-                yield {"type": "subagent", "status": "error", "name": name}
 
             # --- Live Screen Viewer: forward screenshot events from computer_use observe node ---
             if kind == "on_custom_event" and name == "screenshot":
@@ -731,14 +738,15 @@ class AgentService:
                                         think_buffer = think_buffer[-7:]
                                     break
 
-                    if visible:
+                    if visible and subagent_depth == 0:
                         step_text_buffer.append(visible)
                     # Tokens are buffered and flushed at on_chat_model_end only if no tool calls.
 
                 continue
 
             # --- Flush buffered tokens / fallback for non-streaming models ---
-            if kind == "on_chat_model_end":
+            # Only process end events from the top-level orchestrator.
+            if kind == "on_chat_model_end" and subagent_depth == 0:
                 # Flush any remaining think_buffer into the step buffer
                 if not inside_think_block and think_buffer:
                     step_text_buffer.append(think_buffer)

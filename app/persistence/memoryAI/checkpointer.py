@@ -16,8 +16,10 @@ async def get_pool():
         _pool = AsyncConnectionPool(
             conninfo=DB_URL,
             max_size=10,
-            kwargs={"autocommit": True}
+            kwargs={"autocommit": True},
+            open=False  # Required in newer psycopg3 to avoid DeprecationWarning
         )
+        await _pool.open()
     return _pool
 
 async def get_checkpointer():

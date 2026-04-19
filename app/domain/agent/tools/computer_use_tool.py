@@ -410,8 +410,10 @@ async def run_shell_command(config: RunnableConfig, command: str) -> str:
         elif "--user-data-dir" not in _cmd:
             _binary, _, _rest = _cmd.partition(" ")
             _cmd = f"{_binary} {_profile} {_rest}".strip()
-        command = _cmd
-        logger.debug(f"[ComputerUse] Chromium flags auto-injected: {command}")
+        
+        # Elimina el candado residual de la sesión anterior para evitar crasheos de perfil bloqueado
+        command = f"rm -f /tmp/chromium-profile/SingletonLock /tmp/chromium-profile/SingletonCookie; {_cmd}"
+        logger.debug(f"[ComputerUse] Chromium flags auto-injected & unlocked: {command}")
 
     try:
         proc = await asyncio.create_subprocess_shell(

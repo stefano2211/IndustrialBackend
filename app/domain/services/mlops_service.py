@@ -65,32 +65,23 @@ class MLOpsService:
                 for _chunk in iter(lambda: _f.read(8 * 1024 * 1024), b""):
                     _md5.update(_chunk)
             current_hash = _md5.hexdigest()
+            os.makedirs("/loras", exist_ok=True)
+            prev_hash = None
             if os.path.exists(hash_flag):
                 with open(hash_flag, "r") as _hf:
                     prev_hash = _hf.read().strip()
-                if current_hash == prev_hash:
-                    logger.info(f"[MLOps OTA] Mismo artefacto (hash={current_hash[:8]}). Solo notificando a vLLM.")
-                    # Cae al bloque de notificacion vLLM de abajo
-                else:
-                    logger.info(f"[MLOps OTA] Nuevo artefacto detectado (hash={current_hash[:8]}). Extrayendo...")
-                    os.makedirs("/loras", exist_ok=True)
-
-                    def _extract_tar():
-                        with tarfile.open(tar_path, "r:gz") as tar:
-                            tar.extractall(path="/loras", filter="data")
-
-                    await asyncio.to_thread(_extract_tar)
-                    with open(hash_flag, "w") as _hf:
-                        _hf.write(current_hash)
+            
+            if current_hash == prev_hash:
+                logger.info(f"[MLOps OTA] Mismo artefacto (hash={current_hash[:8]}). Solo notificando a vLLM.")
             else:
-                logger.info(f"[MLOps OTA] Primera instalacion del adaptador. Extrayendo...")
-                os.makedirs("/loras", exist_ok=True)
-
+                logger.info(f"[MLOps OTA] Artefacto nuevo o primera instalación (hash={current_hash[:8]}). Extrayendo...")
                 def _extract_tar():
                     with tarfile.open(tar_path, "r:gz") as tar:
                         tar.extractall(path="/loras", filter="data")
-
                 await asyncio.to_thread(_extract_tar)
+                
+                # Garantizar que el directorio dinámico exista antes de escribir el hash
+                os.makedirs(lora_base_dir, exist_ok=True)
                 with open(hash_flag, "w") as _hf:
                     _hf.write(current_hash)
             

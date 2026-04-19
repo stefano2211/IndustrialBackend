@@ -148,6 +148,12 @@ services:
       - VLLM_BASE_URL=http://vllm-sistema1:8000/v1
       - VLLM_ORCHESTRATOR_URL=http://vllm-orchestrator:8000/v1
       - DISPLAY=:99  # Display virtual de Xvfb (Computer Use Agent)
+      # ⚠️ PRODUCCIÓN: URL pública del Edge para que ApiLLMOps envíe el webhook OTA de regreso.
+      # Como ambas apps corren en el mismo servidor, usar la IP pública (no localhost — no resuelve entre stacks Docker).
+      - EDGE_PUBLIC_URL=${EDGE_PUBLIC_URL:-http://69.19.136.193:8000}
+      # URL de la Mothership (ApiLLMOps) accesible desde dentro de este container.
+      # Puerto 8001 = puerto público del mops-api en el servidor.
+      - MOTHERSHIP_API_URL=${MOTHERSHIP_API_URL:-http://38.128.233.165:8001}
     # Chromium necesita al menos 256MB de shared memory para no crashear
     shm_size: '256mb'
     volumes:

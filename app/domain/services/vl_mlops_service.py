@@ -101,7 +101,6 @@ class VLMLOpsService:
                         json={
                             "lora_name": model_tag,
                             "lora_path": lora_path_in_container,
-                            "load_inplace": True,
                         },
                     )
                     if resp.status_code == 200:

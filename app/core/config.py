@@ -70,10 +70,11 @@ class Settings(BaseSettings):
     omniparser_model_dir: str = "/omniparser/weights"  # Ruta local de los pesos (icon_detect + icon_caption)
 
     # MLOps Architecture (Cloud Sync)
-    mothership_api_url: str = "http://localhost:8001" # Default to local ApiLLMOps port
+    # ⚠️ PRODUCCIÓN: Usar la IP pública del servidor. No usar localhost — no resuelve entre stacks Docker separados.
+    mothership_api_url: str = "http://149.36.0.115:8001" # URL exterior de mops-api (ApiLLMOps)
     mothership_api_key: str = "default-mothership-secret-key" # Must match ApiLLMOps MOTHERSHIP_API_KEY env
     mlops_tenant_id: str = "aura_tenant_01" # Tenant identifier for this edge node
-    edge_public_url: str = "http://localhost:8000" # Public URL of this edge node (for OTA webhook)
+    edge_public_url: str = "http://149.36.0.115:8000" # URL exterior de este Edge (para webhook OTA de retorno)
 
 
     # LLM Resilience

@@ -87,7 +87,6 @@ class MLOpsService:
                         json={
                             "lora_name": new_model_tag,
                             "lora_path": lora_path_in_container,
-                            "load_inplace": True,  # Actualiza adaptador existente sin unload previo
                         },
                     )
                     if resp.status_code == 200:

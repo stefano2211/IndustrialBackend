@@ -657,7 +657,11 @@ class AgentService:
             # --- Emit Subagent (Tool) running status ---
             if kind == "on_tool_start":
                 subagent_depth += 1
-                yield {"type": "subagent", "status": "running", "name": name, "input": event.get("data", {}).get("input", {})}
+                input_data = event.get("data", {}).get("input", {})
+                # deepagents wraps all subagents under a single "task" tool.
+                # Extract the real subagent name from subagent_type when available.
+                effective_name = input_data.get("subagent_type", name) if isinstance(input_data, dict) else name
+                yield {"type": "subagent", "status": "running", "name": effective_name, "input": input_data}
 
             if kind == "on_tool_end":
                 subagent_depth = max(0, subagent_depth - 1)
@@ -727,8 +731,11 @@ class AgentService:
                                 # <think> tag, but DOES emit the closing </think>.
                                 close_idx = think_buffer.find("</think>")
                                 if close_idx != -1:
-                                    # Discard everything up to and including the orphan </think>
+                                    # Discard everything up to and including the orphan </think>.
+                                    # Also retroactively discard step_text_buffer: content already
+                                    # accumulated before this chunk was pre-think reasoning text.
                                     think_buffer = think_buffer[close_idx + len("</think>"):]
+                                    step_text_buffer = []
                                     # Continue loop — there may be real content after it
                                 else:
                                     # No think tag found at all.

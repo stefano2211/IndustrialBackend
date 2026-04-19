@@ -113,7 +113,8 @@ class MLOpsService:
                 logger.error(f"[MLOps OTA] Error notificando a vLLM (pesos en disco): {vllm_err}")
 
         except Exception as e:
-            logger.error(f"[MLOps OTA] Excepción durante el proceso OTA: {e}")
+            import traceback
+            logger.error(f"[MLOps OTA] Excepción durante el proceso OTA [{type(e).__name__}]: {str(e)}\n{traceback.format_exc()}")
             return {"status": "error", "tag": new_model_tag, "detail": str(e)}
         finally:
             if os.path.exists(tar_path):

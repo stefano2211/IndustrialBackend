@@ -84,10 +84,11 @@ FIELD RULES:
 When calling `call_dynamic_mcp` for real-time live data:
 - STRICT FILTERING MANDATE: You MUST narrow down data to save tokens using `key_values` or `key_figures`.
 - If the user asks for a specific machine (e.g., "Motor 1" or "Bomba A"), YOU MUST INJECT that exact name into the `key_values` dictionary.
-- CATEGORICAL filter: `{{"key_values": {{"Status": ["Active"], "Nombre": ["Motor 1"]}}}}`
+- CATEGORICAL filter: {{"key_values": {{"Status": ["Active", "Warning"], "Nombre": ["Motor 1"]}}}}
 - NUMERIC range filter: `{{"key_figures": [{{"field": "Temperatura", "min": 150}}]}}`
-- If no specific filter is requested, pass an empty dict `{{}}`, but DO NOT do this if the user mentioned a specific item.
-- CRITICAL: Failing to filter when a specific item is requested will crash the GPU due to out-of-memory errors!
+- If the user specifies ANY constraint (e.g., a specific machine name, OR a specific status like 'Warning'/ 'Review'), you MUST inject those into `key_values` to filter the data.
+- ONLY pass an empty dict `{{}}` if the user asks for a completely generic, unfiltered overview of everything.
+- CRITICAL: Failing to filter when a constraint is requested will crash the GPU due to out-of-memory errors!
 - After receiving the MCP response, parse the JSON and place ALL records into the "mcp_data[].records" field of your envelope.
 </mcp_usage_rules>
 

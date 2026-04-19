@@ -12,7 +12,6 @@ from deepagents import create_deep_agent, CompiledSubAgent
 from loguru import logger
 
 from app.domain.agent.prompts import INDUSTRIAL_SYSTEM_PROMPT, AGENTS_MD_CONTENT
-from app.domain.agent.subagents.definitions import get_all_subagents
 from app.domain.agent.memory import create_composite_backend
 from app.domain.agent.tools.knowledge_tool import ask_knowledge_agent
 from app.domain.agent.tools.mcp_tool import call_dynamic_mcp
@@ -29,17 +28,17 @@ def create_industrial_agent(
     enable_mcp: bool = True,
 ) -> object:
     """
-    Creates the IndustrialAgent — the domain expert for safety & compliance.
+    Creates the IndustrialAgent — the domain expert for data extraction.
 
     Args:
-        model: Pre-configured BaseChatModel for the main orchestration turn.
-        worker_model: Model for subagent execution. Defaults to `model` if not provided.
+        model: Pre-configured BaseChatModel.
+        worker_model: Ignored in this simplified architecture.
         checkpointer: LangGraph checkpointer for thread-scoped conversation persistence.
         store: LangGraph store for long-term, user-scoped memory (cross-thread).
         custom_system_prompt: Extra instructions appended to the base prompt.
         mcp_tools_context: Formatted string listing all registered MCP tools.
-        enable_knowledge: Whether to include the knowledge-researcher subagent (RAG).
-        enable_mcp: Whether to include the mcp-orchestrator subagent (real-time data).
+        enable_knowledge: Whether to enable RAG tool.
+        enable_mcp: Whether to enable MCP tools.
 
     Returns:
         A compiled LangGraph graph ready for ainvoke() / astream_events().
@@ -56,74 +55,21 @@ def create_industrial_agent(
         f"enable_knowledge={enable_knowledge}, enable_mcp={enable_mcp}"
     )
 
-    # ── 2. Build Subagents ─────────────────────────────────────────────────
-    # worker_model defaults to the main model if not explicitly provided.
-    effective_worker = worker_model or model
-    subagents = []
+    # ── 2. Register Active Tools ───────────────────────────────────────────
+    active_tools = []
+    if enable_knowledge:
+        active_tools.append(ask_knowledge_agent)
+    if enable_mcp:
+        active_tools.append(call_dynamic_mcp)
 
-    for sa_def in get_all_subagents():
-        name = sa_def["name"]
-
-        # --- knowledge-researcher: RAG over user documents ---
-        if name == "knowledge-researcher":
-            if not enable_knowledge:
-                logger.debug("[IndustrialAgent] Skipping knowledge-researcher (disabled).")
-                continue
-            graph = create_deep_agent(
-                model=effective_worker,
-                tools=[ask_knowledge_agent],
-                system_prompt=sa_def["system_prompt"],
-                subagents=[],
-            )
-            subagents.append({
-                "name": sa_def["name"],
-                "description": sa_def["description"],
-                "runnable": graph,
-            })
-
-        # --- mcp-orchestrator: real-time sensor / API data ---
-        elif name == "mcp-orchestrator":
-            if not enable_mcp:
-                logger.debug("[IndustrialAgent] Skipping mcp-orchestrator (disabled).")
-                continue
-            # Inject the dynamic tools context into the MCP subagent's prompt
-            mcp_prompt = sa_def["system_prompt"].format(
-                dynamic_tools_context=mcp_tools_context
-            )
-            graph = create_deep_agent(
-                model=effective_worker,
-                tools=[call_dynamic_mcp],
-                system_prompt=mcp_prompt,
-                subagents=[],
-            )
-            subagents.append({
-                "name": sa_def["name"],
-                "description": sa_def["description"],
-                "runnable": graph,
-            })
-
-        # --- general-assistant: fallback, no tools needed ---
-        else:
-            graph = create_deep_agent(
-                model=effective_worker,
-                tools=[],
-                system_prompt=sa_def["system_prompt"],
-                subagents=[],
-            )
-            subagents.append({
-                "name": sa_def["name"],
-                "description": sa_def["description"],
-                "runnable": graph,
-            })
-
-    logger.info(f"[IndustrialAgent] Assembled {len(subagents)} subagent(s).")
+    logger.info(f"[IndustrialAgent] Assembled with {len(active_tools)} tools.")
 
     # ── 3. Assemble and Compile Agent ──────────────────────────────────────
     return create_deep_agent(
         model=model,
-        tools=[],           # All tools are encapsulated inside CompiledSubAgents
+        tools=active_tools,
         system_prompt=full_prompt,
-        subagents=subagents,
+        subagents=[],
         backend=create_composite_backend,
         checkpointer=checkpointer,
         store=store,

@@ -21,40 +21,39 @@ def _get_mcp_service() -> MCPService:
 async def call_dynamic_mcp(
     config: RunnableConfig,
     tool_config_name: str,
-    arguments: dict = {},
+    key_values: dict = None,
+    key_figures: list = None,
+    arguments: dict = None,
 ) -> str:
     """
-    Call any registered MCP tool or API endpoint dynamically.
+    Call any registered MCP tool or API endpoint dynamically with STRICT precision.
     Use this to get real-time data, sensor readings, or perform external actions.
 
     Input:
         - tool_config_name: The name of the tool as registered in the system (e.g., 'get_maquinaria').
-        - arguments: A dictionary of parameters for the call (filters, IDs, etc.).
-
-    SMART FILTERING — you can include these optional keys in 'arguments' to reduce
-    the data returned to only what the user needs (saves tokens and improves accuracy):
-
-        key_values  : Filter by categorical field values.
+        - arguments: Any other standard parameters required by the API path/query.
+        - key_values: (OPTIONAL BUT HIGHLY ENCOURAGED) Filter by categorical field values.
                       Format: {"FieldName": ["value1", "value2"]}
-                      Example: {"Category": ["Thermal"]} — returns only thermal equipment.
-                      Example: {"Status": ["Maintenance_Req"]} — equipment needing maintenance.
-
-        key_figures : Filter by numeric field ranges.
-                      Format: [{"field": "FieldName", "min": X, "max": Y}]
-                      Example: [{"field": "Value", "min": 1000}] — values above 1000.
-                      Example: [{"field": "Value", "min": 0, "max": 50}] — values in 0-50 range.
+        - key_figures: (OPTIONAL BUT HIGHLY ENCOURAGED) Filter by numeric field ranges.
+                       Format: [{"field": "FieldName", "min": X, "max": Y}]
 
     Rules:
-        - STRICT FILTERING MANDATE: You MUST use `key_values` or `key_figures` filters to narrow down the data based on the user's requirement. NEVER fetch the entire dataset lazily without filtering unless the user explicitly demands "all records without exception".
-        - If the user specifies a category, status, or name → use key_values.
-        - If the user specifies a numeric threshold or range → use key_figures.
-        - You can combine both filters in a single call.
-        - CRITICAL: You MUST use the exact field names provided in 'Filterable fields' under the tool's context (e.g., 'Value', 'TagName'). DO NOT guess or invent field names.
-        - CRITICAL TOKEN LIMIT: If your filter returns empty results ("No structured data could be extracted"), DO NOT call the tool again without filters. Calling a tool without filters just to read raw JSON will consume too many tokens and crash the system. Instead, just inform the user that no items matched their filter criteria.
+        - STRICT FILTERING MANDATE: You MUST use `key_values` or `key_figures` filters to narrow down the data.
+        - NEVER fetch the entire dataset lazily without filtering unless the user explicitly demands "all records without exception".
+        - CRITICAL: You MUST use the exact field names provided in 'Filterable fields' under the tool's context.
 
     Returns structured JSON with key_figures (metrics) and key_values (info).
     """
-    logger.info(f"[MCP Tool] Calling dynamic tool: {tool_config_name} with args: {arguments}")
+    if arguments is None:
+        arguments = {}
+
+    # Pack the explicitly named filters back into the arguments dict
+    if key_values:
+        arguments["key_values"] = key_values
+    if key_figures:
+        arguments["key_figures"] = key_figures
+
+    logger.info(f"[MCP Tool] Calling dynamic tool: {tool_config_name} with filters: kv={bool(key_values)}, kf={bool(key_figures)}, args={arguments}")
 
     provided_session = config.get("configurable", {}).get("session")
     if provided_session:

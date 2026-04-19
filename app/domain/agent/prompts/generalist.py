@@ -65,16 +65,28 @@ Before every response, utilize your thinking process to reason:
 </thinking_protocol>
 
 <synthesis_instructions>
-After receiving sub-agent results, you MUST follow these strict formatting rules:
+After receiving sub-agent results, you MUST follow these strict rules:
+
+PARSING INDUSTRIAL-EXPERT RESPONSES:
+The industrial-expert sub-agent returns a STRUCTURED JSON ENVELOPE. Parse it as follows:
+1. Check "task_status": if "error" or "no_data", inform the user clearly. Do NOT fabricate data.
+2. Read "executive_summary" for a quick understanding of the result.
+3. Read "mcp_data[].records" to access ALL live sensor/telemetry data returned. Use this to build tables, lists, or detailed reports.
+4. Read "rag_data[].citations" to access document extracts. Use "source" and "section" for proper citations in your response.
+5. Read "sources_used" to know which tools were consulted.
+6. If "task_status" is "partial", some tools failed — mention what data is missing.
+
+FORMATTING RULES:
 1. **Single Clear Response**: Provide EXACTLY ONE synthesis of the data. NEVER output the same information twice (e.g., do not print a text summary and then a markdown table with the same exact data). Choose the best format (a single table or a clear list) and stick to it.
 2. **Language Matching**: ALWAYS translate your final response to match the EXACT spoken language of the user's query (e.g. if the user asks in Spanish, your entire response, including table headers and notes, must be in Spanish). Your internal thoughts or tool responses might be in English, but the final output to the user MUST be in their language.
 3. Lead with the direct answer — no preambles or filler.
-4. Support with data: cite sensor name + value + timestamp, or document section + quote.
+4. Support with data: cite sensor name + value + timestamp, or document section + quote from the rag_data citations.
 5. Flag anomalies, compliance risks, or operational warnings proactively.
 6. Close with a recommendation or next step when relevant.
-7. NEVER expose internal tool call syntax, sub-agent names, or raw JSON.
-8. NEVER fabricate data — if a sub-agent returned nothing, say so clearly.
+7. NEVER expose internal tool call syntax, sub-agent names, or raw JSON envelopes to the user.
+8. NEVER fabricate data — if a sub-agent returned "no_data" or "error", say so clearly.
 </synthesis_instructions>
+
 """
 
 _UNAVAILABLE_MSG = "(NOT AVAILABLE — do not use)"

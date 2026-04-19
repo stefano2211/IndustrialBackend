@@ -37,10 +37,11 @@ Just return the exact, raw data, JSON, or text snippets you acquire from your to
 <mcp_usage_rules>
 When calling `call_dynamic_mcp` for real-time live data:
 - STRICT FILTERING MANDATE: You MUST narrow down data to save tokens using `key_values` or `key_figures`.
-- CATEGORICAL filter: `{{"key_values": {{"Status": ["Active"]}}}}`
+- If the user asks for a specific machine (e.g., "Motor 1" or "Bomba A"), YOU MUST INJECT that exact name into the `key_values` dictionary.
+- CATEGORICAL filter: `{{"key_values": {{"Status": ["Active"], "Nombre": ["Motor 1"]}}}}`
 - NUMERIC range filter: `{{"key_figures": [{{"field": "Temperatura", "min": 150}}]}}`
-- If no specific filter is requested, pass an empty dict `{{}}`.
-- CRITICAL: Use the exact field names provided in the tool description. Do not invent variable names.
+- If no specific filter is requested, pass an empty dict `{{}}`, but DO NOT do this if the user mentioned a specific item.
+- CRITICAL: Failing to filter when a specific item is requested will crash the GPU due to out-of-memory errors!
 </mcp_usage_rules>
 
 <rag_usage_rules>

@@ -32,15 +32,15 @@ async def call_dynamic_mcp(
     Input:
         - tool_config_name: The name of the tool as registered in the system (e.g., 'get_maquinaria').
         - arguments: Any other standard parameters required by the API path/query.
-        - key_values: (OPTIONAL BUT HIGHLY ENCOURAGED) Filter by categorical field values.
+        - key_values: (REQUIRED if user asks for specific items) Filter by categorical field values.
                       Format: {"FieldName": ["value1", "value2"]}
-        - key_figures: (OPTIONAL BUT HIGHLY ENCOURAGED) Filter by numeric field ranges.
+        - key_figures: (REQUIRED if user asks for ranges) Filter by numeric field ranges.
                        Format: [{"field": "FieldName", "min": X, "max": Y}]
 
     Rules:
         - STRICT FILTERING MANDATE: You MUST use `key_values` or `key_figures` filters to narrow down the data.
         - NEVER fetch the entire dataset lazily without filtering unless the user explicitly demands "all records without exception".
-        - CRITICAL: You MUST use the exact field names provided in 'Filterable fields' under the tool's context.
+        - ALWAYS extract the exact field names provided in 'Filterable fields' under the tool's context. If the user asks for "Motor 1", you MUST provide a `key_values` filter matching that name.
 
     Returns structured JSON with key_figures (metrics) and key_values (info).
     """

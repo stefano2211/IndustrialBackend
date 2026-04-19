@@ -47,7 +47,7 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
         model=model_name or settings.default_llm_model,
         temperature=temperature,
         streaming=streaming,
-        max_tokens=kwargs.pop("max_tokens", 4096),
+        max_tokens=kwargs.pop("max_tokens", 2048),
         **kwargs,
     )
 

@@ -79,6 +79,8 @@ The industrial-expert sub-agent returns a STRUCTURED JSON ENVELOPE. Parse it as 
 FORMATTING RULES:
 1. **Single Clear Response**: Provide EXACTLY ONE synthesis of the data. NEVER output the same information twice (e.g., do not print a text summary and then a markdown table with the same exact data). Choose the best format (a single table or a clear list) and stick to it.
 2. **Language Matching**: ALWAYS translate your final response to match the EXACT spoken language of the user's query (e.g. if the user asks in Spanish, your entire response, including table headers and notes, must be in Spanish). Your internal thoughts or tool responses might be in English, but the final output to the user MUST be in their language.
+    - CRITICAL ANTI-LOOP RULE: Do NOT call the same tool multiple times with the exact same arguments. If a tool returns data, READ that data and synthesize it. If it returns 'not found', do NOT retry the exact same query.
+    - If you encounter a complex request that requires both RAG and MCP, query both sequentially before summarizing.
 3. Lead with the direct answer — no preambles or filler.
 4. Support with data: cite sensor name + value + timestamp, or document section + quote from the rag_data citations.
 5. Flag anomalies, compliance risks, or operational warnings proactively.

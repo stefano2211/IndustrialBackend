@@ -196,17 +196,77 @@ class AgentService:
         kv_fields: dict = filterable_schema.get("key_values", {})
 
         if kf_fields or kv_fields:
-            lines.append("  Filterable fields (use in 'arguments' → key_values / key_figures):")
+            lines.append("  ── FILTERABLE FIELDS (pass as DIRECT parameters to call_dynamic_mcp) ──")
             if kf_fields:
-                lines.append(f"    [NUMERIC]  — key_figures fields: {', '.join(kf_fields)}")
-                lines.append( "                 Usage: {\"key_figures\": [{\"field\": \"<name>\", \"min\": X, \"max\": Y}]}")
+                lines.append(f"    [NUMERIC] key_figures fields: {', '.join(kf_fields)}")
             if kv_fields:
-                lines.append( "    [CATEGORICAL] — key_values fields and available values:")
+                lines.append("    [CATEGORICAL] key_values fields and known values:")
                 for kv_field, kv_vals in kv_fields.items():
-                    # Limit to first 5 values to keep context compact
-                    vals_preview = kv_vals[:5]
-                    suffix = f" (tot:{len(kv_vals)})" if len(kv_vals) > 5 else ""
+                    vals_preview = kv_vals[:15]
+                    suffix = f" ... (+{len(kv_vals) - 15} more)" if len(kv_vals) > 15 else ""
                     lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
+
+            # ── Dynamic few-shot examples (auto-generated from real discovered data) ──
+            lines.append("")
+            lines.append(f"  ── EXAMPLE CALLS for '{t.name}' ──")
+
+            # Auto-generate sample arguments if the API has required fields
+            sample_args_str = ""
+            if required_fields or path_params:
+                sample_args = {}
+                for pp in path_params:
+                    sample_args[pp] = f"{pp}_value"
+                for req in required_fields:
+                    if req not in sample_args:
+                        sample_args[req] = f"{req}_value"
+                if sample_args:
+                    import json
+                    sample_args_str = f', arguments={json.dumps(sample_args)}'
+
+            # Example 1: Categorical filter — pick the first kv field and its first value
+            if kv_fields:
+                ex_kv_field = next(iter(kv_fields))
+                ex_kv_value = kv_fields[ex_kv_field][0] if kv_fields[ex_kv_field] else "example"
+                lines.append(
+                    f'    If user asks about a specific {ex_kv_field} (e.g. "{ex_kv_value}"):'
+                )
+                lines.append(
+                    f'    → call_dynamic_mcp(tool_config_name="{t.name}"{sample_args_str}, '
+                    f'key_values={{"{ex_kv_field}": ["{ex_kv_value}"]}})'
+                )
+
+            # Example 2: Numeric range filter — pick the first kf field
+            if kf_fields:
+                ex_kf_field = kf_fields[0]
+                lines.append(
+                    f'    If user asks for {ex_kf_field} above a threshold:'
+                )
+                lines.append(
+                    f'    → call_dynamic_mcp(tool_config_name="{t.name}"{sample_args_str}, '
+                    f'key_figures=[{{"field": "{ex_kf_field}", "min": 100}}])'
+                )
+
+            # Example 3: Combined filter — only if both types exist
+            if kv_fields and kf_fields:
+                ex_kv_field = next(iter(kv_fields))
+                ex_kv_value = kv_fields[ex_kv_field][0] if kv_fields[ex_kv_field] else "example"
+                ex_kf_field = kf_fields[0]
+                lines.append(
+                    f'    Combined (specific {ex_kv_field} + {ex_kf_field} range):'
+                )
+                lines.append(
+                    f'    → call_dynamic_mcp(tool_config_name="{t.name}"{sample_args_str}, '
+                    f'key_values={{"{ex_kv_field}": ["{ex_kv_value}"]}}, '
+                    f'key_figures=[{{"field": "{ex_kf_field}", "min": 50, "max": 200}}])'
+                )
+            elif not kf_fields and not kv_fields:
+                # Example 4: No filters, only arguments
+                lines.append(
+                    f'    Simple call with parameters:'
+                )
+                lines.append(
+                    f'    → call_dynamic_mcp(tool_config_name="{t.name}"{sample_args_str})'
+                )
 
         return "\n".join(lines)
 

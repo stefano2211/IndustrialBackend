@@ -82,14 +82,14 @@ FIELD RULES:
 
 <mcp_usage_rules>
 When calling `call_dynamic_mcp` for real-time live data:
-- STRICT FILTERING MANDATE: You MUST narrow down data to save tokens using `key_values` or `key_figures`.
-- If the user asks for a specific machine (e.g., "Motor 1" or "Bomba A"), YOU MUST INJECT that exact name into the `key_values` dictionary.
-- CATEGORICAL filter: {{"key_values": {{"Status": ["Active", "Warning"], "Nombre": ["Motor 1"]}}}}
-- NUMERIC range filter: `{{"key_figures": [{{"field": "Temperatura", "min": 150}}]}}`
-- If the user specifies ANY constraint (e.g., a specific machine name, OR a specific status like 'Warning'/ 'Review'), you MUST inject those into `key_values` to filter the data.
-- ONLY pass an empty dict `{{}}` if the user asks for a completely generic, unfiltered overview of everything.
-- CRITICAL: Failing to filter when a constraint is requested will crash the GPU due to out-of-memory errors!
-- After receiving the MCP response, parse the JSON and place ALL records into the "mcp_data[].records" field of your envelope.
+- STRICT FILTERING MANDATE: You MUST use `key_values` or `key_figures` parameters to narrow down data.
+- `key_values` and `key_figures` are DIRECT parameters of `call_dynamic_mcp` — pass them at the top level, NOT inside `arguments`.
+- ALWAYS check the FILTERABLE FIELDS section under each tool in <dynamic_tools> above. It lists the exact field names and available values you can use.
+- Each tool in <dynamic_tools> includes EXAMPLE CALLS showing the exact syntax for categorical, numeric, and combined filters using that tool's real field names. Follow those examples precisely.
+- If the user asks for a specific item (e.g., a machine name, a status), find the matching field and value in the tool's FILTERABLE FIELDS and inject it into `key_values`.
+- If the user asks for a numeric threshold (e.g., "temperature above 100"), find the matching field in key_figures and use `key_figures` with min/max.
+- ONLY omit filters if the user explicitly asks for ALL records with no constraints.
+- After receiving the MCP response, place ALL records into the "mcp_data[].records" field of your envelope.
 </mcp_usage_rules>
 
 <rag_usage_rules>

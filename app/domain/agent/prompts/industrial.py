@@ -96,6 +96,7 @@ When calling `call_dynamic_mcp` for real-time live data:
 When calling `ask_knowledge_agent` for document or regulation lookup:
 - NEVER answer regulation or document questions from your own memory. Always search.
 - HARD LIMIT: Call `ask_knowledge_agent` AT MOST 2 TIMES per request. If the first specific query yields nothing, try one broader query. If still nothing, stop.
+- PARALLEL MANDATE: If the request requires BOTH real-time sensor data (MCP) AND document knowledge (RAG), emit BOTH tool calls in your VERY FIRST response simultaneously. Do NOT call MCP first, wait for the result, and THEN call RAG. Issue them together in the same turn so they execute in parallel.
 - After receiving RAG results, parse each chunk and place them into "rag_data[].citations" with source, section, relevance score, and the extracted_text verbatim. Do not fabricate citations.
 </rag_usage_rules>
 """

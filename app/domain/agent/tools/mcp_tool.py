@@ -11,6 +11,10 @@ import json
 # Lazy-init singleton
 _mcp_service: MCPService | None = None
 
+# In-memory URL resolution cache — evita un DB round-trip por cada llamada MCP.
+# Las URLs de source solo cambian si se reconfigura la fuente (muy infrecuente).
+_url_cache: dict = {}
+
 def _get_mcp_service() -> MCPService:
     global _mcp_service
     if _mcp_service is None:
@@ -93,14 +97,20 @@ async def _do_call_dynamic_mcp(
     if key_figures_filter:
         logger.info(f"[MCP Tool] Applying key_figures filter: {key_figures_filter}")
 
-    # ── Robust URL resolution ──────────────────────────────────────────────
+    # ── Robust URL resolution (with in-memory cache) ───────────────────────
     if execution_url and "://" not in execution_url:
-        source = await session.get(MCPSource, tool_config.source_id)
-        if source and source.url:
-            base_url = source.url.rstrip("/")
-            path = execution_url.lstrip("/")
-            execution_url = f"{base_url}/{path}"
-            logger.info(f"[MCP Tool] Resolved relative URL to: {execution_url}")
+        cache_key = f"{tool_config.source_id}:{execution_url}"
+        if cache_key in _url_cache:
+            execution_url = _url_cache[cache_key]
+            logger.debug(f"[MCP Tool] URL resolved from cache: {execution_url}")
+        else:
+            source = await session.get(MCPSource, tool_config.source_id)
+            if source and source.url:
+                base_url = source.url.rstrip("/")
+                path = execution_url.lstrip("/")
+                execution_url = f"{base_url}/{path}"
+                _url_cache[cache_key] = execution_url
+                logger.info(f"[MCP Tool] Resolved relative URL to: {execution_url}")
 
     if execution_url and "://" in execution_url:
         scheme, rest = execution_url.split("://", 1)

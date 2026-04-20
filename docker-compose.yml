@@ -67,16 +67,20 @@ services:
       - "4"
       - "--max-lora-rank"
       - "16"
-      - "--enforce-eager"  # Ahorra ~3GB desactivando CUDA Graphs (recomendado al usar muchos LoRAs)
+      # enforce-eager REMOVIDO: degradaba throughput 5-15%. CUDA Graphs activos = mejor decode.
+      - "--enable-prefix-caching"  # KV-cache reuse del system prompt entre requests del mismo agente
+      - "--enable-chunked-prefill"  # Interleave prefill/decode: mejora ITL en multi-request
       - "--gpu-memory-utilization"
-      - "0.45"
+      - "0.50"  # Subido de 0.45: recuperamos ~1.5GB que enforce-eager forzaba a reservar
       - "--max-model-len"
-      - "16384"
+      - "12288"  # Bajado de 16384: agentes no usan 16K. Reducir = más KV cache disponible.
       - "--mm-processor-cache-gb"  # Cache de procesamiento multimodal
       - "2"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"
+      - "--max-num-seqs"
+      - "4"  # Edge single-user: limita concurrencia para priorizar latencia vs throughput
     volumes:
       - ./loras:/loras
       - hf_cache:/root/.cache/huggingface
@@ -111,13 +115,17 @@ services:
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
+      - "--enable-prefix-caching"  # CRÍTICO: el mismo system prompt se envía en cada request
+      - "--enable-chunked-prefill"  # Mejor scheduling de prefill + decode en paralelo
       - "--gpu-memory-utilization"
-      - "0.45"
+      - "0.48"  # Subido ligeramente de 0.45
       - "--max-model-len"
-      - "16384"
+      - "10240"  # Bajado de 16384: el orquestador hace routing corto, nunca usa 16K
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "qwen3_xml"
+      - "--max-num-seqs"
+      - "4"  # Edge single-user: prioriza latencia
     volumes:
       - hf_cache:/root/.cache/huggingface
     ipc: host

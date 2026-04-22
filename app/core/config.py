@@ -48,10 +48,10 @@ class Settings(BaseSettings):
     default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
 
     # Generalist Orchestrator — uses Qwen MoE base model
-    generalist_llm_model: str = "Qwen/Qwen3-30B-A3B"  # Director model
+    generalist_llm_model: str = "Qwen/Qwen3-30B-A3B-GPTQ-Int4"  # Director model
 
     # Sistema 1 — Fine-tuned models (Gemma 4 MoE base + their LoRA adapters)
-    system1_base_model: str = "Qwen/Qwen3-30B-A3B"   # Base backbone for ALL Sistema 1 subagents
+    system1_base_model: str = "Qwen/Qwen3-30B-A3B-GPTQ-Int4"   # Base backbone for ALL Sistema 1 subagents
     system1_historico_model: str = "aura_tenant_01-v2"       # Text LoRA tag in vLLM (historico subagent)
     system1_model: str = "aura_tenant_01-vl"                  # VL LoRA tag in vLLM (VL + computer-use subagents)
     system1_enabled: bool = True                              # Toggle; set False if neither LoRA is deployed yet

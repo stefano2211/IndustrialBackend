@@ -56,13 +56,13 @@ services:
       - HF_TOKEN=${HF_TOKEN}
       - CUDA_VISIBLE_DEVICES=0
     command:
-      # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling
-      - "Qwen/Qwen3-30B-A3B"
+      # Qwen 30B MoE using GPTQ (Int4) — Fits into disk easily
+      - "Qwen/Qwen3-30B-A3B-GPTQ-Int4"
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
       - "--quantization"
-      - "fp8"
+      - "gptq"
       - "--enable-lora"
       - "--max-loras"
       - "4"

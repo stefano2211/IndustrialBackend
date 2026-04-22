@@ -53,6 +53,7 @@ services:
     environment:
       # Required for dynamic OTA LoRA loading at runtime (POST /v1/load_lora_adapter)
       - VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
+      - HF_TOKEN=${HF_TOKEN}
       - CUDA_VISIBLE_DEVICES=0
     command:
       # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling

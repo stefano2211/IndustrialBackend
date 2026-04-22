@@ -56,11 +56,12 @@ services:
       - CUDA_VISIBLE_DEVICES=0
     command:
       # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling
-      - "google/gemma-4-26b-a4b-it"
+      - "google/gemma-4-26b-a4b-it-awq" # CRÍTICO: Debe ser un repo pre-cuantizado en HF para que AWQ funcione
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
-      # Quantization: Use "awq" for 24GB GPUs, remove for 48GB+ (runs in float16 natively)
+      - "--quantization"
+      - "awq"
       - "--enable-lora"
       - "--max-loras"
       - "4"

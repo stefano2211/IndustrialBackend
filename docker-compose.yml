@@ -60,8 +60,6 @@ services:
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
-      - "--quantization"
-      - "awq"
       - "--enable-lora"
       - "--max-loras"
       - "4"

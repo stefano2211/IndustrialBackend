@@ -75,7 +75,7 @@ services:
       - "32768" # Pre-quantized FP8 frees VRAM for 32K context
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
-      - "qwen3" # Native Qwen3 tool parser (better than hermes for this model)
+      - "qwen3_coder" # Native Qwen3 coder parser for Qwen3.5 models
       - "--max-num-seqs"
       - "4" # Mantenemos batching bajo para Edge para reservar memoria para KV Cache
       # Multimodal: limit images per prompt to control VRAM for vision encoder

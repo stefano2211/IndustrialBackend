@@ -57,12 +57,10 @@ services:
       - CUDA_VISIBLE_DEVICES=0
     command:
       # Qwen 30B MoE using GPTQ (Int4) — Fits into disk easily
-      - "Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+      - "Qwen/Qwen3.5-27B"
       - "--trust-remote-code"
       - "--dtype"
-      - "float16"
-      - "--quantization"
-      - "gptq"
+      - "auto"
       - "--enable-lora"
       - "--max-loras"
       - "4"
@@ -71,15 +69,12 @@ services:
       - "--enable-prefix-caching" # KV-cache reuse for system prompts across agent requests
       - "--enable-chunked-prefill" # Interleave prefill/decode for better ITL
       - "--gpu-memory-utilization"
-      - "0.90" # No more contention — single container owns full GPU
+      - "0.90" # 90% de 50GB VRAM (45GB)
       - "--max-model-len"
-      - "16384" # MoE uses less KV per token; 16K is comfortable
-      # Gemma 4 native tool calling parser (replaces qwen3_xml)
+      - "8192" # Reducido a 8K para evitar Out-Of-Memory con el modelo denso de 27B
       - "--enable-auto-tool-choice"
-      - "--tool-call-parser"
-      - "gemma4"
       - "--max-num-seqs"
-      - "4" # Edge single-user: prioritize latency over throughput
+      - "4" # Mantenemos batching bajo para Edge para reservar memoria para KV Cache
       # Multimodal: limit images per prompt to control VRAM for vision encoder
       - "--limit-mm-per-prompt"
       - '{"image": 4}'

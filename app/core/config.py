@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     system1_base_model: str = "google/gemma-4-26b-a4b-it"   # Base backbone for ALL Sistema 1 subagents
     system1_historico_model: str = "aura_tenant_01-v2"       # Text LoRA tag in vLLM (historico subagent)
     system1_model: str = "aura_tenant_01-vl"                  # VL LoRA tag in vLLM (VL + computer-use subagents)
-    system1_enabled: bool = True                              # Toggle; set False if neither LoRA is deployed yet
+    system1_enabled: bool = False                              # Toggle; set False if neither LoRA is deployed yet
     system1_force_base_model: bool = False                   # True = usar modelo base sin intentar cargar LoRAs
 
     # Computer Use — Macrohard Digital Optimus Local

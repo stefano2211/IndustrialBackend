@@ -56,7 +56,7 @@ services:
       - CUDA_VISIBLE_DEVICES=0
     command:
       # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling
-      - "google/gemma-4-26b-a4b-it-awq" # CRÍTICO: Debe ser un repo pre-cuantizado en HF para que AWQ funcione
+      - "cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit"
       - "--trust-remote-code"
       - "--dtype"
       - "float16"

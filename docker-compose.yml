@@ -73,6 +73,8 @@ services:
       - "--max-model-len"
       - "8192" # Reducido a 8K para evitar Out-Of-Memory con el modelo denso de 27B
       - "--enable-auto-tool-choice"
+      - "--tool-call-parser"
+      - "hermes"
       - "--max-num-seqs"
       - "4" # Mantenemos batching bajo para Edge para reservar memoria para KV Cache
       # Multimodal: limit images per prompt to control VRAM for vision encoder

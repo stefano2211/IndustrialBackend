@@ -38,9 +38,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30 # Default 30 mins
 
     
-    # Edge / Local Model configuration
-    vllm_base_url: str = "http://vllm-sistema1:8000/v1"
-    vllm_orchestrator_url: str = "http://vllm-orchestrator:8000/v1"
+    # Edge / Local Model configuration — Unified Gemma 4 MoE endpoint
+    vllm_base_url: str = "http://vllm:8000/v1"
 
     # OpenRouter configuration - REMOVED
 
@@ -48,15 +47,15 @@ class Settings(BaseSettings):
     default_llm_provider: str = "vllm"
     default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
 
-    # Generalist Orchestrator (larger — for routing decisions)
-    generalist_llm_model: str = "Qwen/Qwen3.5-9B"  # Director model
+    # Generalist Orchestrator — uses Gemma 4 MoE base model (no LoRA)
+    generalist_llm_model: str = "google/gemma-4-26b-a4b-it"  # Director model (MoE: 26B total, ~4B active)
 
-    # Sistema 1 — Fine-tuned models (9B base + their LoRA)
-    system1_base_model: str = "Qwen/Qwen3.5-9B"        # Base backbone for ALL Sistema 1 subagents (hardcoded, upgraded 2B→9B)
-    system1_historico_model: str = "aura_tenant_01-v2"  # Text LoRA tag in vLLM (historico subagent)
-    system1_model: str = "aura_tenant_01-vl"             # VL LoRA tag in vLLM (VL + computer-use subagents)
-    system1_enabled: bool = True                         # Toggle; set False if neither LoRA is deployed yet
-    system1_force_base_model: bool = False              # True = usar modelo base sin intentar cargar LoRAs (para dev sin LoRAs)
+    # Sistema 1 — Fine-tuned models (Gemma 4 MoE base + their LoRA adapters)
+    system1_base_model: str = "google/gemma-4-26b-a4b-it"   # Base backbone for ALL Sistema 1 subagents
+    system1_historico_model: str = "aura_tenant_01-v2"       # Text LoRA tag in vLLM (historico subagent)
+    system1_model: str = "aura_tenant_01-vl"                  # VL LoRA tag in vLLM (VL + computer-use subagents)
+    system1_enabled: bool = True                              # Toggle; set False if neither LoRA is deployed yet
+    system1_force_base_model: bool = False                   # True = usar modelo base sin intentar cargar LoRAs
 
     # Computer Use — Macrohard Digital Optimus Local
     computer_use_enabled: bool = True          # Feature flag global

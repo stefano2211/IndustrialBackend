@@ -390,7 +390,6 @@ class AgentService:
 
         # 3. Create Orchestrator LLM
         # Cap output tokens: orchestrator routes/synthesizes only — prevents context overflow
-        # (12289 input + 4096 default = 16385 > 16384 max_model_len on vllm-orchestrator)
         merged_params.setdefault("max_tokens", 1024)
         ui_generalist_llm = await LLMFactory.get_llm(
             provider=provider,
@@ -459,15 +458,15 @@ class AgentService:
         worker_llm = ui_generalist_llm
 
         # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
-        # Qwen3.5-9B is natively multimodal — if the VL LoRA doesn't exist yet,
+        # Gemma 4 26B-A4B is natively multimodal — if the VL LoRA doesn't exist yet,
         # fall back to the base model so sistema1-vl (computer use loop) still works.
-        # OPTIMAL Qwen3.5 params for computer use: low temp (deterministic), higher max_tokens (thinking+JSON)
+        # Gemma 4 recommended params: temp=1.0 (Google docs), top_p=0.95
         vision_llm = None
         _vision_kwargs = {
-            "temperature": 0.6,      # Qwen3.5 thinking mode: recommended temp is 0.6 (Qwen docs)
-            "max_tokens": 4096,      # 4096 needed: <thinking> block (~1500t) + XML tool call (~500t) + margin
+            "temperature": 1.0,      # Gemma 4 recommended: temp=1.0 (Google official)
+            "max_tokens": 4096,      # Needed: thinking block (~1500t) + tool call (~500t) + margin
             "streaming": False,      # Ensure complete responses for tool calls
-            "stop": [],              # Disable stop tokens: VL needs to generate full XML tool calls
+            "stop": [],              # Disable stop tokens: VL needs to generate full tool calls
             "extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
             "base_url": settings.vllm_base_url,
         }

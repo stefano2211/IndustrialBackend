@@ -41,101 +41,57 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  vllm-sistema1:
-    image: vllm/vllm-openai:latest # latest includes native Qwen3.5 + qwen3_xml tool call parser
-    container_name: vllm-sistema1
+  # ── Unified vLLM: Gemma 4 26B-A4B (MoE) ──────────────────────────────────
+  # Replaces the previous dual-container setup (vllm-orchestrator + vllm-sistema1).
+  # Single MoE backbone serves both the Orchestrator (base model) and subagents (via LoRA).
+  # Gemma 4 26B-A4B: 26B total params, ~4B active per token. Native multimodal + tool calling.
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
     ports:
       - "8002:8000"
-    # Wait for orchestrator to be healthy before starting (sequential startup to avoid GPU contention)
-    depends_on:
-      vllm-orchestrator:
-        condition: service_healthy
     environment:
-      # Requerido para carga dinámica de LoRA en runtime (POST /v1/load_lora_adapter)
+      # Required for dynamic OTA LoRA loading at runtime (POST /v1/load_lora_adapter)
       - VLLM_ALLOW_RUNTIME_LORA_UPDATING=true
-      # GPU 0 para este servicio (VL + LoRA). Si solo tienes 1 GPU, ambos comparten GPU 0.
-      # Con 2 GPUs: poner GPU_DEVICE_ORDINAL=0 aqui y =1 en vllm-orchestrator.
       - CUDA_VISIBLE_DEVICES=0
     command:
-      # Modelo como argumento posicional (formato vLLM >= 0.13)
-      - "Qwen/Qwen3.5-9B"
+      # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling
+      - "google/gemma-4-26b-a4b-it"
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
+      # Quantization: Use "awq" for 24GB GPUs, remove for 48GB+ (runs in float16 natively)
       - "--enable-lora"
       - "--max-loras"
       - "4"
       - "--max-lora-rank"
       - "16"
-      # enforce-eager REMOVIDO: degradaba throughput 5-15%. CUDA Graphs activos = mejor decode.
-      - "--enable-prefix-caching"  # KV-cache reuse del system prompt entre requests del mismo agente
-      - "--enable-chunked-prefill"  # Interleave prefill/decode: mejora ITL en multi-request
+      - "--enable-prefix-caching"   # KV-cache reuse for system prompts across agent requests
+      - "--enable-chunked-prefill"  # Interleave prefill/decode for better ITL
       - "--gpu-memory-utilization"
-      - "0.50"  # Subido de 0.45: recuperamos ~1.5GB que enforce-eager forzaba a reservar
+      - "0.90"  # No more contention — single container owns full GPU
       - "--max-model-len"
-      - "12288"  # Bajado de 16384: agentes no usan 16K. Reducir = más KV cache disponible.
-      - "--mm-processor-cache-gb"  # Cache de procesamiento multimodal
-      - "2"
+      - "16384"  # MoE uses less KV per token; 16K is comfortable
+      # Gemma 4 native tool calling parser (replaces qwen3_xml)
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
-      - "qwen3_xml"
+      - "gemma4"
       - "--max-num-seqs"
-      - "4"  # Edge single-user: limita concurrencia para priorizar latencia vs throughput
+      - "4"  # Edge single-user: prioritize latency over throughput
+      # Multimodal: limit images per prompt to control VRAM for vision encoder
+      - "--limit-mm-per-prompt"
+      - '{"image": 4}'
     volumes:
       - ./loras:/loras
       - hf_cache:/root/.cache/huggingface
-    ipc: host # Required by vLLM: prevents shared memory errors during GPU tensor inference
+    ipc: host  # Required by vLLM: prevents shared memory errors during GPU tensor inference
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 240s  # Qwen3.5-9B necesita ~3-4 min para carga de pesos (18GB) + warmup
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
-
-  vllm-orchestrator:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-orchestrator
-    ports:
-      - "8003:8000"
-    environment:
-      # Si tienes 2 GPUs: cambiar a CUDA_VISIBLE_DEVICES=1 para aislar de vllm-sistema1
-      # Si solo 1 GPU: dejar en 0 (ambos comparten) y reducir utilization a 0.40
-      - CUDA_VISIBLE_DEVICES=0
-      # VLLM_USE_V1=0 ya no tiene efecto en vLLM >= 0.8 (V0 fue eliminado permanentemente)
-    command:
-      - "Qwen/Qwen3.5-9B"
-      - "--trust-remote-code"
-      - "--dtype"
-      - "float16"
-      - "--enable-prefix-caching"  # CRÍTICO: el mismo system prompt se envía en cada request
-      - "--enable-chunked-prefill"  # Mejor scheduling de prefill + decode en paralelo
-      - "--gpu-memory-utilization"
-      - "0.48"  # Subido ligeramente de 0.45
-      - "--max-model-len"
-      - "10240"  # Bajado de 16384: el orquestador hace routing corto, nunca usa 16K
-      - "--enable-auto-tool-choice"
-      - "--tool-call-parser"
-      - "qwen3_xml"
-      - "--max-num-seqs"
-      - "4"  # Edge single-user: prioriza latencia
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-    ipc: host
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 300s
+      start_period: 420s  # Gemma 4 26B MoE: ~7 min for weight loading + warmup
     deploy:
       resources:
         reservations:
@@ -153,14 +109,12 @@ services:
     env_file:
       - .env
     environment:
-      - VLLM_BASE_URL=http://vllm-sistema1:8000/v1
-      - VLLM_ORCHESTRATOR_URL=http://vllm-orchestrator:8000/v1
+      # Unified vLLM endpoint — single MoE container serves all agents
+      - VLLM_BASE_URL=http://vllm:8000/v1
       - DISPLAY=:99  # Display virtual de Xvfb (Computer Use Agent)
       # ⚠️ PRODUCCIÓN: URL pública del Edge para que ApiLLMOps envíe el webhook OTA de regreso.
-      # Como ambas apps corren en el mismo servidor, usar la IP pública (no localhost — no resuelve entre stacks Docker).
       - EDGE_PUBLIC_URL=${EDGE_PUBLIC_URL:-http://69.19.136.193:8000}
       # URL de la Mothership (ApiLLMOps) accesible desde dentro de este container.
-      # Puerto 8001 = puerto público del mops-api en el servidor.
       - MOTHERSHIP_API_URL=${MOTHERSHIP_API_URL:-http://38.128.233.165:8001}
     # Chromium necesita al menos 256MB de shared memory para no crashear
     shm_size: '256mb'
@@ -169,13 +123,11 @@ services:
       - ./tmp:/tmp
       - ./loras:/loras # Shared with vLLM — OTA service extracts adapters here
       - hf_cache:/root/.cache/huggingface
-      - chromium_profile:/tmp/chromium-profile  # Perfil Chromium persistente: cookies/sesiones sobreviven reinicios
-      - omniparser_weights:/omniparser/weights    # OmniParser V2 weights (YOLO icon_detect + Florence-2 icon_caption)
+      - chromium_profile:/tmp/chromium-profile
+      - omniparser_weights:/omniparser/weights
     restart: unless-stopped
     depends_on:
-      vllm-sistema1:
-        condition: service_healthy
-      vllm-orchestrator:
+      vllm:
         condition: service_healthy
       postgres:
         condition: service_started

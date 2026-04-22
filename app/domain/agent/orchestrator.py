@@ -61,7 +61,7 @@ def create_generalist_orchestrator(
     or all simultaneously — like parallel tool/function calls.
 
     Args:
-        generalist_model: Resolved LLM for orchestration (Sistema 2 brain).
+        generalist_model: Resolved LLM for orchestration (Sistema 2 brain — Gemma 4).
         expert_model: Async factory for IndustrialExpert (lazy, Sistema 2 tool).
         expert_model_instance: Resolved LLM instance for sistema1-historico (Sistema 1).
                                If None, the historical subagent is skipped gracefully.

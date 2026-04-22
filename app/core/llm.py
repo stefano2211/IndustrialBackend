@@ -33,12 +33,11 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
     # (Qwen3.5 doesn't use top_k; temperature and top_p are sufficient)
     kwargs.pop("top_k", None)
 
-    # Qwen3.5 stop tokens — applied only when the caller has NOT specified 'stop'.
+    # Gemma 4 stop tokens — applied only when the caller has NOT specified 'stop'.
     # Computer-use VL model passes stop=[] explicitly to disable stop tokens,
-    # preventing EOS tokens from cutting XML tool calls mid-generation.
-    # previene que tokens EOS corten tool calls XML o de Gemma.
+    # preventing EOS from cutting tool calls mid-generation.
     if 'stop' not in kwargs:
-        kwargs['stop'] = ['<|im_end|>', '<|endoftext|>', '<end_of_turn>']
+        kwargs['stop'] = ['<turn|>']
 
 
     return ChatOpenAI(
@@ -107,12 +106,8 @@ class LLMFactory:
 
         factory_kwargs = {}
         if provider == LLMProvider.VLLM:
-            # Route orchestrator to its separate container instance
-            # Always prefer .env settings for internal Docker hostnames
-            if model_name == getattr(sys_settings, "generalist_llm_model", settings.generalist_llm_model):
-                factory_kwargs["base_url"] = settings.vllm_orchestrator_url
-            else:
-                factory_kwargs["base_url"] = settings.vllm_base_url
+            # Unified MoE endpoint — all agents share the same Gemma 4 backbone
+            factory_kwargs["base_url"] = settings.vllm_base_url
 
         logger.info(f"Initializing Unified LLM: provider={provider}, model={model_name} (requested role={role})")
 

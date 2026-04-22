@@ -56,11 +56,13 @@ services:
       - HF_TOKEN=${HF_TOKEN}
       - CUDA_VISIBLE_DEVICES=0
     command:
-      # Qwen 30B MoE using GPTQ (Int4) — Fits into disk easily
+      # Qwen3.5-27B MoE — fp8 quantization reduces weights from ~54GB to ~27GB, fits in 48GB GPU
       - "Qwen/Qwen3.5-27B"
       - "--trust-remote-code"
       - "--dtype"
-      - "auto"
+      - "bfloat16"
+      - "--quantization"
+      - "fp8"
       - "--enable-lora"
       - "--max-loras"
       - "4"
@@ -71,7 +73,7 @@ services:
       - "--gpu-memory-utilization"
       - "0.90" # 90% de 50GB VRAM (45GB)
       - "--max-model-len"
-      - "8192" # Reducido a 8K para evitar Out-Of-Memory con el modelo denso de 27B
+      - "16384" # fp8 frees ~20GB for KV cache — 16K context now viable
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "hermes"

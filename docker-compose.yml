@@ -57,7 +57,7 @@ services:
       - CUDA_VISIBLE_DEVICES=0
     command:
       # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling
-      - "Qwen/Qwen3-30B-A3B-Instruct"
+      - "Qwen/Qwen3-30B-A3B"
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
@@ -68,32 +68,32 @@ services:
       - "4"
       - "--max-lora-rank"
       - "16"
-      - "--enable-prefix-caching"   # KV-cache reuse for system prompts across agent requests
-      - "--enable-chunked-prefill"  # Interleave prefill/decode for better ITL
+      - "--enable-prefix-caching" # KV-cache reuse for system prompts across agent requests
+      - "--enable-chunked-prefill" # Interleave prefill/decode for better ITL
       - "--gpu-memory-utilization"
-      - "0.90"  # No more contention — single container owns full GPU
+      - "0.90" # No more contention — single container owns full GPU
       - "--max-model-len"
-      - "16384"  # MoE uses less KV per token; 16K is comfortable
+      - "16384" # MoE uses less KV per token; 16K is comfortable
       # Gemma 4 native tool calling parser (replaces qwen3_xml)
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "gemma4"
       - "--max-num-seqs"
-      - "4"  # Edge single-user: prioritize latency over throughput
+      - "4" # Edge single-user: prioritize latency over throughput
       # Multimodal: limit images per prompt to control VRAM for vision encoder
       - "--limit-mm-per-prompt"
       - '{"image": 4}'
     volumes:
       - ./loras:/loras
       - hf_cache:/root/.cache/huggingface
-    ipc: host  # Required by vLLM: prevents shared memory errors during GPU tensor inference
+    ipc: host # Required by vLLM: prevents shared memory errors during GPU tensor inference
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/health || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 420s  # Gemma 4 26B MoE: ~7 min for weight loading + warmup
+      start_period: 420s # Gemma 4 26B MoE: ~7 min for weight loading + warmup
     deploy:
       resources:
         reservations:
@@ -113,7 +113,7 @@ services:
     environment:
       # Unified vLLM endpoint — single MoE container serves all agents
       - VLLM_BASE_URL=http://vllm:8000/v1
-      - DISPLAY=:99  # Display virtual de Xvfb (Computer Use Agent)
+      - DISPLAY=:99 # Display virtual de Xvfb (Computer Use Agent)
       # ⚠️ PRODUCCIÓN: URL pública del Edge para que ApiLLMOps envíe el webhook OTA de regreso.
       - EDGE_PUBLIC_URL=${EDGE_PUBLIC_URL:-http://69.19.136.193:8000}
       # URL de la Mothership (ApiLLMOps) accesible desde dentro de este container.
@@ -148,6 +148,6 @@ volumes:
   postgres_data:
     name: postgres-data
   chromium_profile:
-    name: chromium-profile  # Perfil Chromium persistente — pre-autenticar aqui para evitar Google bot detection
+    name: chromium-profile # Perfil Chromium persistente — pre-autenticar aqui para evitar Google bot detection
   omniparser_weights:
-    name: omniparser-weights  # Descargar con: docker compose exec api huggingface-cli download microsoft/OmniParser-v2.0 --local-dir /omniparser/weights
+    name: omniparser-weights # Descargar con: docker compose exec api huggingface-cli download microsoft/OmniParser-v2.0 --local-dir /omniparser/weights

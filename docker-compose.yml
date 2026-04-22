@@ -56,12 +56,17 @@ services:
       - CUDA_VISIBLE_DEVICES=0
     command:
       # Gemma 4 26B-A4B (MoE) — Apache 2.0, 256K context, native vision + tool calling
-      - "google/gemma-4-26b-a4b-it"
+      - "Qwen/Qwen3-30B-A3B-Instruct"
       - "--trust-remote-code"
       - "--dtype"
       - "float16"
       - "--quantization"
       - "fp8"
+      - "--enable-lora"
+      - "--max-loras"
+      - "4"
+      - "--max-lora-rank"
+      - "16"
       - "--enable-prefix-caching"   # KV-cache reuse for system prompts across agent requests
       - "--enable-chunked-prefill"  # Interleave prefill/decode for better ITL
       - "--gpu-memory-utilization"

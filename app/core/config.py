@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30 # Default 30 mins
 
     
-    # Edge / Local Model configuration — Unified Gemma 4 MoE endpoint
+    # Edge / Local Model configuration — Unified Qwen3.5-27B-FP8 endpoint
     vllm_base_url: str = "http://vllm:8000/v1"
 
     # OpenRouter configuration - REMOVED
@@ -47,11 +47,11 @@ class Settings(BaseSettings):
     default_llm_provider: str = "vllm"
     default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
 
-    # Generalist Orchestrator — uses Qwen MoE base model
-    generalist_llm_model: str = "Qwen/Qwen3.5-27B"  # Director model
+    # Generalist Orchestrator — uses Qwen3.5-27B-FP8 pre-quantized base model
+    generalist_llm_model: str = "Qwen/Qwen3.5-27B-FP8"  # Director model (FP8 for optimal VRAM)
 
     # Sistema 1 — Fine-tuned models
-    system1_base_model: str = "Qwen/Qwen3.5-27B"   # Base backbone for ALL Sistema 1 subagents
+    system1_base_model: str = "Qwen/Qwen3.5-27B-FP8"   # Base backbone for ALL Sistema 1 subagents
     system1_historico_model: str = "aura_tenant_01-v2"       # Text LoRA tag in vLLM (historico subagent)
     system1_model: str = "aura_tenant_01-vl"                  # VL LoRA tag in vLLM (VL + computer-use subagents)
     system1_enabled: bool = True                              # Toggle; set False if neither LoRA is deployed yet

@@ -41,10 +41,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  # ── Unified vLLM: Gemma 4 26B-A4B (MoE) ──────────────────────────────────
+  # ── Unified vLLM: Qwen3.5-27B-FP8 ────────────────────────────────────────
   # Replaces the previous dual-container setup (vllm-orchestrator + vllm-sistema1).
-  # Single MoE backbone serves both the Orchestrator (base model) and subagents (via LoRA).
-  # Gemma 4 26B-A4B: 26B total params, ~4B active per token. Native multimodal + tool calling.
+  # Single dense backbone serves both the Orchestrator (base model) and subagents (via LoRA).
+  # Qwen3.5-27B-FP8: 27B params, multimodal, native tool calling, FP8 pre-quantized (~31GB).
   vllm:
     image: vllm/vllm-openai:latest
     container_name: vllm
@@ -56,13 +56,12 @@ services:
       - HF_TOKEN=${HF_TOKEN}
       - CUDA_VISIBLE_DEVICES=0
     command:
-      # Qwen3.5-27B MoE — fp8 quantization reduces weights from ~54GB to ~27GB, fits in 48GB GPU
-      - "Qwen/Qwen3.5-27B"
+      # Qwen3.5-27B-FP8 — Pre-quantized FP8 checkpoint (~31GB), native multimodal + tool calling
+      - "Qwen/Qwen3.5-27B-FP8"
       - "--trust-remote-code"
       - "--dtype"
       - "bfloat16"
-      - "--quantization"
-      - "fp8"
+      # FP8 pre-quantized model — no dynamic quantization needed
       - "--enable-lora"
       - "--max-loras"
       - "4"
@@ -73,10 +72,10 @@ services:
       - "--gpu-memory-utilization"
       - "0.90" # 90% de 50GB VRAM (45GB)
       - "--max-model-len"
-      - "16384" # fp8 frees ~20GB for KV cache — 16K context now viable
+      - "32768" # Pre-quantized FP8 frees VRAM for 32K context
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
-      - "hermes"
+      - "qwen3" # Native Qwen3 tool parser (better than hermes for this model)
       - "--max-num-seqs"
       - "4" # Mantenemos batching bajo para Edge para reservar memoria para KV Cache
       # Multimodal: limit images per prompt to control VRAM for vision encoder
@@ -92,7 +91,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 420s # Gemma 4 26B MoE: ~7 min for weight loading + warmup
+      start_period: 300s # Qwen3.5-27B-FP8: ~5 min for weight loading (pre-quantized loads faster)
     deploy:
       resources:
         reservations:

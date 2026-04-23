@@ -144,7 +144,7 @@ async def list_events(
 ):
     """Return a paginated list of events with optional filters."""
     repo = EventRepository(session)
-    items = await repo.list_all(
+    items, total = await repo.list_all(
         severity=severity,
         status=status,
         source_type=source_type,
@@ -152,7 +152,7 @@ async def list_events(
         offset=offset,
     )
     return EventListResponse(
-        total=len(items),
+        total=total,
         items=[EventResponse.model_validate(e) for e in items],
     )
 
@@ -163,7 +163,6 @@ async def list_events(
 async def events_stream(
     request: Request,
     current_user: Annotated[User, Depends(get_current_user_flexible)],
-    token: Optional[str] = None,
 ):
     """
     Server-Sent Events stream for real-time dashboard updates.
@@ -245,7 +244,7 @@ async def approve_event(
     event = await repo.save(event)
 
     svc = _get_event_service()
-    asyncio.create_task(svc._processor._execute_approved(event))
+    asyncio.create_task(svc.execute_approved(event))
 
     return EventResponse.model_validate(event)
 

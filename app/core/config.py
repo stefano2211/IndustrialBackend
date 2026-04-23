@@ -38,42 +38,38 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30 # Default 30 mins
 
     
-    # Edge / Local Model configuration — Unified Qwen3.5-27B-FP8 endpoint
+    # Edge / Local Model configuration — Qwen3.5-2B (8GB VRAM local test)
     vllm_base_url: str = "http://vllm:8000/v1"
-
-    # OpenRouter configuration - REMOVED
 
     # Defaults
     default_llm_provider: str = "vllm"
-    default_llm_model: Optional[str] = "aura_tenant_01-v2" # Expert LoRA tag in vLLM
+    default_llm_model: Optional[str] = "Qwen/Qwen3.5-2B"
 
-    # Generalist Orchestrator — uses Qwen3.5-27B-FP8 pre-quantized base model
-    generalist_llm_model: str = "Qwen/Qwen3.5-27B-FP8"  # Director model (FP8 for optimal VRAM)
+    # Generalist Orchestrator
+    generalist_llm_model: str = "Qwen/Qwen3.5-2B"
 
-    # Sistema 1 — Fine-tuned models
-    system1_base_model: str = "Qwen/Qwen3.5-27B-FP8"   # Base backbone for ALL Sistema 1 subagents
-    system1_historico_model: str = "aura_tenant_01-v2"       # Text LoRA tag in vLLM (historico subagent)
-    system1_model: str = "aura_tenant_01-vl"                  # VL LoRA tag in vLLM (VL + computer-use subagents)
-    system1_enabled: bool = True                              # Toggle; set False if neither LoRA is deployed yet
-    system1_force_base_model: bool = False                   # True = usar modelo base sin intentar cargar LoRAs
+    # Sistema 1 — Using base model directly (no LoRA for local 8GB VRAM)
+    system1_base_model: str = "Qwen/Qwen3.5-2B"
+    system1_historico_model: str = "Qwen/Qwen3.5-2B"
+    system1_model: str = "Qwen/Qwen3.5-2B"
+    system1_enabled: bool = True
+    system1_force_base_model: bool = True  # Force base model — no LoRA loading
 
-    # Computer Use — Macrohard Digital Optimus Local
-    computer_use_enabled: bool = True          # Feature flag global
-    computer_use_demo_mode: bool = False       # True=mock screenshots, False=pantalla real
-    computer_use_max_steps: int = 15           # Máximo de pasos por tarea (evita loops infinitos)
-    computer_use_context_screenshots: int = 3  # Historial de screenshots pasados inyectados al VLM (UI-TARS style)
+    # Computer Use — disabled for local 8GB VRAM
+    computer_use_enabled: bool = False
+    computer_use_demo_mode: bool = False
+    computer_use_max_steps: int = 15
+    computer_use_context_screenshots: int = 3
 
-    # OmniParser V2 — Set-of-Marks grounding (Microsoft)
-    # Activar cuando los pesos estén descargados en omniparser_model_dir
+    # OmniParser V2 — disabled for local 8GB VRAM
     omniparser_enabled: bool = False
-    omniparser_model_dir: str = "/omniparser/weights"  # Ruta local de los pesos (icon_detect + icon_caption)
+    omniparser_model_dir: str = "/omniparser/weights"
 
     # MLOps Architecture (Cloud Sync)
-    # ⚠️ PRODUCCIÓN: Usar la IP pública del servidor. No usar localhost — no resuelve entre stacks Docker separados.
-    mothership_api_url: str = "http://149.36.0.115:8001" # URL exterior de mops-api (ApiLLMOps)
-    mothership_api_key: str = "default-mothership-secret-key" # Must match ApiLLMOps MOTHERSHIP_API_KEY env
-    mlops_tenant_id: str = "aura_tenant_01" # Tenant identifier for this edge node
-    edge_public_url: str = "http://149.36.0.115:8000" # URL exterior de este Edge (para webhook OTA de retorno)
+    mothership_api_url: str = "http://localhost:8001"
+    mothership_api_key: str = "default-mothership-secret-key"
+    mlops_tenant_id: str = "aura_tenant_01"
+    edge_public_url: str = "http://localhost:8000"
 
 
     # LLM Resilience

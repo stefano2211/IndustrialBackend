@@ -47,6 +47,10 @@ class EventProcessorService:
         except Exception as exc:
             logger.error(f"[EventProcessorService] Unhandled error for event {event.id}: {exc}")
 
+    async def execute_approved(self, event: Event) -> None:
+        """Public wrapper to execute a human-approved medium event."""
+        await self._processor._execute_approved(event)
+
     async def enqueue_event(
         self,
         source_type: str,

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func
 from sqlmodel import select
 
 from app.domain.schemas.event import Event
@@ -30,7 +31,7 @@ class EventRepository:
         source_type: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Event]:
+    ) -> tuple[List[Event], int]:
         stmt = select(Event)
         if severity:
             stmt = stmt.where(Event.severity == severity)
@@ -38,9 +39,15 @@ class EventRepository:
             stmt = stmt.where(Event.status == status)
         if source_type:
             stmt = stmt.where(Event.source_type == source_type)
+        # Total count (before pagination)
+        count_stmt = select(func.count(Event.id)).select_from(stmt.subquery())
+        count_result = await self.session.execute(count_stmt)
+        total = count_result.scalar() or 0
+        # Paginated items
         stmt = stmt.order_by(Event.created_at.desc()).limit(limit).offset(offset)
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        items = list(result.scalars().all())
+        return items, total
 
     async def update_status(self, event_id: uuid.UUID, status: str) -> Optional[Event]:
         event = await self.get_by_id(event_id)

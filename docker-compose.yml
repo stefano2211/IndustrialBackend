@@ -56,27 +56,20 @@ services:
       - "--trust-remote-code"
       - "--dtype"
       - "bfloat16"
-      - "--enable-prefix-caching"
-      - "--enable-chunked-prefill"
       - "--gpu-memory-utilization"
-      - "0.92"
+      - "0.75"
       - "--max-model-len"
-      - "65536"
+      - "4096"
+      - "--max-num-seqs"
+      - "4"
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "hermes"
-      - "--max-num-seqs"
-      - "8"
+      - "--enforce-eager"
     volumes:
       - hf_cache:/root/.cache/huggingface
     ipc: host
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD-SHELL", "curl -f http://localhost:8000/health || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
     deploy:
       resources:
         reservations:
@@ -108,7 +101,7 @@ services:
     restart: unless-stopped
     depends_on:
       vllm:
-        condition: service_healthy
+        condition: service_started
       postgres:
         condition: service_started
       qdrant:

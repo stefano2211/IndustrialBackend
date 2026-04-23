@@ -56,7 +56,7 @@ async def _get_user_from_token_str(token_str: str, session: AsyncSession) -> Use
     except (JWTError, Exception):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     user_service = UserService(session)
-    user = await user_service.get_by_id(token_data.sub)
+    user = await user_service.get_by_email(token_data.sub)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user

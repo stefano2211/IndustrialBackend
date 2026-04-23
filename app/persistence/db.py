@@ -16,6 +16,7 @@ from app.domain.schemas.model import Model  # noqa: F401
 from app.domain.schemas.mcp_source import MCPSource  # noqa: F401
 from app.domain.schemas.tool_config import ToolConfig  # noqa: F401
 from app.domain.schemas.db_source import DbSource  # noqa: F401
+from app.domain.schemas.event import Event  # noqa: F401
 
 DATABASE_URL = (
     f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}"

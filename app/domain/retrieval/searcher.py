@@ -1,5 +1,5 @@
 import asyncio
-from app.domain.ingestion.embedder import Embedder
+from app.domain.proactiva.ingestion.embedder import Embedder
 from app.persistence.vector import QdrantManager
 from app.domain.retrieval.reranker import Reranker
 from qdrant_client.http import models as qmodels
@@ -25,7 +25,7 @@ class SemanticSearcher:
         # Fetch dynamic settings once
         final_limit = 5
         if session:
-            from app.persistence.repositories.settings_repository import SettingsRepository
+            from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
             repo = SettingsRepository(session)
             system_settings = await repo.get_settings()
             if limit is None:

@@ -7,7 +7,7 @@ from sqlmodel import select
 from app.domain.schemas.tool_config import ToolConfig  # noqa
 from app.persistence.db import async_session_factory
 from app.domain.schemas.db_source import DbSource
-from app.domain.db_collector.collector_service import collector_service
+from app.domain.proactiva.db_collector.collector_service import collector_service
 from app.core.mothership_client import mothership_client
 
 

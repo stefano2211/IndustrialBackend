@@ -12,8 +12,8 @@ from app.core.config import settings
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.persistence.repositories.llm_config_repository import LLMConfigRepository
-from app.persistence.repositories.settings_repository import SettingsRepository
+from app.persistence.proactiva.repositories.llm_config_repository import LLMConfigRepository
+from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
 
 
 class LLMProvider(str, Enum):

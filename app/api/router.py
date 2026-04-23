@@ -1,8 +1,14 @@
 from fastapi import APIRouter
-from app.api.endpoints import documents, chat, system, tools, auth, users, conversations, knowledge, prompts, models, admin, mcp_sources, mlops, db_collector
+from app.api.proactiva.endpoints import (
+    documents, chat, system, tools, auth, users,
+    conversations, knowledge, prompts, models, admin,
+    mcp_sources, mlops, db_collector,
+)
+from app.api.reactiva.endpoints import events
 
 api_router = APIRouter()
 
+# ── Proactiva (chat / admin / MLOps) ─────────────────────────────────────────
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
@@ -16,6 +22,8 @@ api_router.include_router(models.router, prefix="/models", tags=["models"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(mcp_sources.router, prefix="/tools/sources", tags=["mcp_sources"])
 api_router.include_router(mlops.router, prefix="/mlops", tags=["mlops"])
-
 api_router.include_router(db_collector.router, prefix="/db-collector", tags=["db_collector"])
- 
+
+# ── Reactiva (event-driven dashboard) ────────────────────────────────────────
+api_router.include_router(events.router, prefix="/events", tags=["events"])
+

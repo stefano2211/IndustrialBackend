@@ -20,11 +20,12 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*typing.NotReq
 
 from app.api.router import api_router
 from app.persistence.db import init_db
-from app.persistence.memoryAI.checkpointer import get_checkpointer, close_pool
-from app.persistence.memoryAI.store import get_store
+from app.persistence.proactiva.memoryAI.checkpointer import get_checkpointer, close_pool
+from app.persistence.proactiva.memoryAI.store import get_store
 from app.core.llm import LLMFactory, LLMProvider
-from app.domain.db_collector.scheduler import collector_scheduler
-from app.domain.agent.tools.omniparser_service import get_omniparser
+from app.domain.proactiva.db_collector.scheduler import collector_scheduler
+from app.domain.proactiva.agent.tools.omniparser_service import get_omniparser
+from app.domain.reactiva.events.event_service import EventProcessorService
 from app.core.config import settings as _settings
 
 UPLOAD_DIR = "/tmp/uploads"
@@ -108,6 +109,11 @@ async def lifespan(app: FastAPI):
     # Start the DB Collector scheduler (loads all enabled sources as cron jobs)
     await collector_scheduler.start()
 
+    # Start the reactive event processor worker loop
+    event_service = EventProcessorService()
+    event_worker_task = asyncio.create_task(event_service.run())
+    app.state.event_service = event_service
+
     # Auto-download OmniParser V2 weights if not present (non-blocking background task)
     if _settings.omniparser_enabled:
         asyncio.create_task(
@@ -116,6 +122,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    event_worker_task.cancel()
     await collector_scheduler.shutdown()
     await close_pool()
 

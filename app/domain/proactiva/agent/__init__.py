@@ -1,11 +1,2 @@
-﻿"""
-Industrial AI Agent System — Public API.
-
-Import from here, not from internal modules:
-    from app.domain.proactiva.agent import create_industrial_agent, create_generalist_orchestrator
-"""
-
-from app.domain.proactiva.agent.factory import create_industrial_agent
-from app.domain.proactiva.agent.orchestrator import create_generalist_orchestrator
-
-__all__ = ["create_industrial_agent", "create_generalist_orchestrator"]
+"""Backward-compat re-export — moved to app.domain.agent"""
+from app.domain.agent import *  # noqa: F401,F403

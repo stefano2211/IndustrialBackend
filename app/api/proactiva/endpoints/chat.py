@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.schemas.api import ChatRequest, ChatResponse
 from app.domain.schemas.conversation import ChatMessage
-from app.domain.proactiva.services.agent_service import AgentService
+from app.domain.agent.service import AgentService
 from app.domain.proactiva.services.conversation_service import ConversationService
 from app.api import deps
 from app.persistence.db import get_session

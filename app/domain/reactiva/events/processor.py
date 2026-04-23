@@ -71,19 +71,13 @@ class EventProcessor:
         Falls back to rule-based summary if AgentService is unavailable.
         """
         try:
-            from app.domain.proactiva.services.agent_service import AgentService
+            from app.domain.agent.service import AgentService
             from app.core.config import settings
 
             prompt = (
-                f"[REACTIVE EVENT ANALYSIS]\n"
-                f"Source: {event.source_type}\n"
-                f"Severity: {event.severity}\n"
-                f"Title: {event.title}\n"
-                f"Description: {event.description}\n"
-                f"Payload: {event.raw_payload}\n\n"
-                f"1. Provide a concise analysis of this industrial event.\n"
-                f"2. Propose a concrete remediation plan with steps.\n"
-                f"Return the analysis and plan separated by '---PLAN---'."
+                "1. Provide a concise analysis of this industrial event.\n"
+                "2. Propose a concrete remediation plan with steps.\n"
+                "Return the analysis and plan separated by '---PLAN---'."
             )
 
             agent_service = AgentService()
@@ -94,6 +88,15 @@ class EventProcessor:
                     query=prompt,
                     session=agent_session,
                     use_generalist=True,
+                    mode="event",
+                    mode_context={
+                        "event_id": str(event.id),
+                        "source_type": event.source_type,
+                        "severity": event.severity,
+                        "title": event.title,
+                        "description": event.description,
+                        "payload": event.raw_payload,
+                    },
                 )
             parts = response.split("---PLAN---", 1)
             analysis = parts[0].strip()
@@ -133,14 +136,11 @@ class EventProcessor:
         if not plan:
             return actions
         try:
-            from app.domain.proactiva.services.agent_service import AgentService
+            from app.domain.agent.service import AgentService
 
             exec_prompt = (
-                f"[REACTIVE EVENT AUTO-EXECUTION]\n"
-                f"Event ID: {event.id}\n"
-                f"Severity: {event.severity}\n"
                 f"Plan to execute:\n{plan}\n\n"
-                f"Execute the plan step by step. Report each action taken as a JSON list."
+                "Execute the plan step by step. Report each action taken as a JSON list."
             )
             agent_service = AgentService()
             async with async_session_factory() as agent_session:
@@ -150,6 +150,15 @@ class EventProcessor:
                     query=exec_prompt,
                     session=agent_session,
                     use_generalist=True,
+                    mode="event",
+                    mode_context={
+                        "event_id": str(event.id),
+                        "source_type": event.source_type,
+                        "severity": event.severity,
+                        "title": event.title,
+                        "description": event.description,
+                        "payload": event.raw_payload,
+                    },
                 )
             actions = [{"type": "agent_response", "content": response, "timestamp": datetime.utcnow().isoformat()}]
         except Exception as exc:

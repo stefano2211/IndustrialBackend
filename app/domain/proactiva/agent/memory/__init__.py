@@ -1,3 +1,2 @@
-﻿from app.domain.proactiva.agent.memory.backends import UserScopedStoreBackend, create_composite_backend
-
-__all__ = ["UserScopedStoreBackend", "create_composite_backend"]
+"""Backward-compat re-export — moved to app.domain.agent.memory"""
+from app.domain.agent.memory import *  # noqa: F401,F403

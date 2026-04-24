@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List
-from sqlmodel import SQLModel, Field, Relationship
+from typing import Optional
+from sqlmodel import SQLModel, Field
 
 
 class Conversation(SQLModel, table=True):

@@ -10,7 +10,7 @@ import asyncio
 from typing import TYPE_CHECKING, Optional, List
 
 if TYPE_CHECKING:
-    from app.domain.schemas.event import Event
+    pass
 
 _event_queue: Optional[asyncio.Queue] = None
 _sse_subscribers: List[asyncio.Queue] = []

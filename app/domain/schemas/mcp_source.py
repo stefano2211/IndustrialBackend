@@ -1,6 +1,5 @@
 from sqlmodel import SQLModel, Field, Relationship
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
-from sqlalchemy import Column, JSON
+from typing import Optional, List, TYPE_CHECKING
 import uuid
 from datetime import datetime, timezone
 

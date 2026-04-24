@@ -537,7 +537,7 @@ Rules:
                     llm_result = json.loads(raw)
                     logger.info(f"[MCP Service] LLM analysis succeeded for {url}")
                 else:
-                    logger.warning(f"[MCP Service] LLM returned empty content after stripping think tags")
+                    logger.warning("[MCP Service] LLM returned empty content after stripping think tags")
             except Exception as llm_err:
                 logger.warning(f"[MCP Service] LLM analysis failed, using deterministic fallback: {llm_err}")
 

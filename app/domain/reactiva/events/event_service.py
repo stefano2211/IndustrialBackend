@@ -7,7 +7,6 @@ lifespan (started in main.py).
 """
 
 import asyncio
-import uuid
 from typing import Optional
 
 from loguru import logger

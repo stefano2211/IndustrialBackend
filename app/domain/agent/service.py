@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 import uuid
-from typing import Any, AsyncGenerator, Dict, Optional, List
+from typing import Any, Dict, List
 from datetime import datetime, timezone
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -262,7 +262,7 @@ class AgentService:
             elif not kf_fields and not kv_fields:
                 # Example 4: No filters, only arguments
                 lines.append(
-                    f'    Simple call with parameters:'
+                    '    Simple call with parameters:'
                 )
                 lines.append(
                     f'    → call_dynamic_mcp(tool_config_name="{t.name}"{sample_args_str})'

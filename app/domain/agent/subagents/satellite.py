@@ -15,7 +15,6 @@ have their own LLM reasoning loop when the external connector is real.
 
 from langchain_core.tools import tool
 from deepagents import CompiledSubAgent, create_deep_agent
-from loguru import logger
 
 
 # ── SAP AGENT ──────────────────────────────────────────────────────────────
@@ -101,10 +100,10 @@ def create_office_agent(model, checkpointer=None, store=None):
     def read_outlook_email(count: int = 5):
         """Read latest emails from Outlook."""
         return (
-            f"[DEMO — Microsoft 365 connector not configured] "
-            f"The Outlook/OneDrive integration is currently under development. "
-            f"Real email data is not available yet. "
-            f"Please contact your administrator to set up the M365 connector."
+            "[DEMO — Microsoft 365 connector not configured] "
+            "The Outlook/OneDrive integration is currently under development. "
+            "Real email data is not available yet. "
+            "Please contact your administrator to set up the M365 connector."
         )
 
     graph = create_deep_agent(

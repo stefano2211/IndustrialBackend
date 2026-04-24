@@ -1,33 +1,35 @@
-﻿"""
-Document ingestion pipeline.
+"""
+Reactive document ingestion pipeline.
 
-Orchestrates the full document processing flow:
-  Load → Classify → Split → NER (batched + concurrent) → Embed → Store
+Identical processing flow to the proactive pipeline (Load → Split → Embed → Store)
+but stores vectors in the reactive Qdrant collection and tags metadata with
+tenant_id instead of user_id.
 
-Dependencies are injected for testability (DIP).
+Used for: SOPs, emergency procedures, maintenance manuals, incident response protocols.
 """
 
 import uuid
 from typing import Optional, Any
+from pathlib import Path
 
 from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import PointStruct
-from pathlib import Path
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.domain.proactiva.ingestion.document_loader import DocumentLoader
 from app.domain.proactiva.ingestion.text_splitter import HierarchicalSplitter
 from app.domain.proactiva.ingestion.embedder import Embedder
-from app.persistence.vector import QdrantManager
+from app.persistence.reactiva.reactive_vector import ReactiveQdrantManager
 
 
-class DocumentProcessor:
+class ReactiveDocumentProcessor:
     """
-    Orchestrator for the document ingestion pipeline.
+    Ingestion pipeline for reactive domain documents.
 
-    Dependencies can be overridden in __init__ for testing.
+    Reuses shared components (loader, splitter, embedder) but writes
+    to the isolated reactive Qdrant collection.
     """
 
     def __init__(
@@ -35,24 +37,24 @@ class DocumentProcessor:
         loader: DocumentLoader | None = None,
         splitter: HierarchicalSplitter | None = None,
         embedder: Embedder | None = None,
-        vector_store: QdrantManager | None = None,
+        vector_store: ReactiveQdrantManager | None = None,
     ):
         self.loader = loader or DocumentLoader()
         self.splitter = splitter or HierarchicalSplitter()
         self.embedder = embedder or Embedder()
-        self.vector_store = vector_store or QdrantManager()
+        self.vector_store = vector_store or ReactiveQdrantManager()
 
     async def process_file(
         self,
         file_path: Path | str,
-        user_id: str,
+        tenant_id: str = "default",
         doc_id: Optional[str] = None,
         knowledge_base_id: Optional[str] = None,
         session: Optional[Any] = None,
     ) -> dict:
-        """Process a single file through the entire pipeline."""
-        doc_id = doc_id or str(uuid.uuid4()) # Generate doc_id early for metadata
-        logger.info(f"Processing document: {file_path} for user: {user_id}")
+        """Process a file into the reactive knowledge base."""
+        doc_id = doc_id or str(uuid.uuid4())
+        logger.info(f"[ReactiveIngestion] Processing: {file_path} for tenant: {tenant_id}")
 
         # 1. Fetch dynamic settings
         chunk_size = 1000
@@ -64,47 +66,46 @@ class DocumentProcessor:
             chunk_size = system_settings.document_chunk_size
             chunk_overlap = system_settings.document_chunk_overlap
 
-        # 2. Extract Text
+        # 2. Extract text
         docs = self.loader.load(file_path)
         for doc in docs:
-            doc.metadata["doc_id"] = doc_id # Ensure doc_id is set for initial docs
+            doc.metadata["doc_id"] = doc_id
 
-        doc_category = "document" # Default category since we removed classification
-        logger.info(f"Document category set to default: {doc_category}")
-
-        # 3. Split — Two-stage: Hierarchical (section detection) → Recursive (size enforcement)
-        # Stage 1: the HierarchicalSplitter adds section metadata to each chunk
+        # 3. Split — Hierarchical → Recursive
         hierarchical_chunks = self.splitter.split_documents(docs)
-
-        # Stage 2: enforce chunk_size limits using RecursiveCharacterTextSplitter
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             length_function=len,
         )
         split_chunks = text_splitter.split_documents(hierarchical_chunks)
+
         chunks = []
         for i, split_doc in enumerate(split_chunks):
             new_metadata = {
                 "doc_id": doc_id,
-                "user_id": user_id,
+                "tenant_id": tenant_id,
                 "chunk_index": i,
                 "knowledge_base_id": knowledge_base_id,
-                "doc_category": doc_category,
+                "doc_category": "reactive_document",
                 "section": split_doc.metadata.get("section", "No section"),
-                **{k: v for k, v in split_doc.metadata.items() if k not in ("doc_id", "user_id", "chunk_index", "knowledge_base_id", "doc_category")},
+                **{
+                    k: v
+                    for k, v in split_doc.metadata.items()
+                    if k not in ("doc_id", "tenant_id", "chunk_index", "knowledge_base_id", "doc_category")
+                },
             }
             chunks.append(Document(page_content=split_doc.page_content, metadata=new_metadata))
 
         total_chunks = len(chunks)
-        logger.info(f"Document split into {total_chunks} chunks")
+        logger.info(f"[ReactiveIngestion] Document split into {total_chunks} chunks")
 
         # 4. Embed (Dual: Dense + Sparse SPLADE)
         texts = [chunk.page_content for chunk in chunks]
         dense_vectors = await self.embedder.embed_documents(texts)
         sparse_vectors = await self.embedder.embed_sparse_documents(texts)
 
-        # 5. Store
+        # 5. Store in reactive Qdrant collection
         points = []
         for i, (chunk, d_vec, s_vec) in enumerate(zip(chunks, dense_vectors, sparse_vectors)):
             points.append(
@@ -114,15 +115,15 @@ class DocumentProcessor:
                         "dense": d_vec,
                         "sparse": qmodels.SparseVector(
                             indices=s_vec.indices.tolist(),
-                            values=s_vec.values.tolist()
-                        )
+                            values=s_vec.values.tolist(),
+                        ),
                     },
                     payload={
                         "text": chunk.page_content,
                         "metadata": {
                             **chunk.metadata,
                             "doc_id": doc_id,
-                            "user_id": user_id,
+                            "tenant_id": tenant_id,
                             "chunk_index": i,
                             "knowledge_base_id": knowledge_base_id,
                         },
@@ -131,8 +132,7 @@ class DocumentProcessor:
             )
         await self.vector_store.upsert(points)
         logger.success(
-            f"Document {doc_id} processed: "
-            f"{total_chunks} chunks"
+            f"[ReactiveIngestion] Document {doc_id} processed: {total_chunks} chunks "
+            f"→ reactive collection"
         )
-        return {"doc_id": doc_id, "chunks": total_chunks, "category": doc_category}
-
+        return {"doc_id": doc_id, "chunks": total_chunks, "category": "reactive_document"}

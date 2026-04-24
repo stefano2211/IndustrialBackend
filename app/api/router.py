@@ -27,3 +27,7 @@ api_router.include_router(db_collector.router, prefix="/db-collector", tags=["db
 # ── Reactiva (event-driven dashboard) ────────────────────────────────────────
 api_router.include_router(events.router, prefix="/events", tags=["events"])
 
+from app.api.reactiva.endpoints import reactive_mcp_sources, reactive_knowledge
+api_router.include_router(reactive_mcp_sources.router, prefix="/events/mcp", tags=["reactive_mcp_sources"])
+api_router.include_router(reactive_knowledge.router, prefix="/events/knowledge", tags=["reactive_knowledge"])
+

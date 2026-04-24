@@ -1,7 +1,6 @@
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 from app.core.config import settings
-import os
 
 # Connection string for psycopg (no +asyncpg prefix)
 DB_URL = f"postgresql://{settings.postgres_user}:{settings.postgres_password}@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"

@@ -8,10 +8,10 @@ and wires them together into a compiled DeepAgent graph. It does NOT create
 LLM instances — that is the responsibility of AgentService.
 """
 
-from deepagents import create_deep_agent, CompiledSubAgent
+from deepagents import create_deep_agent
 from loguru import logger
 
-from app.domain.agent.prompts import INDUSTRIAL_SYSTEM_PROMPT, AGENTS_MD_CONTENT
+from app.domain.agent.prompts import INDUSTRIAL_SYSTEM_PROMPT
 from app.domain.agent.memory import create_composite_backend
 from app.domain.agent.tools.knowledge_tool import ask_knowledge_agent
 from app.domain.agent.tools.mcp_tool import call_dynamic_mcp

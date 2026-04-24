@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional, Union
+from typing import List, Optional
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.schemas.tool_config import ToolConfig

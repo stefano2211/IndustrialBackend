@@ -1,5 +1,4 @@
 from langgraph.store.postgres.aio import AsyncPostgresStore
-from app.core.config import settings
 from app.persistence.proactiva.memoryAI.checkpointer import get_pool
 
 # Internal store instance

@@ -1,6 +1,6 @@
 ﻿"""Conversation endpoints — thin HTTP handlers delegating to ConversationService."""
 
-from typing import Annotated, Any, List
+from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 

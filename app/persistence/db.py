@@ -17,6 +17,10 @@ from app.domain.schemas.mcp_source import MCPSource  # noqa: F401
 from app.domain.schemas.tool_config import ToolConfig  # noqa: F401
 from app.domain.schemas.db_source import DbSource  # noqa: F401
 from app.domain.schemas.event import Event  # noqa: F401
+# Reactive domain schemas
+from app.domain.schemas.reactive_mcp_source import ReactiveMCPSource  # noqa: F401
+from app.domain.schemas.reactive_tool_config import ReactiveToolConfig  # noqa: F401
+from app.domain.schemas.reactive_knowledge import ReactiveKnowledgeBase, ReactiveKnowledgeDocument  # noqa: F401
 
 DATABASE_URL = (
     f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password}"

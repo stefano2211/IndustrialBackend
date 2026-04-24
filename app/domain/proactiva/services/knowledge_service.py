@@ -1,5 +1,5 @@
 ﻿import uuid
-from typing import List, Optional
+from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.schemas.knowledge import (
     KnowledgeBase,

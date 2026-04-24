@@ -19,7 +19,6 @@ from app.domain.proactiva.db_collector.formatter import rows_to_sharegpt
 from app.domain.schemas.db_source import DbSource, DbSourceStatus
 from app.persistence.db import async_session_factory
 from app.core.mothership_client import mothership_client
-from app.core.config import settings
 
 
 @dataclass

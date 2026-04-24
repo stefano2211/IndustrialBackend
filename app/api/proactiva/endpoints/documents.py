@@ -3,7 +3,6 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, B
 from typing import Optional
 from app.domain.proactiva.services.document_service import DocumentService
 from app.domain.proactiva.services.knowledge_service import KnowledgeService
-from app.domain.exceptions import NotFoundError
 from app.api.proactiva.endpoints.knowledge import get_knowledge_service
 from app.api import deps
 from app.domain.schemas.user import User

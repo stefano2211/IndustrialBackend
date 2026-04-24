@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import shutil
 import uuid
 from typing import Optional
 

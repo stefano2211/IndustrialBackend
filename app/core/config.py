@@ -1,5 +1,4 @@
 from pydantic_settings import BaseSettings
-from pathlib import Path
 from typing import List, Optional
 
 class Settings(BaseSettings):
@@ -80,7 +79,12 @@ class Settings(BaseSettings):
     ner_batch_size: int = 5          # Chunks grouped per LLM call (reduces total calls)
     ner_max_concurrency: int = 3     # Max parallel batch requests to the LLM
     ner_retry_max_attempts: int = 5  # Max retries on rate-limit (429) errors
+
+    # ── Reactive Domain — isolated namespaces (same infra containers) ─────
+    reactive_qdrant_collection: str = "reactive_documents"
+    reactive_minio_bucket: str = "reactive-bucket"
+    reactive_computer_use_enabled: bool = False  # Safety: no auto-clicks in reactive mode
     
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
 settings = Settings()

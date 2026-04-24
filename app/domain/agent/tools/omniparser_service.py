@@ -34,7 +34,6 @@ Referencia: https://github.com/microsoft/OmniParser
 import asyncio
 import base64
 import io
-import json
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple

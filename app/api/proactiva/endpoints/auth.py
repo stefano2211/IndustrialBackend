@@ -1,7 +1,6 @@
 ﻿from typing import Annotated, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api import deps
 from app.persistence.db import get_session
 from app.core.security import create_access_token
 from app.domain.schemas.token import Token

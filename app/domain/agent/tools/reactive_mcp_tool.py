@@ -1,18 +1,24 @@
-﻿from langchain_core.tools import tool
+"""Reactive MCP Tool — operates on ReactiveToolConfig and ReactiveMCPSource.
+
+Identical interface to call_dynamic_mcp but queries the reactive tool
+configuration tables. System-scoped (no user_id filter).
+"""
+
+from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from app.domain.proactiva.services.mcp_service import MCPService
 from app.persistence.db import async_session_factory
-from app.persistence.proactiva.repositories.tool_config_repository import ToolConfigRepository
-from app.domain.schemas.mcp_source import MCPSource
+from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
+from app.domain.schemas.reactive_mcp_source import ReactiveMCPSource
 from loguru import logger
 import json
 
 # Lazy-init singleton
 _mcp_service: MCPService | None = None
 
-# In-memory URL resolution cache — evita un DB round-trip por cada llamada MCP.
-# Las URLs de source solo cambian si se reconfigura la fuente (muy infrecuente).
-_url_cache: dict = {}
+# In-memory URL resolution cache for reactive sources
+_reactive_url_cache: dict = {}
+
 
 def _get_mcp_service() -> MCPService:
     global _mcp_service
@@ -20,8 +26,9 @@ def _get_mcp_service() -> MCPService:
         _mcp_service = MCPService()
     return _mcp_service
 
+
 @tool
-async def call_dynamic_mcp(
+async def call_reactive_mcp(
     config: RunnableConfig,
     tool_config_name: str,
     key_values: dict = None,
@@ -29,52 +36,52 @@ async def call_dynamic_mcp(
     arguments: dict = None,
 ) -> str:
     """
-    Call any registered MCP tool or API endpoint dynamically with STRICT precision.
-    Use this to get real-time data, sensor readings, or perform external actions.
+    Call any registered REACTIVE MCP tool or API endpoint for event diagnosis.
+    Use this to get real-time sensor data, SCADA readings, or alarm system status.
 
     Input:
-        - tool_config_name: The name of the tool as registered in the system (e.g., 'get_maquinaria').
-        - arguments: Any other standard parameters required by the API path/query.
-        - key_values: (REQUIRED if user asks for specific items) Filter by categorical field values.
+        - tool_config_name: The name of the reactive tool (e.g., 'get_sensor_data').
+        - arguments: Standard parameters required by the API path/query.
+        - key_values: Filter by categorical field values.
                       Format: {"FieldName": ["value1", "value2"]}
-        - key_figures: (REQUIRED if user asks for ranges) Filter by numeric field ranges.
+        - key_figures: Filter by numeric field ranges.
                        Format: [{"field": "FieldName", "min": X, "max": Y}]
 
     Rules:
-        - STRICT FILTERING MANDATE: You MUST use `key_values` or `key_figures` filters to narrow down the data.
-        - NEVER fetch the entire dataset lazily without filtering unless the user explicitly demands "all records without exception".
-        - ALWAYS extract the exact field names provided in 'Filterable fields' under the tool's context. If the user asks for "Motor 1", you MUST provide a `key_values` filter matching that name.
-
-    Returns structured JSON with key_figures (metrics) and key_values (info).
+        - STRICT FILTERING MANDATE: You MUST use filters to narrow down data for the affected equipment.
+        - NEVER fetch the entire dataset without filtering unless explicitly needed.
     """
     if arguments is None:
         arguments = {}
 
-    # Pack the explicitly named filters back into the arguments dict
     if key_values:
         arguments["key_values"] = key_values
     if key_figures:
         arguments["key_figures"] = key_figures
 
-    logger.info(f"[MCP Tool] Calling dynamic tool: {tool_config_name} with filters: kv={bool(key_values)}, kf={bool(key_figures)}, args={arguments}")
+    logger.info(
+        f"[ReactiveMCP] Calling: {tool_config_name} "
+        f"filters: kv={bool(key_values)}, kf={bool(key_figures)}, args={arguments}"
+    )
 
     provided_session = config.get("configurable", {}).get("session")
     if provided_session:
-        return await _do_call_dynamic_mcp(provided_session, tool_config_name, arguments)
-    
-    async with async_session_factory() as session:
-        return await _do_call_dynamic_mcp(session, tool_config_name, arguments)
+        return await _do_call_reactive_mcp(provided_session, tool_config_name, arguments)
 
-async def _do_call_dynamic_mcp(
+    async with async_session_factory() as session:
+        return await _do_call_reactive_mcp(session, tool_config_name, arguments)
+
+
+async def _do_call_reactive_mcp(
     session,
     tool_config_name: str,
     arguments: dict = {},
 ) -> str:
-    repo = ToolConfigRepository(session)
+    repo = ReactiveToolConfigRepository(session)
     tool_config = await repo.get_by_name(tool_config_name)
 
     if not tool_config:
-        return json.dumps({"error": f"Tool configuration '{tool_config_name}' not found."})
+        return json.dumps({"error": f"Reactive tool '{tool_config_name}' not found."})
 
     mcp_service = _get_mcp_service()
 
@@ -86,30 +93,29 @@ async def _do_call_dynamic_mcp(
     parameter_schema = tool_config.parameter_schema or {}
     schema_hints = parameter_schema.get("response") or {}
 
-    # ── Extract smart filters from arguments (pop before sending to API) ──
+    # Extract smart filters
     clean_arguments = arguments.copy()
     key_values_filter = clean_arguments.pop("key_values", None)
     key_figures_filter = clean_arguments.pop("key_figures", None)
 
     if key_values_filter:
-        logger.info(f"[MCP Tool] Applying key_values filter: {key_values_filter}")
+        logger.info(f"[ReactiveMCP] Applying key_values filter: {key_values_filter}")
     if key_figures_filter:
-        logger.info(f"[MCP Tool] Applying key_figures filter: {key_figures_filter}")
+        logger.info(f"[ReactiveMCP] Applying key_figures filter: {key_figures_filter}")
 
-    # ── Robust URL resolution (with in-memory cache) ───────────────────────
+    # Robust URL resolution (with cache)
     if execution_url and "://" not in execution_url:
-        cache_key = f"{tool_config.source_id}:{execution_url}"
-        if cache_key in _url_cache:
-            execution_url = _url_cache[cache_key]
-            logger.debug(f"[MCP Tool] URL resolved from cache: {execution_url}")
+        cache_key = f"reactive:{tool_config.source_id}:{execution_url}"
+        if cache_key in _reactive_url_cache:
+            execution_url = _reactive_url_cache[cache_key]
         else:
-            source = await session.get(MCPSource, tool_config.source_id)
+            source = await session.get(ReactiveMCPSource, tool_config.source_id)
             if source and source.url:
                 base_url = source.url.rstrip("/")
                 path = execution_url.lstrip("/")
                 execution_url = f"{base_url}/{path}"
-                _url_cache[cache_key] = execution_url
-                logger.info(f"[MCP Tool] Resolved relative URL to: {execution_url}")
+                _reactive_url_cache[cache_key] = execution_url
+                logger.info(f"[ReactiveMCP] Resolved URL: {execution_url}")
 
     if execution_url and "://" in execution_url:
         scheme, rest = execution_url.split("://", 1)
@@ -117,13 +123,12 @@ async def _do_call_dynamic_mcp(
             rest = rest.replace("//", "/")
         execution_url = f"{scheme}://{rest}"
 
-    # Heuristic: Detect REST transport
+    # Heuristic: detect REST transport
     if transport_type == "mcp" and execution_url and "://" in execution_url:
-        if any(domain in execution_url for domain in ["pokeapi.co", "api.", "/api/"]):
-            logger.info(f"[MCP Tool] Heuristic detected REST transport for {execution_url}")
+        if any(domain in execution_url for domain in ["api.", "/api/"]):
             transport_type = "rest"
 
-    logger.info(f"[MCP Tool] Executing {tool_config_name} via {transport_type} at {execution_url}")
+    logger.info(f"[ReactiveMCP] Executing {tool_config_name} via {transport_type} at {execution_url}")
 
     response = await mcp_service.execute_tool(
         base_url=execution_url,
@@ -156,7 +161,7 @@ async def _do_call_dynamic_mcp(
         result["warning"] = "No structured data could be extracted from the response."
 
     logger.info(
-        f"[MCP Tool] Returning {len(result['key_figures'])} key figures "
+        f"[ReactiveMCP] Returning {len(result['key_figures'])} key figures "
         f"and {len(result['key_values'])} key values for {tool_config_name}"
     )
     return json.dumps(result, ensure_ascii=False)

@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Union
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

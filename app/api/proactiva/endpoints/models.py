@@ -154,7 +154,7 @@ async def list_provider_models(
 
             if all_models:
                 return all_models
-        except Exception as e:
+        except Exception:
             pass
 
         # Fallback: retornar el modelo default como Offline

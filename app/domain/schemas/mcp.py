@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any
 
 class KeyFigure(BaseModel):
     """Represents a numerical metric (hot path data)."""

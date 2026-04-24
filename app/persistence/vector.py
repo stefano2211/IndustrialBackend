@@ -1,6 +1,6 @@
 # app/persistence/vector.py
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.http.models import PointStruct, Filter, FieldCondition, MatchValue
 from app.core.config import settings
 from loguru import logger
 import uuid

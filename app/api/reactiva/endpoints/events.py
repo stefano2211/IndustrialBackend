@@ -27,7 +27,6 @@ from app.persistence.db import get_session
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.reactiva.event_queue import get_sse_subscribers
-from app.domain.schemas.event import Event
 from app.domain.schemas.user import User
 from app.domain.reactiva.events.schemas import (
     EventIngestRequest,

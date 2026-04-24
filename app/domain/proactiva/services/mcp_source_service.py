@@ -1,4 +1,4 @@
-﻿from typing import List, Optional
+﻿from typing import List
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.persistence.proactiva.repositories.mcp_source_repository import MCPSourceRepository

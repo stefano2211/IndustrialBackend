@@ -6,7 +6,7 @@ configuration tables. System-scoped (no user_id filter).
 
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
-from app.domain.proactiva.services.mcp_service import MCPService
+from app.domain.shared.services.mcp_service import MCPService
 from app.persistence.db import async_session_factory
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
 from app.domain.schemas.reactive_mcp_source import ReactiveMCPSource

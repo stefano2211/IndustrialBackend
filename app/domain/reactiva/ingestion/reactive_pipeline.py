@@ -18,9 +18,9 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
 
-from app.domain.proactiva.ingestion.document_loader import DocumentLoader
-from app.domain.proactiva.ingestion.text_splitter import HierarchicalSplitter
-from app.domain.proactiva.ingestion.embedder import Embedder
+from app.domain.shared.ingestion.document_loader import DocumentLoader
+from app.domain.shared.ingestion.text_splitter import HierarchicalSplitter
+from app.domain.shared.ingestion.embedder import Embedder
 from app.persistence.reactiva.reactive_vector import ReactiveQdrantManager
 
 
@@ -60,7 +60,7 @@ class ReactiveDocumentProcessor:
         chunk_size = 1000
         chunk_overlap = 200
         if session:
-            from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
+            from app.persistence.shared.settings_repository import SettingsRepository
             repo = SettingsRepository(session)
             system_settings = await repo.get_settings()
             chunk_size = system_settings.document_chunk_size

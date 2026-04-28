@@ -11,9 +11,9 @@ from qdrant_client.http import models as qmodels
 from qdrant_client.http.models import Filter, FieldCondition, MatchValue
 from loguru import logger
 
-from app.domain.proactiva.ingestion.embedder import Embedder
+from app.domain.shared.ingestion.embedder import Embedder
 from app.persistence.reactiva.reactive_vector import ReactiveQdrantManager
-from app.domain.retrieval.reranker import Reranker
+from app.domain.shared.retrieval.reranker import Reranker
 
 
 class ReactiveSemanticSearcher:
@@ -37,7 +37,7 @@ class ReactiveSemanticSearcher:
         final_limit = limit or 5
 
         if session:
-            from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
+            from app.persistence.shared.settings_repository import SettingsRepository
             repo = SettingsRepository(session)
             system_settings = await repo.get_settings()
             if limit is None:

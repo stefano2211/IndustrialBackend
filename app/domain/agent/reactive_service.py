@@ -13,6 +13,8 @@ from loguru import logger
 from langchain_core.messages import HumanMessage
 
 from app.core.llm import LLMFactory
+from app.core.config import settings
+from app.domain.agent.service import _vllm_model_exists
 from app.domain.agent.reactive_orchestrator import create_reactive_orchestrator
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
 from app.domain.schemas.event import Event
@@ -52,12 +54,29 @@ class ReactiveAgentService:
 
         logger.info(f"[ReactiveAgentService] Assembling Reactive Orchestrator for tenant: {tenant_id}")
 
-        # Instantiate unified vLLM models
-        generalist_model = await LLMFactory.get_llm(model="aura_tenant_01-v2", temperature=0.7)
-        expert_model = await LLMFactory.get_llm(model="aura_tenant_01-v2", temperature=0.0)
+        # ── LoRA probe + fallback (shared pattern with AgentService) ────────
+        lora_target = settings.system1_historico_model
+        if not settings.system1_force_base_model:
+            lora_ready = await _vllm_model_exists(settings.vllm_base_url, lora_target)
+        else:
+            lora_ready = False
+
+        model_name = lora_target if lora_ready else settings.system1_base_model
+        if lora_ready:
+            logger.info(f"[ReactiveAgentService] LoRA '{lora_target}' available — using it.")
+        else:
+            logger.warning(
+                f"[ReactiveAgentService] LoRA '{lora_target}' NOT loaded "
+                f"(force_base={settings.system1_force_base_model}). "
+                f"Falling back to base model: {settings.system1_base_model}"
+            )
+
+        # Instantiate unified vLLM models with the resolved model name
+        generalist_model = await LLMFactory.get_llm(model=model_name, temperature=0.7)
+        expert_model = await LLMFactory.get_llm(model=model_name, temperature=0.0)
         
         expert_model_instance = {
-            "aura_tenant_01-v2": await LLMFactory.get_llm(model="aura_tenant_01-v2", temperature=0)
+            model_name: await LLMFactory.get_llm(model=model_name, temperature=0)
         }
 
         # Contexts

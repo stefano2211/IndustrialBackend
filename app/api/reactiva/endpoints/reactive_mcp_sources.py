@@ -21,7 +21,7 @@ from app.domain.schemas.reactive_mcp_source import (
 from app.domain.schemas.reactive_tool_config import ReactiveToolConfigRead
 from app.persistence.reactiva.repositories.reactive_mcp_source_repository import ReactiveMCPSourceRepository
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
-from app.domain.proactiva.services.mcp_service import MCPService
+from app.domain.shared.services.mcp_service import MCPService
 
 
 router = APIRouter()

@@ -39,7 +39,7 @@ class EventProcessor:
         await repo.update_status(event.id, "analyzing")
         await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "analyzing"}})
 
-        analysis, plan = await self._analyze(event)
+        analysis, plan, execute_instruction = await self._analyze(event)
         await repo.update_analysis(event.id, analysis=analysis, plan=plan)
 
         if severity == "low":
@@ -55,24 +55,27 @@ class EventProcessor:
         elif severity in ("high", "critical"):
             await repo.update_status(event.id, "executing")
             await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "executing"}})
-            actions = await self._execute(event, plan)
+            actions = await self._execute(event, plan, execute_instruction)
             await repo.update_analysis(event.id, analysis=analysis, plan=plan, actions=actions)
             await repo.update_status(event.id, "completed")
             await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "completed", "actions": actions}})
             logger.info(f"[EventProcessor] {severity.upper()} event {event.id} auto-executed.")
 
-    async def _analyze(self, event: Event) -> tuple[str, Optional[str]]:
+    async def _analyze(self, event: Event) -> tuple[str, Optional[str], Optional[str]]:
         """
-        Calls ReactiveAgentService to perform a diagnosis and remediation plan for the event.
-        Returns (analysis_text, plan_text).
+        Calls ReactiveAgentService to perform a diagnosis and remediation plan.
+
+        Returns:
+            (analysis_text, plan_text, execute_instruction)
+            execute_instruction is the ---EXECUTE--- section, or None if unavailable.
         """
         try:
             from app.domain.agent.reactive_service import ReactiveAgentService
 
             reactive_service = ReactiveAgentService()
             async with async_session_factory() as session:
-                analysis, plan = await reactive_service.analyze(event, session)
-            return analysis, plan
+                analysis, plan, execute_instruction = await reactive_service.analyze(event, session)
+            return analysis, plan, execute_instruction
 
         except Exception as exc:
             logger.warning(f"[EventProcessor] ReactiveAgentService unavailable, using fallback: {exc}")
@@ -81,7 +84,7 @@ class EventProcessor:
                 f"Title: {event.title}. Description: {event.description}."
             )
             plan = "Manual review required." if event.severity in ("high", "critical") else None
-            return analysis, plan
+            return analysis, plan, None
 
     async def _execute_approved(self, event: Event) -> None:
         """Called by the approve endpoint for human-approved medium events."""
@@ -98,9 +101,9 @@ class EventProcessor:
                 await repo.update_status(event.id, "failed")
                 await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "failed"}})
 
-    async def _execute(self, event: Event, plan: Optional[str]) -> list:
+    async def _execute(self, event: Event, plan: Optional[str], execute_instruction: Optional[str] = None) -> list:
         """
-        Executes the remediation plan via ReactiveAgentService.
+        Executes the remediation plan via ReactiveAgentService (Computer Use loop).
         Returns a list of action dicts performed.
         """
         actions = []
@@ -111,7 +114,9 @@ class EventProcessor:
 
             reactive_service = ReactiveAgentService()
             async with async_session_factory() as session:
-                actions = await reactive_service.execute_plan(event, plan, session)
+                actions = await reactive_service.execute_plan(
+                    event, plan, session, execute_instruction=execute_instruction
+                )
         except Exception as exc:
             logger.error(f"[EventProcessor] Execution failed for event {event.id}: {exc}")
             actions = [{"type": "error", "content": str(exc), "timestamp": datetime.utcnow().isoformat()}]

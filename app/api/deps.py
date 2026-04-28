@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.persistence.db import get_session
 from app.core.security import ALGORITHM
 from app.core.config import settings
-from app.domain.schemas.user import User
-from app.domain.schemas.token import TokenPayload
-from app.domain.proactiva.services.user_service import UserService
+from app.domain.shared.schemas.user import User
+from app.domain.shared.schemas.token import TokenPayload
+from app.domain.shared.services.user_service import UserService
 
 security = HTTPBearer()
 

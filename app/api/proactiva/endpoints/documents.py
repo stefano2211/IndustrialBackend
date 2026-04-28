@@ -1,11 +1,11 @@
-﻿import uuid
+import uuid
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form, BackgroundTasks
 from typing import Optional
 from app.domain.proactiva.services.document_service import DocumentService
 from app.domain.proactiva.services.knowledge_service import KnowledgeService
 from app.api.proactiva.endpoints.knowledge import get_knowledge_service
 from app.api import deps
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 
 router = APIRouter(dependencies=[Depends(deps.get_current_user)])
 document_service = DocumentService()

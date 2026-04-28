@@ -2,7 +2,7 @@ from typing import List, Optional
 import uuid
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.domain.schemas.mcp_source import MCPSource
+from app.domain.proactiva.schemas.mcp_source import MCPSource
 
 class MCPSourceRepository:
     def __init__(self, session: AsyncSession):

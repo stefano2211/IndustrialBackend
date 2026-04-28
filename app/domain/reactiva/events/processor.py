@@ -13,7 +13,7 @@ from typing import Optional
 
 from loguru import logger
 
-from app.domain.schemas.event import Event
+from app.domain.reactiva.schemas.event import Event
 from app.persistence.db import async_session_factory
 from app.persistence.reactiva.repositories.event_repository import EventRepository
 from app.core.reactiva.event_queue import broadcast_sse
@@ -70,7 +70,7 @@ class EventProcessor:
             execute_instruction is the ---EXECUTE--- section, or None if unavailable.
         """
         try:
-            from app.domain.agent.reactive_service import ReactiveAgentService
+            from app.domain.reactiva.agent.reactive_service import ReactiveAgentService
 
             reactive_service = ReactiveAgentService()
             async with async_session_factory() as session:
@@ -110,7 +110,7 @@ class EventProcessor:
         if not plan:
             return actions
         try:
-            from app.domain.agent.reactive_service import ReactiveAgentService
+            from app.domain.reactiva.agent.reactive_service import ReactiveAgentService
 
             reactive_service = ReactiveAgentService()
             async with async_session_factory() as session:

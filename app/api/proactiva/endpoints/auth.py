@@ -1,11 +1,11 @@
-﻿from typing import Annotated, Any
+from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.persistence.db import get_session
 from app.core.security import create_access_token
-from app.domain.schemas.token import Token
-from app.domain.schemas.user import UserCreate, UserRead, UserLogin
-from app.domain.proactiva.services.user_service import UserService
+from app.domain.shared.schemas.token import Token
+from app.domain.shared.schemas.user import UserCreate, UserRead, UserLogin
+from app.domain.shared.services.user_service import UserService
 from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
 
 router = APIRouter()

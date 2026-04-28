@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, text
-from app.domain.schemas.prompt import Prompt, PromptUpdate
+from app.domain.proactiva.schemas.prompt import Prompt, PromptUpdate
 
 class PromptRepository:
     def __init__(self, session: AsyncSession):

@@ -1,4 +1,4 @@
-﻿"""
+"""
 DbCollector API Endpoints.
 
 Provides CRUD for DbSource (database collection sources) and
@@ -24,7 +24,7 @@ from app.domain.schemas.db_source import (
     DbSourceRead,
     DbSourceUpdate,
 )
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 from app.persistence.proactiva.repositories.db_source_repository import DbSourceRepository
 
 router = APIRouter()
@@ -146,7 +146,7 @@ async def run_source_now(
 ):
     """
     Trigger an immediate on-demand collection run for a specific source.
-    Runs in the background — poll /sources/{id}/status to check the result.
+    Runs in the background � poll /sources/{id}/status to check the result.
     """
     bg_tasks.add_task(collector_service.run_source_by_id, source_id)
     return {

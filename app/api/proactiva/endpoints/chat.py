@@ -1,4 +1,4 @@
-ï»¿"""Chat endpoint â€” thin handler delegating to AgentService + ConversationService."""
+"""Chat endpoint — thin handler delegating to AgentService + ConversationService."""
 
 import json
 import uuid
@@ -8,12 +8,12 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.schemas.api import ChatRequest, ChatResponse
-from app.domain.schemas.conversation import ChatMessage
-from app.domain.agent.service import AgentService
+from app.domain.proactiva.schemas.conversation import ChatMessage
+from app.domain.proactiva.agent.service import AgentService
 from app.domain.proactiva.services.conversation_service import ConversationService
 from app.api import deps
 from app.persistence.db import get_session
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 
 router = APIRouter()
 
@@ -84,7 +84,7 @@ async def chat_stream_endpoint(
     conv_service: ConversationService = Depends(get_conversation_service),
 ):
     """
-    Chat with the AI Agent â€” Server-Sent Events (SSE) streaming.
+    Chat with the AI Agent — Server-Sent Events (SSE) streaming.
     
     Sends events:
       - data: {"type": "meta", "thread_id": "..."}

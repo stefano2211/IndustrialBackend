@@ -1,4 +1,4 @@
-﻿"""Admin endpoints — user management and system analytics (admin only)."""
+"""Admin endpoints � user management and system analytics (admin only)."""
 
 from datetime import datetime, timezone, timedelta
 from typing import List
@@ -11,10 +11,10 @@ from sqlmodel import select, func
 
 from app.api import deps
 from app.persistence.db import get_session
-from app.domain.schemas.user import User, UserRead
-from app.domain.schemas.conversation import Conversation, ChatMessage
-from app.domain.schemas.model import Model
-from app.domain.proactiva.services.user_service import UserService
+from app.domain.shared.schemas.user import User, UserRead
+from app.domain.proactiva.schemas.conversation import Conversation, ChatMessage
+from app.domain.proactiva.schemas.model import Model
+from app.domain.shared.services.user_service import UserService
 from app.core.config import settings
 
 router = APIRouter()
@@ -25,7 +25,7 @@ def require_admin(user: User):
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
-# ── Users ──────────────────────────────────────────
+# -- Users ------------------------------------------
 
 
 @router.get("/users", response_model=List[UserRead])
@@ -73,9 +73,9 @@ async def delete_user(
     return {"ok": True}
 
 
-# ── Settings ─────────────────────────────────────────
+# -- Settings -----------------------------------------
 
-from app.domain.schemas.settings import (
+from app.domain.proactiva.schemas.settings import (
     SystemSettingsGeneralRead, 
     SystemSettingsGeneralUpdate,
     SystemSettingsDocumentsRead, 
@@ -125,7 +125,7 @@ async def update_document_settings(
     return await repo.update_settings(body)
 
 
-# ── Analytics ──────────────────────────────────────
+# -- Analytics --------------------------------------
 
 
 class DailyMessages(BaseModel):

@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.domain.schemas.reactive_tool_config import ReactiveToolConfig
+from app.domain.reactiva.schemas.reactive_tool_config import ReactiveToolConfig
 
 
 class ReactiveToolConfigRepository:

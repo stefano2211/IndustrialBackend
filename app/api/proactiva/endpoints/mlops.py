@@ -1,4 +1,4 @@
-ï»¿from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Header
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Header
 import re
 from typing import Optional
 from app.domain.proactiva.services.mlops_service import MLOpsService
@@ -7,7 +7,7 @@ from app.core.config import settings
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 from app.core.mothership_client import mothership_client
 
 
@@ -32,7 +32,7 @@ def get_vl_mlops_service() -> VLMLOpsService:
 
 
 async def verify_mothership_key(x_api_key: str = Header(...)):
-    """Valida que la peticiÃ³n proviene de la Mothership (ApiLLMOps) usando su API key."""
+    """Valida que la petición proviene de la Mothership (ApiLLMOps) usando su API key."""
     if x_api_key != settings.mothership_api_key:
         raise HTTPException(status_code=401, detail="Invalid Mothership API Key")
 
@@ -46,7 +46,7 @@ async def ota_model_update(
     _: str = Depends(verify_mothership_key),
 ) -> dict:
     """
-    Webhook OTA unificado â€” soporta modelos de texto y modelos VL.
+    Webhook OTA unificado — soporta modelos de texto y modelos VL.
 
     Payload para modelo de TEXTO:
       {"model_tag": "aura_tenant_01-v2", "model_type": "text"}
@@ -69,7 +69,7 @@ async def ota_model_update(
         )
 
     if payload.model_type == "vision":
-        # mmproj_tag ya no es requerido â€” el nuevo flujo OTA descarga un Ãºnico tar.gz de adaptador LoRA
+        # mmproj_tag ya no es requerido — el nuevo flujo OTA descarga un único tar.gz de adaptador LoRA
         bg_tasks.add_task(
             vl_service.process_vl_ota_webhook,
             payload.model_tag,

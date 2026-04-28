@@ -1,7 +1,7 @@
-﻿import uuid
+import uuid
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.domain.schemas.knowledge import (
+from app.domain.proactiva.schemas.knowledge import (
     KnowledgeBase,
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from sqlmodel import select
 
-from app.domain.schemas.event import Event
+from app.domain.reactiva.schemas.event import Event
 
 
 class EventRepository:

@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.domain.schemas.reactive_mcp_source import ReactiveMCPSource
+from app.domain.reactiva.schemas.reactive_mcp_source import ReactiveMCPSource
 
 
 class ReactiveMCPSourceRepository:

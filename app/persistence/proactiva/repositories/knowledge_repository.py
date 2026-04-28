@@ -2,7 +2,7 @@ import uuid
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from app.domain.schemas.knowledge import KnowledgeBase, KnowledgeDocument
+from app.domain.proactiva.schemas.knowledge import KnowledgeBase, KnowledgeDocument
 
 class KnowledgeRepository:
     def __init__(self, session: AsyncSession):

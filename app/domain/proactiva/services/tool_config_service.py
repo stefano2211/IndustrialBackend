@@ -1,9 +1,9 @@
-﻿"""ToolConfig service — Business logic for tool configurations."""
+"""ToolConfig service � Business logic for tool configurations."""
 
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.schemas.tool_config import ToolConfig, ToolConfigCreate, ToolConfigUpdate
+from app.domain.proactiva.schemas.tool_config import ToolConfig, ToolConfigCreate, ToolConfigUpdate
 from app.domain.exceptions import NotFoundError
 from app.persistence.proactiva.repositories.tool_config_repository import ToolConfigRepository
 

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.persistence.db import get_session
-from app.domain.schemas.reactive_knowledge import (
+from app.domain.reactiva.schemas.reactive_knowledge import (
     ReactiveKnowledgeBaseRead,
     ReactiveKnowledgeBaseCreate,
     ReactiveKnowledgeBaseDetailRead,

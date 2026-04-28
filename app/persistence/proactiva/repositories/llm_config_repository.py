@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from app.domain.schemas.llm_config import LLMConfig, LLMConfigUpdate
+from app.domain.proactiva.schemas.llm_config import LLMConfig, LLMConfigUpdate
 
 class LLMConfigRepository:
     def __init__(self, session: AsyncSession):

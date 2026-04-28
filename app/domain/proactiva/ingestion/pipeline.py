@@ -1,8 +1,8 @@
-﻿"""
+"""
 Document ingestion pipeline.
 
 Orchestrates the full document processing flow:
-  Load → Classify → Split → NER (batched + concurrent) → Embed → Store
+  Load ? Classify ? Split ? NER (batched + concurrent) ? Embed ? Store
 
 Dependencies are injected for testability (DIP).
 """
@@ -17,9 +17,9 @@ from langchain_core.documents import Document
 from loguru import logger
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from app.domain.proactiva.ingestion.document_loader import DocumentLoader
-from app.domain.proactiva.ingestion.text_splitter import HierarchicalSplitter
-from app.domain.proactiva.ingestion.embedder import Embedder
+from app.domain.shared.ingestion.document_loader import DocumentLoader
+from app.domain.shared.ingestion.text_splitter import HierarchicalSplitter
+from app.domain.shared.ingestion.embedder import Embedder
 from app.persistence.vector import QdrantManager
 
 
@@ -72,7 +72,7 @@ class DocumentProcessor:
         doc_category = "document" # Default category since we removed classification
         logger.info(f"Document category set to default: {doc_category}")
 
-        # 3. Split — Two-stage: Hierarchical (section detection) → Recursive (size enforcement)
+        # 3. Split � Two-stage: Hierarchical (section detection) ? Recursive (size enforcement)
         # Stage 1: the HierarchicalSplitter adds section metadata to each chunk
         hierarchical_chunks = self.splitter.split_documents(docs)
 

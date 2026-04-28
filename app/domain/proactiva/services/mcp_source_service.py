@@ -1,8 +1,8 @@
-﻿from typing import List
+from typing import List
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.persistence.proactiva.repositories.mcp_source_repository import MCPSourceRepository
-from app.domain.schemas.mcp_source import MCPSource, MCPSourceCreate, MCPSourceUpdate
+from app.domain.proactiva.schemas.mcp_source import MCPSource, MCPSourceCreate, MCPSourceUpdate
 from app.domain.exceptions import NotFoundError
 
 class MCPSourceService:

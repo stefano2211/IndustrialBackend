@@ -1,4 +1,4 @@
-﻿"""Prompt endpoints — thin HTTP handlers for Prompt CRUD."""
+"""Prompt endpoints � thin HTTP handlers for Prompt CRUD."""
 
 import uuid
 from typing import List
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.persistence.db import get_session
 from app.persistence.proactiva.repositories.prompt_repository import PromptRepository
-from app.domain.schemas.prompt import Prompt, PromptCreate, PromptRead, PromptUpdate
+from app.domain.proactiva.schemas.prompt import Prompt, PromptCreate, PromptRead, PromptUpdate
 
 router = APIRouter()
 

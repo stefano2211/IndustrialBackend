@@ -27,7 +27,7 @@ from app.persistence.db import get_session
 from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.reactiva.event_queue import get_sse_subscribers
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 from app.domain.reactiva.events.schemas import (
     EventIngestRequest,
     EventManualRequest,
@@ -47,8 +47,8 @@ async def _get_user_from_token_str(token_str: str, session: AsyncSession) -> Use
     """Shared helper: decode JWT and return User."""
     from jose import jwt, JWTError
     from app.core.security import ALGORITHM
-    from app.domain.schemas.token import TokenPayload
-    from app.domain.proactiva.services.user_service import UserService
+    from app.domain.shared.schemas.token import TokenPayload
+    from app.domain.shared.services.user_service import UserService
     try:
         payload = jwt.decode(token_str, settings.secret_key, algorithms=[ALGORITHM])
         token_data = TokenPayload(**payload)

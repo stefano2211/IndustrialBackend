@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.domain.schemas.reactive_knowledge import (
+from app.domain.reactiva.schemas.reactive_knowledge import (
     ReactiveKnowledgeBase,
     ReactiveKnowledgeDocument,
 )

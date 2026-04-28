@@ -1,11 +1,11 @@
-﻿"""Conversation service — Business logic for conversation management."""
+"""Conversation service � Business logic for conversation management."""
 
 import uuid
 from typing import List
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.schemas.conversation import (
+from app.domain.proactiva.schemas.conversation import (
     Conversation,
     ConversationCreate,
     ChatMessage,

@@ -1,13 +1,13 @@
-﻿"""Tools endpoints — thin HTTP handlers for ToolConfig CRUD."""
+"""Tools endpoints � thin HTTP handlers for ToolConfig CRUD."""
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.persistence.db import get_session
-from app.domain.schemas.tool_config import ToolConfigCreate, ToolConfigRead, ToolConfigUpdate
+from app.domain.proactiva.schemas.tool_config import ToolConfigCreate, ToolConfigRead, ToolConfigUpdate
 from app.domain.proactiva.services.tool_config_service import ToolConfigService
-from app.domain.proactiva.services.mcp_service import MCPService
+from app.domain.shared.services.mcp_service import MCPService
 from app.domain.exceptions import NotFoundError
 
 router = APIRouter()

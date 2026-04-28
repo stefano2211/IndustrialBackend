@@ -12,7 +12,7 @@ from typing import Optional
 from loguru import logger
 
 from app.core.reactiva.event_queue import get_event_queue, broadcast_sse
-from app.domain.schemas.event import Event
+from app.domain.reactiva.schemas.event import Event
 from app.persistence.db import async_session_factory
 from app.persistence.reactiva.repositories.event_repository import EventRepository
 from app.domain.reactiva.events.processor import EventProcessor

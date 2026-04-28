@@ -1,4 +1,4 @@
-﻿"""Conversation endpoints — thin HTTP handlers delegating to ConversationService."""
+"""Conversation endpoints � thin HTTP handlers delegating to ConversationService."""
 
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.persistence.db import get_session
-from app.domain.schemas.user import User
-from app.domain.schemas.conversation import (
+from app.domain.shared.schemas.user import User
+from app.domain.proactiva.schemas.conversation import (
     ConversationCreate,
     ConversationRead,
     MessageRead,

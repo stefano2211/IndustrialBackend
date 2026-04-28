@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from app.domain.schemas.model import Model, ModelUpdate
+from app.domain.proactiva.schemas.model import Model, ModelUpdate
 
 class ModelRepository:
     def __init__(self, session: AsyncSession):

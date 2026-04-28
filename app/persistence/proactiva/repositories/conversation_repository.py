@@ -4,7 +4,7 @@ import uuid
 from typing import List, Optional
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.domain.schemas.conversation import Conversation, ChatMessage
+from app.domain.proactiva.schemas.conversation import Conversation, ChatMessage
 
 
 class ConversationRepository:

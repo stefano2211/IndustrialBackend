@@ -4,8 +4,8 @@ from sqlalchemy import func
 from sqlmodel import select
 
 from app.persistence.db import get_session
-from app.domain.schemas.user import User
-from app.domain.schemas.conversation import Conversation
+from app.domain.shared.schemas.user import User
+from app.domain.proactiva.schemas.conversation import Conversation
 
 router = APIRouter()
 

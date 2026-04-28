@@ -1,11 +1,11 @@
-﻿from typing import Annotated, Any
+from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.persistence.db import get_session
-from app.domain.schemas.user import UserRead, UserUpdate
-from app.domain.schemas.user import User
-from app.domain.proactiva.services.user_service import UserService
+from app.domain.shared.schemas.user import UserRead, UserUpdate
+from app.domain.shared.schemas.user import User
+from app.domain.shared.services.user_service import UserService
 
 router = APIRouter()
 

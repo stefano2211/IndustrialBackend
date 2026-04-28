@@ -7,7 +7,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
 
-from app.domain.schemas.mcp import MCPResponse, KeyFigure, KeyValue
+from app.domain.proactiva.schemas.mcp import MCPResponse, KeyFigure, KeyValue
 from app.core.llm import LLMFactory
 
 class MCPService:

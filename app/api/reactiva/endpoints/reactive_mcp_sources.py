@@ -13,12 +13,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.persistence.db import get_session
-from app.domain.schemas.reactive_mcp_source import (
+from app.domain.reactiva.schemas.reactive_mcp_source import (
     ReactiveMCPSourceRead,
     ReactiveMCPSourceCreate,
     ReactiveMCPSource,
 )
-from app.domain.schemas.reactive_tool_config import ReactiveToolConfigRead
+from app.domain.reactiva.schemas.reactive_tool_config import ReactiveToolConfigRead
 from app.persistence.reactiva.repositories.reactive_mcp_source_repository import ReactiveMCPSourceRepository
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
 from app.domain.shared.services.mcp_service import MCPService
@@ -96,7 +96,7 @@ async def sync_reactive_source(
     existing_names = {t.name for t in existing_tools}
 
     added = 0
-    from app.domain.schemas.reactive_tool_config import ReactiveToolConfig
+    from app.domain.reactiva.schemas.reactive_tool_config import ReactiveToolConfig
     for tool_def in discovered_tools:
         if tool_def.name not in existing_names:
             new_tool = ReactiveToolConfig(

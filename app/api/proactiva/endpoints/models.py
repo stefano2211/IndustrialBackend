@@ -1,4 +1,4 @@
-﻿"""Model management endpoints — handlers for custom Model configurations."""
+"""Model management endpoints � handlers for custom Model configurations."""
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,10 +7,10 @@ import httpx
 
 from app.persistence.db import get_session
 from app.api import deps
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 from app.persistence.proactiva.repositories.model_repository import ModelRepository
 from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
-from app.domain.schemas.model import Model, ModelCreate, ModelRead, ModelUpdate
+from app.domain.proactiva.schemas.model import Model, ModelCreate, ModelRead, ModelUpdate
 from app.core.config import settings
 
 router = APIRouter(dependencies=[Depends(deps.get_current_user)])
@@ -84,7 +84,7 @@ async def delete_model(
     return {"status": "success", "message": f"Model {model_id} deleted"}
 
 
-# ── Discovery Endpoints ────────────────────────────────
+# -- Discovery Endpoints --------------------------------
 
 
 @router.get("/discovery/providers")
@@ -150,7 +150,7 @@ async def list_provider_models(
                                         "details": {"source": label}
                                     })
                     except Exception:
-                        pass  # Un servidor caído no rompe el discovery del otro
+                        pass  # Un servidor ca�do no rompe el discovery del otro
 
             if all_models:
                 return all_models

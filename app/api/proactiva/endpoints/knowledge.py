@@ -1,12 +1,12 @@
-﻿from typing import List
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
 from app.persistence.db import get_session
-from app.domain.schemas.user import User
-from app.domain.schemas.knowledge import (
+from app.domain.shared.schemas.user import User
+from app.domain.proactiva.schemas.knowledge import (
     KnowledgeBaseCreate,
     KnowledgeBaseUpdate,
     KnowledgeBaseRead,

@@ -23,7 +23,7 @@ from app.persistence.db import init_db
 from app.persistence.proactiva.memoryAI.checkpointer import get_checkpointer, close_pool
 from app.persistence.proactiva.memoryAI.store import get_store
 from app.domain.proactiva.db_collector.scheduler import collector_scheduler
-from app.domain.agent.tools.omniparser_service import get_omniparser
+from app.domain.proactiva.agent.tools.omniparser_service import get_omniparser
 from app.domain.reactiva.events.event_service import EventProcessorService
 from app.core.config import settings as _settings
 

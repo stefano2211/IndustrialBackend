@@ -2,14 +2,14 @@ import uuid
 from typing import List, Optional
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.domain.schemas.tool_config import ToolConfig
+from app.domain.proactiva.schemas.tool_config import ToolConfig
 
 class ToolConfigRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
     async def get_all_by_user(self, user_id: uuid.UUID) -> List[ToolConfig]:
-        from app.domain.schemas.mcp_source import MCPSource
+        from app.domain.proactiva.schemas.mcp_source import MCPSource
         statement = select(ToolConfig).join(MCPSource).where(
             MCPSource.user_id == user_id,
             MCPSource.is_enabled == True
@@ -18,13 +18,13 @@ class ToolConfigRepository:
         return list(result.scalars().all())
 
     async def get_all(self) -> List[ToolConfig]:
-        from app.domain.schemas.mcp_source import MCPSource
+        from app.domain.proactiva.schemas.mcp_source import MCPSource
         statement = select(ToolConfig).join(MCPSource).where(MCPSource.is_enabled == True)
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
     async def get_by_source(self, source_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> List[ToolConfig]:
-        from app.domain.schemas.mcp_source import MCPSource
+        from app.domain.proactiva.schemas.mcp_source import MCPSource
         if user_id is not None:
             statement = (
                 select(ToolConfig)

@@ -1,14 +1,14 @@
-﻿from typing import List
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 import uuid
 
 from app.api import deps
-from app.domain.schemas.user import User
+from app.domain.shared.schemas.user import User
 from app.persistence.db import get_session
-from app.domain.schemas.mcp_source import MCPSourceCreate, MCPSourceRead, MCPSourceUpdate
+from app.domain.proactiva.schemas.mcp_source import MCPSourceCreate, MCPSourceRead, MCPSourceUpdate
 from app.domain.proactiva.services.mcp_source_service import MCPSourceService
-from app.domain.proactiva.services.mcp_service import MCPService
+from app.domain.shared.services.mcp_service import MCPService
 from app.domain.exceptions import NotFoundError
 
 router = APIRouter(dependencies=[Depends(deps.get_current_user)])

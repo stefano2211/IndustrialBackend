@@ -1,6 +1,8 @@
 from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from loguru import logger
+
 from app.persistence.db import get_session
 from app.core.security import create_access_token
 from app.domain.shared.schemas.token import Token
@@ -68,4 +70,5 @@ async def register_user(
         user = await user_service.create_user(user_in=user_in)
         return user
     except Exception as e:
+        logger.error(f"Error creating user: {e}")
         raise HTTPException(status_code=500, detail=str(e))

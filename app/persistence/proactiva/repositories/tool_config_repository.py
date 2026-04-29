@@ -23,6 +23,24 @@ class ToolConfigRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    async def get_all_paginated(self, limit: int = 100, offset: int = 0) -> List[ToolConfig]:
+        from app.domain.proactiva.schemas.mcp_source import MCPSource
+        statement = (
+            select(ToolConfig)
+            .join(MCPSource)
+            .where(MCPSource.is_enabled == True)
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(statement)
+        return list(result.scalars().all())
+
+    async def get_count(self) -> int:
+        from app.domain.proactiva.schemas.mcp_source import MCPSource
+        statement = select(ToolConfig).join(MCPSource).where(MCPSource.is_enabled == True)
+        result = await self.session.execute(statement)
+        return len(list(result.scalars().all()))
+
     async def get_by_source(self, source_id: uuid.UUID, user_id: Optional[uuid.UUID] = None) -> List[ToolConfig]:
         from app.domain.proactiva.schemas.mcp_source import MCPSource
         if user_id is not None:

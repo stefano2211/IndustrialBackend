@@ -26,22 +26,15 @@ class LLMProvider(str, Enum):
 
 
 def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = None, **kwargs):
-    # Map max_tokens appropriately
-    streaming = kwargs.pop("streaming", True)
-
-    # Remove top_k if present — vLLM doesn't support it via OpenAI-compatible API
-    # (Qwen3.5 doesn't use top_k; temperature and top_p are sufficient)
+    streaming = kwargs.get("streaming", True)
+    kwargs.pop("streaming", None)
     kwargs.pop("top_k", None)
 
-    # Gemma 4 stop tokens — applied only when the caller has NOT specified 'stop'.
-    # Computer-use VL model passes stop=[] explicitly to disable stop tokens,
-    # preventing EOS from cutting tool calls mid-generation.
     if 'stop' not in kwargs:
         kwargs['stop'] = ['<turn|>']
 
-
     return ChatOpenAI(
-        openai_api_key="EMPTY",  # vLLM doesn't require an API key by default
+        openai_api_key="EMPTY",
         openai_api_base=base_url or settings.vllm_base_url,
         model=model_name or settings.default_llm_model,
         temperature=temperature,

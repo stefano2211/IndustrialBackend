@@ -3,16 +3,17 @@ from langchain_core.runnables import RunnableConfig
 from app.domain.proactiva.agent.retrieval.searcher import SemanticSearcher
 from loguru import logger
 
-# Lazy-init singleton — created on first call, not on import (testable via DI)
-_searcher: SemanticSearcher | None = None
+_searcher_instance: SemanticSearcher | None = None
 
+def get_searcher() -> SemanticSearcher:
+    global _searcher_instance
+    if _searcher_instance is None:
+        _searcher_instance = SemanticSearcher()
+    return _searcher_instance
 
-def _get_searcher() -> SemanticSearcher:
-    """Returns the shared SemanticSearcher instance (lazy init)."""
-    global _searcher
-    if _searcher is None:
-        _searcher = SemanticSearcher()
-    return _searcher
+def set_searcher(searcher: SemanticSearcher) -> None:
+    global _searcher_instance
+    _searcher_instance = searcher
 
 
 @tool
@@ -58,7 +59,7 @@ async def ask_knowledge_agent(
             "Indícale al usuario que debe seleccionar una colección de documentos para poder buscar información."
         )
 
-    searcher = _get_searcher()
+    searcher = get_searcher()
     # Now it dynamically reads limit from SystemSettings if session is present
     results = await searcher.search(
         query,

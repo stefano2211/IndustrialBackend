@@ -7,18 +7,19 @@ from app.domain.proactiva.schemas.mcp_source import MCPSource
 from loguru import logger
 import json
 
-# Lazy-init singleton
-_mcp_service: MCPService | None = None
+_mcp_service_instance: MCPService | None = None
 
-# In-memory URL resolution cache — evita un DB round-trip por cada llamada MCP.
-# Las URLs de source solo cambian si se reconfigura la fuente (muy infrecuente).
+def get_mcp_service() -> MCPService:
+    global _mcp_service_instance
+    if _mcp_service_instance is None:
+        _mcp_service_instance = MCPService()
+    return _mcp_service_instance
+
+def set_mcp_service(service: MCPService) -> None:
+    global _mcp_service_instance
+    _mcp_service_instance = service
+
 _url_cache: dict = {}
-
-def _get_mcp_service() -> MCPService:
-    global _mcp_service
-    if _mcp_service is None:
-        _mcp_service = MCPService()
-    return _mcp_service
 
 @tool
 async def call_dynamic_mcp(
@@ -76,7 +77,7 @@ async def _do_call_dynamic_mcp(
     if not tool_config:
         return json.dumps({"error": f"Tool configuration '{tool_config_name}' not found."})
 
-    mcp_service = _get_mcp_service()
+    mcp_service = get_mcp_service()
 
     config_data = tool_config.config or {}
     execution_url = config_data.get("url") or tool_config.api_url

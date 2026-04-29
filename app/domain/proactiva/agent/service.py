@@ -1,5 +1,5 @@
 """
-Agent Service — Orchestrates Deep Agent invocations.
+Agent Service ï¿½ Orchestrates Deep Agent invocations.
 
 Encapsulates the logic of:
   1. Creating the LLM with connection resilience
@@ -10,6 +10,8 @@ Encapsulates the logic of:
 This isolates the chat endpoint from agent internals (Dependency Inversion).
 """
 
+import asyncio
+from functools import lru_cache
 import hashlib
 import json
 import re
@@ -29,7 +31,8 @@ from app.domain.proactiva.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTE
 from app.persistence.proactiva.repositories.model_repository import ModelRepository
 from app.persistence.proactiva.vl_replay_buffer import vl_replay_buffer
 
-_GRAPH_CACHE: Dict[str, dict] = {}
+_agent_cache: Dict[str, dict] = {}
+_cache_lock = asyncio.Lock()
 MAX_CACHE_SIZE = 100
 
 
@@ -37,7 +40,7 @@ async def _vllm_model_exists(base_url: str, model_name: str) -> bool:
     """
     Probe vLLM /v1/models to verify a model or LoRA adapter is loaded.
 
-    LLMFactory.get_llm() never raises — it just creates a config object.
+    LLMFactory.get_llm() never raises ï¿½ it just creates a config object.
     The 404 only fires on the first actual request. This probe lets us check
     upfront and fall back to the base model when a LoRA hasn't been trained yet.
     """
@@ -107,7 +110,7 @@ class AgentService:
             if not content:
                 return False
 
-            # Extract JSON object via regex — handles cases where reasoning text surrounds the JSON
+            # Extract JSON object via regex ï¿½ handles cases where reasoning text surrounds the JSON
             # (e.g. when Qwen3.5 puts everything inside <think> and the fallback is raw reasoning)
             json_match = re.search(r'\{[^{}]*\}', content)
             if not json_match:
@@ -178,7 +181,7 @@ class AgentService:
                 lines.append(f"    - {pp} (string) [required]: Path parameter for the URL")
         else:
             placement = "body" if effective_method in ("POST", "PUT", "PATCH") else "query string"
-            lines.append(f"  Parameters  : none — send an empty dict {{}} as arguments ({placement})")
+            lines.append(f"  Parameters  : none ï¿½ send an empty dict {{}} as arguments ({placement})")
 
         # -- Response hints ---------------------------------------------------
         if response_fields:
@@ -188,7 +191,7 @@ class AgentService:
                 f_unit = field_def.get("unit", "") if isinstance(field_def, dict) else ""
                 f_desc = field_def.get("description", "") if isinstance(field_def, dict) else ""
                 unit_str = f" [{f_unit}]" if f_unit else ""
-                desc_str = f" — {f_desc}" if f_desc else ""
+                desc_str = f" ï¿½ {f_desc}" if f_desc else ""
                 lines.append(f"    - {field} ({f_type}){unit_str}{desc_str}")
 
         # -- Filterable fields (injected from discovered schema) --------------
@@ -204,7 +207,7 @@ class AgentService:
                 for kv_field, kv_vals in kv_fields.items():
                     vals_preview = kv_vals[:15]
                     suffix = f" ... (+{len(kv_vals) - 15} more)" if len(kv_vals) > 15 else ""
-                    lines.append(f"      · {kv_field}: {vals_preview}{suffix}")
+                    lines.append(f"      ï¿½ {kv_field}: {vals_preview}{suffix}")
 
             # -- Dynamic few-shot examples (auto-generated from real discovered data) --
             lines.append("")
@@ -223,7 +226,7 @@ class AgentService:
                     import json
                     sample_args_str = f', arguments={json.dumps(sample_args)}'
 
-            # Example 1: Categorical filter — pick the first kv field and its first value
+            # Example 1: Categorical filter ï¿½ pick the first kv field and its first value
             if kv_fields:
                 ex_kv_field = next(iter(kv_fields))
                 ex_kv_value = kv_fields[ex_kv_field][0] if kv_fields[ex_kv_field] else "example"
@@ -235,7 +238,7 @@ class AgentService:
                     f'key_values={{"{ex_kv_field}": ["{ex_kv_value}"]}})'
                 )
 
-            # Example 2: Numeric range filter — pick the first kf field
+            # Example 2: Numeric range filter ï¿½ pick the first kf field
             if kf_fields:
                 ex_kf_field = kf_fields[0]
                 lines.append(
@@ -246,7 +249,7 @@ class AgentService:
                     f'key_figures=[{{"field": "{ex_kf_field}", "min": 100}}])'
                 )
 
-            # Example 3: Combined filter — only if both types exist
+            # Example 3: Combined filter ï¿½ only if both types exist
             if kv_fields and kf_fields:
                 ex_kv_field = next(iter(kv_fields))
                 ex_kv_value = kv_fields[ex_kv_field][0] if kv_fields[ex_kv_field] else "example"
@@ -391,7 +394,7 @@ class AgentService:
                 merged_params["stop"] = [stop_val]
 
         # 3. Create Orchestrator LLM
-        # Cap output tokens: orchestrator routes/synthesizes only — prevents context overflow
+        # Cap output tokens: orchestrator routes/synthesizes only ï¿½ prevents context overflow
         merged_params.setdefault("max_tokens", 1024)
         ui_generalist_llm = await LLMFactory.get_llm(
             provider=provider,
@@ -413,7 +416,7 @@ class AgentService:
             mcp_source_id = "none"
             knowledge_base_id = "none"
 
-        # 4.6 Expert Loader: Deferred — captured via default arg to avoid closure over
+        # 4.6 Expert Loader: Deferred ï¿½ captured via default arg to avoid closure over
         # a mutable session reference (the session may be closed before the lambda fires).
         
         # Determine LoRA identifiers from settings (single source of truth)
@@ -422,7 +425,7 @@ class AgentService:
 
         _captured_session = session
         # Factory con fallback: verifica en vLLM si el LoRA existe antes de usarlo.
-        # LLMFactory.get_llm() nunca lanza excepción (solo crea config) — el 404 ocurre
+        # LLMFactory.get_llm() nunca lanza excepciï¿½n (solo crea config) ï¿½ el 404 ocurre
         # en la primera llamada real, por eso necesitamos probar antes.
         async def expert_llm_factory(sess=_captured_session):
             if settings.system1_force_base_model:
@@ -445,7 +448,7 @@ class AgentService:
                     base_url=settings.vllm_base_url,
                 )
             logger.warning(
-                f"[AgentService] LoRA '{expert_lora_target}' not loaded in vLLM — "
+                f"[AgentService] LoRA '{expert_lora_target}' not loaded in vLLM ï¿½ "
                 f"falling back to base model '{settings.system1_base_model}'. "
                 f"Train and deploy a LoRA via ApiLLMOps to activate the expert subagent."
             )
@@ -459,8 +462,8 @@ class AgentService:
         # 4.7 Worker LLM: reuse generalist instance
         worker_llm = ui_generalist_llm
 
-        # 4.8 Vision LLM — Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
-        # Gemma 4 26B-A4B is natively multimodal — if the VL LoRA doesn't exist yet,
+        # 4.8 Vision LLM ï¿½ Sistema 1 VL (fine-tuned VL LoRA or base model fallback)
+        # Gemma 4 26B-A4B is natively multimodal ï¿½ if the VL LoRA doesn't exist yet,
         # fall back to the base model so sistema1-vl (computer use loop) still works.
         # Gemma 4 recommended params: temp=1.0 (Google docs), top_p=0.95
         vision_llm = None
@@ -505,7 +508,7 @@ class AgentService:
                         f"[AgentService] VL LoRA '{vl_lora_target}' not loaded in vLLM \u2014 "
                         f"using base model '{settings.system1_base_model}' for vision/computer-use."
                     )
-        # 4.9 Expert LLM instance — Sistema 1 Histórico (fine-tuned text LoRA, ZERO tools)
+        # 4.9 Expert LLM instance ï¿½ Sistema 1 Histï¿½rico (fine-tuned text LoRA, ZERO tools)
         # Resuelto como instancia directa (no factory) para que sistema1-historico
         # pueda ser ensamblado en tiempo de build del grafo.
         # FALLBACK: Si el LoRA no existe, usa el modelo base para mantener funcionalidad.
@@ -575,17 +578,17 @@ class AgentService:
                     enable_mcp=(mcp_source_id != "none"),
                 )
 
-        global _GRAPH_CACHE
-        if cache_key in _GRAPH_CACHE:
-            entry = _GRAPH_CACHE.pop(cache_key)
-            _GRAPH_CACHE[cache_key] = entry
-            agent = entry["agent"]
-        else:
-            agent = await _build_agent_async()
-            if len(_GRAPH_CACHE) >= MAX_CACHE_SIZE:
-                first_key = next(iter(_GRAPH_CACHE))
-                del _GRAPH_CACHE[first_key]
-            _GRAPH_CACHE[cache_key] = {"agent": agent}
+        async with _cache_lock:
+            if cache_key in _agent_cache:
+                entry = _agent_cache.pop(cache_key)
+                _agent_cache[cache_key] = entry
+                agent = entry["agent"]
+            else:
+                agent = await _build_agent_async()
+                if len(_agent_cache) >= MAX_CACHE_SIZE:
+                    first_key = next(iter(_agent_cache))
+                    del _agent_cache[first_key]
+                _agent_cache[cache_key] = {"agent": agent}
 
         # Inject mode-specific context into query for event mode
         if mode == "event" and mode_context:
@@ -809,7 +812,7 @@ class AgentService:
                                 inside_think_block = True
                             else:
                                 # No <think> start found.
-                                # Also check for orphan </think> — Qwen3/vLLM sometimes
+                                # Also check for orphan </think> ï¿½ Qwen3/vLLM sometimes
                                 # streams thinking content WITHOUT emitting the opening
                                 # <think> tag, but DOES emit the closing </think>.
                                 close_idx = think_buffer.find("</think>")
@@ -819,7 +822,7 @@ class AgentService:
                                     # accumulated before this chunk was pre-think reasoning text.
                                     think_buffer = think_buffer[close_idx + len("</think>"):]
                                     step_text_buffer = []
-                                    # Continue loop — there may be real content after it
+                                    # Continue loop ï¿½ there may be real content after it
                                 else:
                                     # No think tag found at all.
                                     # Keep last 7 chars (partial of either <think> or </think>).

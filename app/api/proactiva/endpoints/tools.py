@@ -1,4 +1,4 @@
-"""Tools endpoints — thin HTTP handlers for ToolConfig CRUD."""
+"""Tools endpoints ï¿½ thin HTTP handlers for ToolConfig CRUD."""
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,9 +32,14 @@ async def create_tool(
 
 @router.get("/", response_model=List[ToolConfigRead])
 async def list_tools(
+    limit: int = 100,
+    offset: int = 0,
     service: ToolConfigService = Depends(get_tool_service),
 ):
-    return await service.get_all()
+    """List all tools with pagination support."""
+    tools = await service.get_all(limit=limit, offset=offset)
+    total = await service.get_count()
+    return tools
 
 
 @router.get("/{tool_id}", response_model=ToolConfigRead)

@@ -41,5 +41,12 @@ async def init_db():
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Get database session with automatic rollback on error."""
     async with async_session_factory() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

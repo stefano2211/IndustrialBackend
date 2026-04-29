@@ -1,4 +1,4 @@
-"""ToolConfig service — Business logic for tool configurations."""
+"""ToolConfig service â€” Business logic for tool configurations."""
 
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +12,11 @@ class ToolConfigService:
     def __init__(self, session: AsyncSession):
         self.repository = ToolConfigRepository(session)
 
-    async def get_all(self) -> List[ToolConfig]:
-        return await self.repository.get_all()
+    async def get_all(self, limit: int = 100, offset: int = 0) -> List[ToolConfig]:
+        return await self.repository.get_all_paginated(limit=limit, offset=offset)
+
+    async def get_count(self) -> int:
+        return await self.repository.get_count()
 
     async def get_by_name(self, name: str) -> Optional[ToolConfig]:
         return await self.repository.get_by_name(name)

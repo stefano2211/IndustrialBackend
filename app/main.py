@@ -14,18 +14,10 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from starlette.middleware.base import BaseHTTPMiddleware
 
-# Suppress Pydantic UserWarning about typing.NotRequired from external libraries
-warnings.filterwarnings("ignore", category=UserWarning, message=".*typing.NotRequired is not a Python type.*")
-
-from app.api.router import api_router
-from app.persistence.db import init_db
-from app.persistence.proactiva.memoryAI.checkpointer import get_checkpointer, close_pool
-from app.persistence.proactiva.memoryAI.store import get_store
-from app.domain.proactiva.db_collector.scheduler import collector_scheduler
-from app.domain.proactiva.agent.tools.omniparser_service import get_omniparser
-from app.domain.reactiva.events.event_service import EventProcessorService
-from app.core.config import settings as _settings
+from app.core.config import settings
+from app.core.middleware import GlobalExceptionHandler
 
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -141,4 +133,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(GlobalExceptionHandler)
+
 app.include_router(api_router)
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker/Kubernetes."""
+    return {"status": "healthy", "service": "aura-backend"}

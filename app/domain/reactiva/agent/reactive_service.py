@@ -17,9 +17,8 @@ from typing import Optional
 from loguru import logger
 from langchain_core.messages import HumanMessage
 
-from app.core.llm import LLMFactory
+from app.core.llm import LLMFactory, _vllm_model_exists
 from app.core.config import settings
-from app.domain.proactiva.agent.service import _vllm_model_exists
 from app.domain.reactiva.agent.reactive_orchestrator import create_reactive_orchestrator
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
 from app.domain.reactiva.schemas.event import Event
@@ -227,7 +226,7 @@ class ReactiveAgentService:
             return [{"status": "error", "message": str(e)}]
 
         # ── Assemble the Computer Use graph ────────────────────────────────────
-        from app.domain.proactiva.agent.subagents.computer_use_subagent import create_computer_use_agent
+        from app.domain.shared.agent.subagents.computer_use import create_computer_use_agent
         graph = create_computer_use_agent(vision_llm=vl_model, vl_replay_buffer=None)
 
         # ── Build the instruction ───────────────────────────────────────────────

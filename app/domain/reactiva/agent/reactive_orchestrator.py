@@ -10,11 +10,11 @@ from deepagents import create_deep_agent
 
 from app.domain.reactiva.agent.prompts.reactive_orchestrator import build_reactive_orchestrator_prompt
 from app.domain.reactiva.agent.reactive_factory import create_reactive_industrial_agent
-from app.domain.proactiva.agent.subagents.system1_subagent import (
+from app.domain.shared.agent.subagents.system1 import (
     create_system1_historico_agent,
     create_system1_vl_agent,
 )
-from app.domain.proactiva.agent.memory import create_composite_backend
+from app.domain.shared.agent.memory_backends import create_composite_backend
 from app.core.config import settings
 
 

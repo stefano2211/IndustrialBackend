@@ -24,7 +24,7 @@ from deepagents.backends.utils import create_file_data
 from loguru import logger
 
 from app.core.config import settings
-from app.core.llm import LLMFactory, LLMProvider
+from app.core.llm import LLMFactory, LLMProvider, _vllm_model_exists
 from app.domain.proactiva.agent.factory import create_industrial_agent
 from app.domain.proactiva.agent.orchestrator import create_generalist_orchestrator
 from app.domain.proactiva.agent.prompts import AGENTS_MD_CONTENT, TEMPORAL_ROUTER_PROMPT
@@ -34,26 +34,6 @@ from app.persistence.proactiva.vl_replay_buffer import vl_replay_buffer
 _agent_cache: Dict[str, dict] = {}
 _cache_lock = asyncio.Lock()
 MAX_CACHE_SIZE = 100
-
-
-async def _vllm_model_exists(base_url: str, model_name: str) -> bool:
-    """
-    Probe vLLM /v1/models to verify a model or LoRA adapter is loaded.
-
-    LLMFactory.get_llm() never raises � it just creates a config object.
-    The 404 only fires on the first actual request. This probe lets us check
-    upfront and fall back to the base model when a LoRA hasn't been trained yet.
-    """
-    models_url = base_url.rstrip("/") + "/models"
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(models_url)
-            if resp.status_code == 200:
-                data = resp.json().get("data", [])
-                return any(m.get("id") == model_name for m in data)
-    except Exception as exc:
-        logger.debug(f"[AgentService] vLLM probe failed for '{model_name}': {exc}")
-    return False
 
 
 class AgentService:

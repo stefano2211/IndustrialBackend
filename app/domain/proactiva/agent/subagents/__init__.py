@@ -1,5 +1,5 @@
 """
-Subagents package — all subagent definitions and satellite agents.
+Subagents package â€” all subagent definitions and satellite agents.
 
 Public exports:
   - Satellite agent factories (SAP, Google, Office)
@@ -11,7 +11,7 @@ from app.domain.proactiva.agent.subagents.satellite import (
     create_google_agent,
     create_office_agent,
 )
-from app.domain.proactiva.agent.subagents.system1_subagent import create_system1_agent
+from app.domain.shared.agent.subagents.system1 import create_system1_agent
 
 __all__ = [
     "create_sap_agent",

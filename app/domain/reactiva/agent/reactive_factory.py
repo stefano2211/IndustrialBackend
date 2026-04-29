@@ -13,7 +13,7 @@ from app.domain.reactiva.agent.prompts.reactive_industrial import (
 )
 from app.domain.reactiva.agent.tools.reactive_knowledge_tool import ask_reactive_knowledge
 from app.domain.reactiva.agent.tools.reactive_mcp_tool import call_reactive_mcp
-from app.domain.proactiva.agent.memory import create_composite_backend
+from app.domain.shared.agent.memory_backends import create_composite_backend
 
 
 def create_reactive_industrial_agent(

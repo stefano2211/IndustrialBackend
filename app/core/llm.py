@@ -114,3 +114,30 @@ class LLMFactory:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
         return factory_fn(model_name=model_name, temperature=temperature, **{**factory_kwargs, **kwargs})
+
+
+# ---------------------------------------------------------------------------
+# Shared vLLM probe (LoRA adapter availability check)
+# ---------------------------------------------------------------------------
+
+
+async def _vllm_model_exists(base_url: str, model_name: str) -> bool:
+    """
+    Probe vLLM /v1/models to verify a model or LoRA adapter is loaded.
+
+    LLMFactory.get_llm() never raises — it just creates a config object.
+    The 404 only fires on the first actual request. This probe lets us check
+    upfront and fall back to the base model when a LoRA hasn't been trained yet.
+    """
+    import httpx
+
+    models_url = base_url.rstrip("/") + "/models"
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(models_url)
+            if resp.status_code == 200:
+                data = resp.json().get("data", [])
+                return any(m.get("id") == model_name for m in data)
+    except Exception as exc:
+        logger.debug(f"[LLMFactory] vLLM probe failed for '{model_name}': {exc}")
+    return False

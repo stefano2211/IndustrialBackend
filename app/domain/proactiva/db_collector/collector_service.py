@@ -213,9 +213,9 @@ class CollectorService:
                 "sample": anomaly_rows[:3],
             }
 
-            from app.domain.reactiva.events.event_service import EventProcessorService
-            svc = EventProcessorService()
-            await svc.enqueue_event(
+            from app.domain.shared.events.publisher import EventPublisher
+            publisher = EventPublisher()
+            await publisher.publish(
                 source_type="db_collector",
                 severity=severity,
                 title=title,

@@ -36,6 +36,7 @@ from app.domain.reactiva.events.schemas import (
     EventListResponse,
 )
 from app.domain.reactiva.events.event_service import EventProcessorService
+from app.domain.shared.events.publisher import EventPublisher
 from app.persistence.reactiva.repositories.event_repository import EventRepository
 
 router = APIRouter()
@@ -89,6 +90,10 @@ def _get_event_service() -> EventProcessorService:
     return EventProcessorService()
 
 
+def _get_event_publisher() -> EventPublisher:
+    return EventPublisher()
+
+
 # ── Ingest (machine-to-machine) ───────────────────────────────────────────────
 
 @router.post("/ingest", response_model=EventResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -97,8 +102,8 @@ async def ingest_event(
     _key: str = Depends(_verify_api_key),
 ):
     """Ingest an event from an external sensor or automated system."""
-    svc = _get_event_service()
-    event = await svc.enqueue_event(
+    publisher = _get_event_publisher()
+    event = await publisher.publish(
         source_type=payload.source_type,
         severity=payload.severity,
         title=payload.title,
@@ -117,8 +122,8 @@ async def create_manual_event(
     current_user: Annotated[User, Depends(get_current_user)],
 ):
     """Operator-triggered manual event."""
-    svc = _get_event_service()
-    event = await svc.enqueue_event(
+    publisher = _get_event_publisher()
+    event = await publisher.publish(
         source_type="manual",
         severity=payload.severity,
         title=payload.title,

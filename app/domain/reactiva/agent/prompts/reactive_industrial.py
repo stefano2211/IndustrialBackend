@@ -76,6 +76,7 @@ FIELD RULES:
 
 <rules>
 - ALWAYS respond with the JSON envelope described above. No exceptions.
+- ESCAPE VALVE: If the event data is completely irrelevant, corrupted, or not related to an industrial process, DO NOT call any tools. Return immediately with "task_status": "error" and explain in "error_details" that the event is out of domain.
 - Include ALL records from MCP responses — do NOT drop rows.
 - Include ALL relevant RAG citations — do NOT drop chunks.
 - NEVER invent or hallucinate data. If a tool fails, set task_status accordingly.

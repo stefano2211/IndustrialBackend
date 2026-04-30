@@ -12,6 +12,7 @@ class UserBase(SQLModel):
 class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
+    tenant_id: str = Field(default="default", index=True, description="Multi-tenant scope for reactive domain")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
@@ -22,11 +23,13 @@ class UserUpdate(SQLModel):
     username: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None
+    tenant_id: Optional[str] = None
     is_active: Optional[bool] = None
     is_superuser: Optional[bool] = None
 
 class UserRead(UserBase):
     id: uuid.UUID
+    tenant_id: str
     created_at: datetime
     updated_at: datetime
 

@@ -6,6 +6,7 @@ EventProcessorService by extracting the enqueue logic into a shared
 publisher that any domain can use without importing reactiva internals.
 """
 
+import uuid
 from typing import Optional
 from loguru import logger
 
@@ -26,7 +27,7 @@ class EventPublisher:
         description: str,
         raw_payload: Optional[dict] = None,
         tenant_id: str = "default",
-        triggered_by_user_id: Optional[str] = None,
+        triggered_by_user_id: Optional[uuid.UUID] = None,
     ) -> Event:
         """
         Persist the event to DB, push to queue, and broadcast SSE.
@@ -55,6 +56,7 @@ class EventPublisher:
                 "event": "new_event",
                 "data": {
                     "id": str(event.id),
+                    "tenant_id": event.tenant_id,
                     "severity": event.severity,
                     "status": "pending",
                     "title": event.title,

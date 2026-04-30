@@ -26,6 +26,7 @@ class EventRepository:
 
     async def list_all(
         self,
+        tenant_id: Optional[str] = None,
         severity: Optional[str] = None,
         status: Optional[str] = None,
         source_type: Optional[str] = None,
@@ -33,6 +34,8 @@ class EventRepository:
         offset: int = 0,
     ) -> tuple[List[Event], int]:
         stmt = select(Event)
+        if tenant_id is not None:
+            stmt = stmt.where(Event.tenant_id == tenant_id)
         if severity:
             stmt = stmt.where(Event.severity == severity)
         if status:

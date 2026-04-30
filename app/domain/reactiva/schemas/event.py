@@ -58,7 +58,18 @@ class Event(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     resolved_at: Optional[datetime] = Field(default=None)
 
-    triggered_by_user_id: Optional[str] = Field(
+    triggered_by_user_id: Optional[uuid.UUID] = Field(
         default=None,
+        foreign_key="user.id",
         description="User UUID who created a manual event",
+    )
+    approved_by_user_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="user.id",
+        description="User UUID who approved the event",
+    )
+    rejected_by_user_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="user.id",
+        description="User UUID who rejected the event",
     )

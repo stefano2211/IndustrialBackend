@@ -123,13 +123,15 @@ async def create_manual_event(
 ):
     """Operator-triggered manual event."""
     publisher = _get_event_publisher()
+    tenant_id = payload.tenant_id if payload.tenant_id else current_user.tenant_id
     event = await publisher.publish(
         source_type="manual",
         severity=payload.severity,
         title=payload.title,
         description=payload.description,
         raw_payload=payload.raw_payload,
-        triggered_by_user_id=str(current_user.id),
+        tenant_id=tenant_id,
+        triggered_by_user_id=current_user.id,
     )
     return EventResponse.model_validate(event)
 
@@ -146,9 +148,12 @@ async def list_events(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """Return a paginated list of events with optional filters."""
+    """Return a paginated list of events scoped to the current user's tenant."""
     repo = EventRepository(session)
+    # Superusers see all tenants; regular users see only their own tenant
+    tenant_filter = None if current_user.is_superuser else current_user.tenant_id
     items, total = await repo.list_all(
+        tenant_id=tenant_filter,
         severity=severity,
         status=status,
         source_type=source_type,
@@ -184,6 +189,13 @@ async def events_stream(
                     break
                 try:
                     payload = await asyncio.wait_for(sub_queue.get(), timeout=15.0)
+                    # Tenant filtering: skip events from other tenants unless superuser
+                    if isinstance(payload, dict) and "data" in payload:
+                        event_data = payload["data"]
+                        if isinstance(event_data, dict):
+                            event_tenant = event_data.get("tenant_id")
+                            if event_tenant and not current_user.is_superuser and event_tenant != current_user.tenant_id:
+                                continue
                     yield f"data: {json.dumps(payload)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
@@ -209,11 +221,13 @@ async def get_event(
     session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(get_current_user)],
 ):
-    """Get a single event by ID."""
+    """Get a single event by ID (scoped to tenant)."""
     repo = EventRepository(session)
     event = await repo.get_by_id(event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+    if not current_user.is_superuser and event.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this event")
     return EventResponse.model_validate(event)
 
 
@@ -240,11 +254,15 @@ async def approve_event(
             detail=f"Event is not awaiting approval (current status: {event.status})",
         )
 
+    if not current_user.is_superuser and event.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to approve this event")
+
     if payload.notes:
         notes_text = f"\n[Operator notes]: {payload.notes}"
         event.description += notes_text
 
     event.status = "executing"
+    event.approved_by_user_id = current_user.id
     event = await repo.save(event)
 
     svc = _get_event_service()
@@ -273,8 +291,12 @@ async def reject_event(
             detail=f"Event is not awaiting approval (current status: {event.status})",
         )
 
+    if not current_user.is_superuser and event.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to reject this event")
+
     if payload.notes:
         event.description += f"\n[Rejection reason]: {payload.notes}"
 
+    event.rejected_by_user_id = current_user.id
     event = await repo.update_status(event.id, "failed")
     return EventResponse.model_validate(event)

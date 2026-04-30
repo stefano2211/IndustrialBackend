@@ -22,6 +22,7 @@ class EventManualRequest(BaseModel):
     title: str
     description: str
     raw_payload: Optional[Dict[str, Any]] = None
+    tenant_id: Optional[str] = Field(default=None, description="Target tenant (defaults to user's tenant)")
 
 
 class EventApprovalRequest(BaseModel):
@@ -45,7 +46,9 @@ class EventResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     resolved_at: Optional[datetime]
-    triggered_by_user_id: Optional[str]
+    triggered_by_user_id: Optional[uuid.UUID]
+    approved_by_user_id: Optional[uuid.UUID]
+    rejected_by_user_id: Optional[uuid.UUID]
 
     class Config:
         from_attributes = True

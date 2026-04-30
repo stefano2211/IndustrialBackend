@@ -22,6 +22,7 @@ class EventProcessorService:
     def __init__(self):
         self._processor = EventProcessor()
         self._running = False
+        self._background_tasks = set()
 
     async def run(self) -> None:
         """Infinite consumer loop. Cancelled on app shutdown."""
@@ -32,7 +33,9 @@ class EventProcessorService:
             while True:
                 event: Event = await queue.get()
                 logger.info(f"[EventProcessorService] Dequeued event {event.id} ({event.severity})")
-                asyncio.create_task(self._process_safe(event, queue))
+                t = asyncio.create_task(self._process_safe(event, queue))
+                self._background_tasks.add(t)
+                t.add_done_callback(self._background_tasks.discard)
         except asyncio.CancelledError:
             logger.info("[EventProcessorService] Worker loop cancelled.")
             self._running = False

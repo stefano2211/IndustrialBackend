@@ -23,6 +23,7 @@ UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 LORA_DIR = Path("/loras")
+_background_tasks = set()
 
 
 async def _auto_register_loras():
@@ -103,13 +104,17 @@ async def lifespan(app: FastAPI):
     # Start the reactive event processor worker loop
     event_service = EventProcessorService()
     event_worker_task = asyncio.create_task(event_service.run())
+    _background_tasks.add(event_worker_task)
+    event_worker_task.add_done_callback(_background_tasks.discard)
     app.state.event_service = event_service
 
     # Auto-download OmniParser V2 weights if not present (non-blocking background task)
     if _settings.omniparser_enabled:
-        asyncio.create_task(
+        t = asyncio.create_task(
             get_omniparser().ensure_weights(_settings.omniparser_model_dir)
         )
+        _background_tasks.add(t)
+        t.add_done_callback(_background_tasks.discard)
 
     yield
 

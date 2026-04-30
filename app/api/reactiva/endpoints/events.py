@@ -42,6 +42,7 @@ from app.persistence.reactiva.repositories.event_repository import EventReposito
 router = APIRouter()
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+_background_tasks = set()
 
 
 async def _get_user_from_token_str(token_str: str, session: AsyncSession) -> User:
@@ -266,7 +267,9 @@ async def approve_event(
     event = await repo.save(event)
 
     svc = _get_event_service()
-    asyncio.create_task(svc.execute_approved(event))
+    t = asyncio.create_task(svc.execute_approved(event))
+    _background_tasks.add(t)
+    t.add_done_callback(_background_tasks.discard)
 
     return EventResponse.model_validate(event)
 

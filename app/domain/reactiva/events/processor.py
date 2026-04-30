@@ -83,7 +83,7 @@ class EventProcessor:
                 f"Auto-detected {event.severity} event from {event.source_type}. "
                 f"Title: {event.title}. Description: {event.description}."
             )
-            plan = "Manual review required." if event.severity in ("high", "critical") else None
+            plan = None
             return analysis, plan, None
 
     async def _execute_approved(self, event: Event) -> None:

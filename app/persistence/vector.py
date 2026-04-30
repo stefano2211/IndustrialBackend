@@ -70,7 +70,7 @@ class QdrantManager:
         )
         return result.points
 
-    async def get_document_chunks(self, doc_id: str, user_id: str):
+    async def get_document_chunks(self, doc_id: str, user_id: str, max_chunks: int = 500):
         await self._ensure_collection()
         filter_dict = Filter(
             must=[
@@ -85,7 +85,7 @@ class QdrantManager:
             ]
         )
 
-        # Paginate through all chunks (hardcoded 100 would silently truncate large docs)
+        # Paginate through all chunks with a memory safety limit
         all_results = []
         offset = None
         while True:
@@ -98,10 +98,10 @@ class QdrantManager:
                 with_vectors=False
             )
             all_results.extend(results)
-            if next_offset is None:
+            if next_offset is None or len(all_results) >= max_chunks:
                 break
             offset = next_offset
-        return all_results
+        return all_results[:max_chunks]
 
     async def delete_document(self, doc_id: str, user_id: str):
         await self._ensure_collection()

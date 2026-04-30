@@ -11,14 +11,20 @@ from typing import List
 from tempfile import NamedTemporaryFile
 import os
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.api.deps import get_current_user
 from app.persistence.db import get_session
+from app.domain.shared.schemas.user import User
 from app.domain.reactiva.schemas.reactive_knowledge import (
     ReactiveKnowledgeBaseRead,
     ReactiveKnowledgeBaseCreate,
+    ReactiveKnowledgeBaseUpdate,
     ReactiveKnowledgeBaseDetailRead,
+    ReactiveKnowledgeDocumentRead,
     ReactiveKnowledgeDocument,
     ReactiveKnowledgeBase
 )
@@ -31,10 +37,11 @@ router = APIRouter()
 @router.post("/", response_model=ReactiveKnowledgeBaseRead)
 async def create_reactive_kb(
     kb_in: ReactiveKnowledgeBaseCreate,
-    tenant_id: str = "default",
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveKnowledgeRepository(session)
+    tenant_id = current_user.tenant_id if current_user else "default"
     kb = ReactiveKnowledgeBase(
         name=kb_in.name,
         description=kb_in.description,
@@ -45,23 +52,29 @@ async def create_reactive_kb(
 
 @router.get("/", response_model=List[ReactiveKnowledgeBaseRead])
 async def list_reactive_kbs(
-    tenant_id: str = "default",
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveKnowledgeRepository(session)
-    return await repo.list_kbs(tenant_id)
+    tenant_filter = None if (current_user and current_user.is_superuser) else (current_user.tenant_id if current_user else "default")
+    if tenant_filter is not None:
+        return await repo.list_kbs(tenant_filter)
+    return await repo.list_kbs()
 
 
 @router.get("/{kb_id}", response_model=ReactiveKnowledgeBaseDetailRead)
 async def get_reactive_kb(
     kb_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveKnowledgeRepository(session)
     kb = await repo.get_kb_by_id(kb_id)
     if not kb:
         raise HTTPException(status_code=404, detail="Reactive KB not found")
-    
+    if current_user and not current_user.is_superuser and kb.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this knowledge base")
+
     docs = await repo.list_documents(kb_id)
     kb_dict = kb.model_dump()
     kb_dict["documents"] = docs
@@ -71,9 +84,9 @@ async def get_reactive_kb(
 @router.post("/{kb_id}/documents")
 async def upload_reactive_document(
     kb_id: uuid.UUID,
-    tenant_id: str = "default",
     file: UploadFile = File(...),
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     """
     Upload a document securely via tempfile, process using the reactive pipeline,
@@ -83,6 +96,10 @@ async def upload_reactive_document(
     kb = await repo.get_kb_by_id(kb_id)
     if not kb:
         raise HTTPException(status_code=404, detail="Reactive KB not found")
+    if current_user and not current_user.is_superuser and kb.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this knowledge base")
+
+    tenant_id = current_user.tenant_id if current_user else kb.tenant_id
 
     # 1. Save file to temporary location
     _, ext = os.path.splitext(file.filename)
@@ -117,22 +134,83 @@ async def upload_reactive_document(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-        
+
     finally:
         # 4. Clean up temp file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
 
+@router.put("/{kb_id}", response_model=ReactiveKnowledgeBaseRead)
+async def update_reactive_kb(
+    kb_id: uuid.UUID,
+    kb_in: ReactiveKnowledgeBaseUpdate,
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+):
+    repo = ReactiveKnowledgeRepository(session)
+    kb = await repo.get_kb_by_id(kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Reactive KB not found")
+    if current_user and not current_user.is_superuser and kb.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this knowledge base")
+
+    updated = await repo.update_kb(kb_id, kb_in.model_dump(exclude_unset=True))
+    if not updated:
+        raise HTTPException(status_code=500, detail="Update failed")
+    return updated
+
+
+@router.get("/{kb_id}/documents", response_model=List[ReactiveKnowledgeDocumentRead])
+async def list_reactive_kb_documents(
+    kb_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+):
+    repo = ReactiveKnowledgeRepository(session)
+    kb = await repo.get_kb_by_id(kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Reactive KB not found")
+    if current_user and not current_user.is_superuser and kb.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this knowledge base")
+
+    return await repo.list_documents(kb_id)
+
+
+@router.delete("/{kb_id}/documents/{doc_id}")
+async def delete_reactive_document(
+    kb_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+):
+    repo = ReactiveKnowledgeRepository(session)
+    kb = await repo.get_kb_by_id(kb_id)
+    if not kb:
+        raise HTTPException(status_code=404, detail="Reactive KB not found")
+    if current_user and not current_user.is_superuser and kb.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete documents in this knowledge base")
+
+    success = await repo.delete_document(doc_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"status": "ok"}
+
+
 @router.delete("/{kb_id}")
 async def delete_reactive_kb(
     kb_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveKnowledgeRepository(session)
-    success = await repo.delete_kb(kb_id)
-    if not success:
+    kb = await repo.get_kb_by_id(kb_id)
+    if not kb:
         raise HTTPException(status_code=404, detail="Reactive KB not found")
-    # Note: Actual vector deletion in Qdrant should be handled 
+    if current_user and not current_user.is_superuser and kb.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this knowledge base")
+
+    success = await repo.delete_kb(kb_id)
+    # Note: Actual vector deletion in Qdrant should be handled
     # either by a celery task or directly before returning here.
     return {"status": "ok"}

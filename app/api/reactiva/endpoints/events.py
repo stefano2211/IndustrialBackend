@@ -300,3 +300,51 @@ async def reject_event(
     event.rejected_by_user_id = current_user.id
     event = await repo.update_status(event.id, "failed")
     return EventResponse.model_validate(event)
+
+
+# ── Dashboard Stats ─────────────────────────────────────────────────────────────
+
+@router.get("/stats")
+async def get_event_stats(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Aggregated statistics for the reactive event dashboard."""
+    from sqlalchemy import func
+    from app.domain.reactiva.schemas.event import Event
+
+    tenant_filter = None if current_user.is_superuser else current_user.tenant_id
+    base_stmt = select(Event)
+    if tenant_filter is not None:
+        base_stmt = base_stmt.where(Event.tenant_id == tenant_filter)
+
+    # Count by severity
+    severity_stmt = (
+        select(Event.severity, func.count(Event.id))
+        .where(Event.tenant_id == tenant_filter if tenant_filter else True)
+        .group_by(Event.severity)
+    )
+    severity_result = await session.execute(severity_stmt)
+    severity_counts = {row[0]: row[1] for row in severity_result.all()}
+
+    # Count by status
+    status_stmt = (
+        select(Event.status, func.count(Event.id))
+        .where(Event.tenant_id == tenant_filter if tenant_filter else True)
+        .group_by(Event.status)
+    )
+    status_result = await session.execute(status_stmt)
+    status_counts = {row[0]: row[1] for row in status_result.all()}
+
+    # Total count
+    total_stmt = select(func.count(Event.id))
+    if tenant_filter is not None:
+        total_stmt = total_stmt.where(Event.tenant_id == tenant_filter)
+    total_result = await session.execute(total_stmt)
+    total = total_result.scalar() or 0
+
+    return {
+        "total": total,
+        "by_severity": severity_counts,
+        "by_status": status_counts,
+    }

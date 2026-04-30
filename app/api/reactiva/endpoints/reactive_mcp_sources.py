@@ -9,10 +9,14 @@ orchestrator executes.
 import uuid
 from typing import List
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.api.deps import get_current_user
 from app.persistence.db import get_session
+from app.domain.shared.schemas.user import User
 from app.domain.reactiva.schemas.reactive_mcp_source import (
     ReactiveMCPSourceRead,
     ReactiveMCPSourceCreate,
@@ -30,10 +34,11 @@ router = APIRouter()
 @router.post("/", response_model=ReactiveMCPSourceRead)
 async def create_reactive_source(
     source_in: ReactiveMCPSourceCreate,
-    tenant_id: str = "default",
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveMCPSourceRepository(session)
+    tenant_id = current_user.tenant_id if current_user else "default"
     # Check if a source with this URL already exists for this tenant
     existing = await repo.list_all(tenant_id)
     for src in existing:
@@ -49,19 +54,65 @@ async def create_reactive_source(
 
 @router.get("/", response_model=List[ReactiveMCPSourceRead])
 async def list_reactive_sources(
-    tenant_id: str = "default",
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveMCPSourceRepository(session)
-    return await repo.list_all(tenant_id)
+    tenant_filter = None if (current_user and current_user.is_superuser) else (current_user.tenant_id if current_user else "default")
+    if tenant_filter is not None:
+        return await repo.list_all(tenant_filter)
+    return await repo.list_all()
+
+
+@router.get("/{source_id}", response_model=ReactiveMCPSourceRead)
+async def get_reactive_source(
+    source_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+):
+    repo = ReactiveMCPSourceRepository(session)
+    source = await repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if current_user and not current_user.is_superuser and source.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this source")
+    return source
+
+
+@router.put("/{source_id}", response_model=ReactiveMCPSourceRead)
+async def update_reactive_source(
+    source_id: uuid.UUID,
+    source_in: ReactiveMCPSourceCreate,
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+):
+    repo = ReactiveMCPSourceRepository(session)
+    source = await repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if current_user and not current_user.is_superuser and source.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this source")
+
+    update_data = source_in.model_dump()
+    updated = await repo.update(source_id, update_data)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Update failed")
+    return updated
 
 
 @router.delete("/{source_id}")
 async def delete_reactive_source(
     source_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     repo = ReactiveMCPSourceRepository(session)
+    source = await repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if current_user and not current_user.is_superuser and source.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this source")
+
     success = await repo.delete(source_id)
     if not success:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -71,7 +122,8 @@ async def delete_reactive_source(
 @router.post("/{source_id}/sync")
 async def sync_reactive_source(
     source_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
     """
     Connect to the MCP source, discover available tools, and auto-register them
@@ -81,6 +133,8 @@ async def sync_reactive_source(
     source = await source_repo.get_by_id(source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    if current_user and not current_user.is_superuser and source.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to sync this source")
 
     mcp_service = MCPService()
     try:
@@ -117,7 +171,36 @@ async def sync_reactive_source(
 @router.get("/{source_id}/tools", response_model=List[ReactiveToolConfigRead])
 async def list_reactive_tools_for_source(
     source_id: uuid.UUID,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
 ):
-    repo = ReactiveToolConfigRepository(session)
-    return await repo.get_by_source(source_id)
+    source_repo = ReactiveMCPSourceRepository(session)
+    source = await source_repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if current_user and not current_user.is_superuser and source.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this source")
+
+    tool_repo = ReactiveToolConfigRepository(session)
+    return await tool_repo.get_by_source(source_id)
+
+
+@router.delete("/{source_id}/tools/{tool_id}")
+async def delete_reactive_tool(
+    source_id: uuid.UUID,
+    tool_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: Annotated[User, Depends(get_current_user)] = None,
+):
+    source_repo = ReactiveMCPSourceRepository(session)
+    source = await source_repo.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if current_user and not current_user.is_superuser and source.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify tools for this source")
+
+    tool_repo = ReactiveToolConfigRepository(session)
+    success = await tool_repo.delete(tool_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    return {"status": "ok"}

@@ -7,7 +7,7 @@ To add a new database type:
   That is the only change required (Open/Closed Principle).
 """
 
-from app.domain.schemas.db_source import DbSourceType
+from app.domain.shared.schemas.db_source import DbSourceType
 
 from .base import BaseDbConnector
 from .postgresql_connector import PostgresqlConnector

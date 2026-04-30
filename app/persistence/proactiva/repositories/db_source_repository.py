@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from app.domain.schemas.db_source import DbSource
+from app.domain.shared.schemas.db_source import DbSource
 
 
 class DbSourceRepository:

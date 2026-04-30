@@ -25,7 +25,7 @@ class SemanticSearcher:
         # Fetch dynamic settings once
         final_limit = 5
         if session:
-            from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
+            from app.persistence.shared.settings_repository import SettingsRepository
             repo = SettingsRepository(session)
             system_settings = await repo.get_settings()
             if limit is None:

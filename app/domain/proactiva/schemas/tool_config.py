@@ -16,7 +16,7 @@ class ToolConfigBase(SQLModel):
     system_prompt: str
     parameter_schema: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
     config: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
-    source_id: Optional[uuid.UUID] = Field(default=None, foreign_key="mcpsource.id", index=True)
+    source_id: Optional[uuid.UUID] = Field(default=None, foreign_key="mcp_source.id", index=True)
 
 class ToolConfig(ToolConfigBase, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

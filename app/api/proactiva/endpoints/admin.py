@@ -1,4 +1,4 @@
-"""Admin endpoints — user management and system analytics (admin only)."""
+"""Admin endpoints  user management and system analytics (admin only)."""
 
 from datetime import datetime, timezone, timedelta
 from typing import List
@@ -75,13 +75,13 @@ async def delete_user(
 
 # -- Settings -----------------------------------------
 
-from app.domain.proactiva.schemas.settings import (
+from app.domain.shared.schemas.settings import (
     SystemSettingsGeneralRead, 
     SystemSettingsGeneralUpdate,
     SystemSettingsDocumentsRead, 
     SystemSettingsDocumentsUpdate
 )
-from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
+from app.persistence.shared.settings_repository import SettingsRepository
 
 @router.get("/settings/general", response_model=SystemSettingsGeneralRead)
 async def get_general_settings(

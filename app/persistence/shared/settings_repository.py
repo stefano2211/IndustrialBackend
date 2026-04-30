@@ -2,9 +2,9 @@ from typing import Union
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.proactiva.schemas.settings import (
-    SystemSettings, 
-    SystemSettingsGeneralUpdate, 
+from app.domain.shared.schemas.settings import (
+    SystemSettings,
+    SystemSettingsGeneralUpdate,
     SystemSettingsDocumentsUpdate
 )
 

@@ -14,6 +14,8 @@ class MCPSourceBase(SQLModel):
     is_enabled: bool = Field(default=True)
 
 class MCPSource(MCPSourceBase, table=True):
+    __tablename__ = "mcp_source"
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

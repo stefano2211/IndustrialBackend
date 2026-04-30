@@ -8,6 +8,7 @@ from typing import AsyncGenerator
 
 # Import all models so SQLModel.metadata.create_all creates their tables
 from app.domain.shared.schemas.user import User  # noqa: F401
+from app.domain.shared.schemas.settings import SystemSettings  # noqa: F401
 from app.domain.proactiva.schemas.conversation import Conversation, ChatMessage  # noqa: F401
 from app.domain.proactiva.schemas.knowledge import KnowledgeBase, KnowledgeDocument  # noqa: F401
 from app.domain.proactiva.schemas.prompt import Prompt  # noqa: F401
@@ -15,7 +16,7 @@ from app.domain.proactiva.schemas.llm_config import LLMConfig  # noqa: F401
 from app.domain.proactiva.schemas.model import Model  # noqa: F401
 from app.domain.proactiva.schemas.mcp_source import MCPSource  # noqa: F401
 from app.domain.proactiva.schemas.tool_config import ToolConfig  # noqa: F401
-from app.domain.schemas.db_source import DbSource  # noqa: F401
+from app.domain.shared.schemas.db_source import DbSource  # noqa: F401
 from app.domain.reactiva.schemas.event import Event  # noqa: F401
 # Reactive domain schemas
 from app.domain.reactiva.schemas.reactive_mcp_source import ReactiveMCPSource  # noqa: F401

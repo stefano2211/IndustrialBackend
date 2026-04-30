@@ -10,14 +10,17 @@ Output flow:
   execute_plan() → launches ComputerUseSubagent with execute_instruction
 """
 
+import asyncio
+import hashlib
 import json
+import re
 from datetime import datetime
 from typing import Optional
 
 from loguru import logger
 from langchain_core.messages import HumanMessage
 
-from app.core.llm import LLMFactory, _vllm_model_exists
+from app.core.llm import LLMFactory, LLMProvider, _vllm_model_exists
 from app.core.config import settings
 from app.domain.reactiva.agent.reactive_orchestrator import create_reactive_orchestrator
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
@@ -26,15 +29,21 @@ from app.domain.reactiva.schemas.event import Event
 
 # Isolated cache for reactive orchestrator graphs
 _REACTIVE_GRAPH_CACHE = {}
+_MAX_CACHE_SIZE = 100
+_cache_lock = asyncio.Lock()
+
+
+def _stable_hash(s: str) -> str:
+    return hashlib.sha256(s.encode()).hexdigest()[:16]
 
 
 class ReactiveAgentService:
     """Manages the lifecycle of Reactive Deep Agents."""
 
-    async def _build_mcp_context(self, session) -> str:
-        """Fetch all reactive tools and build the dynamic context string."""
+    async def _build_mcp_context(self, session, tenant_id: str = "default") -> str:
+        """Fetch all reactive tools for a tenant and build the dynamic context string."""
         repo = ReactiveToolConfigRepository(session)
-        tools = await repo.get_all()
+        tools = await repo.get_all(tenant_id=tenant_id)
         if not tools:
             return "No dynamic tools registered."
 
@@ -50,12 +59,6 @@ class ReactiveAgentService:
 
     async def _get_or_create_graph(self, tenant_id: str, session):
         """Fetch models and build the reactive orchestrator if not cached."""
-        cache_key = f"reactive_orchestrator_{tenant_id}"
-        
-        # Disable cache temporarily to ensure clean tool reloading
-        # if cache_key in _REACTIVE_GRAPH_CACHE:
-        #     return _REACTIVE_GRAPH_CACHE[cache_key]["agent"]
-
         logger.info(f"[ReactiveAgentService] Assembling Reactive Orchestrator for tenant: {tenant_id}")
 
         # ── LoRA probe + fallback (shared pattern with AgentService) ────────
@@ -119,18 +122,40 @@ class ReactiveAgentService:
                     )
 
         # Contexts
-        mcp_tools_context = await self._build_mcp_context(session)
+        mcp_tools_context = await self._build_mcp_context(session, tenant_id)
 
-        graph = create_reactive_orchestrator(
-            generalist_model=generalist_model,
-            expert_model=expert_model,
-            expert_model_instance=expert_model_instance,
-            vision_model=vision_model,
-            mcp_tools_context=mcp_tools_context,
+        # ── Cache key includes model state + tools snapshot ───────────────────
+        cache_key = (
+            f"reactive_orchestrator_{tenant_id}_"
+            f"{model_name}_"
+            f"vl={bool(vision_model)}_"
+            f"{_stable_hash(mcp_tools_context)}"
         )
 
-        _REACTIVE_GRAPH_CACHE[cache_key] = {"agent": graph}
-        return graph
+        async with _cache_lock:
+            if cache_key in _REACTIVE_GRAPH_CACHE:
+                logger.info(f"[ReactiveAgentService] Cache hit for {cache_key}")
+                entry = _REACTIVE_GRAPH_CACHE.pop(cache_key)
+                _REACTIVE_GRAPH_CACHE[cache_key] = entry
+                return entry["agent"]
+
+            logger.info(f"[ReactiveAgentService] Cache miss — building graph.")
+
+            graph = create_reactive_orchestrator(
+                generalist_model=generalist_model,
+                expert_model=expert_model,
+                expert_model_instance=expert_model_instance,
+                vision_model=vision_model,
+                mcp_tools_context=mcp_tools_context,
+            )
+
+            if len(_REACTIVE_GRAPH_CACHE) >= _MAX_CACHE_SIZE:
+                first_key = next(iter(_REACTIVE_GRAPH_CACHE))
+                del _REACTIVE_GRAPH_CACHE[first_key]
+                logger.info(f"[ReactiveAgentService] Cache LRU evicted {first_key}")
+
+            _REACTIVE_GRAPH_CACHE[cache_key] = {"agent": graph}
+            return graph
 
     async def analyze(self, event: Event, session) -> tuple[str, Optional[str], Optional[str]]:
         """
@@ -170,7 +195,6 @@ class ReactiveAgentService:
             "configurable": {
                 "thread_id": thread_id,
                 "tenant_id": tenant_id,
-                "session": session,
             }
         }
 
@@ -199,14 +223,18 @@ class ReactiveAgentService:
         plan: Optional[str] = None
         execute_instruction: Optional[str] = None
 
-        if "---PLAN---" in output_text:
-            pre_plan, _, post_plan = output_text.partition("---PLAN---")
-            analysis = pre_plan.strip()
+        _PLAN_RE = re.compile(r'^---PLAN---\s*$', re.MULTILINE)
+        _EXEC_RE = re.compile(r'^---EXECUTE---\s*$', re.MULTILINE)
 
-            if "---EXECUTE---" in post_plan:
-                plan_part, _, execute_part = post_plan.partition("---EXECUTE---")
-                plan = plan_part.strip()
-                execute_instruction = execute_part.strip()
+        plan_split = _PLAN_RE.split(output_text, maxsplit=1)
+        if len(plan_split) == 2:
+            analysis = plan_split[0].strip()
+            post_plan = plan_split[1]
+
+            exec_split = _EXEC_RE.split(post_plan, maxsplit=1)
+            if len(exec_split) == 2:
+                plan = exec_split[0].strip()
+                execute_instruction = exec_split[1].strip()
                 logger.info(f"[{thread_id}] Execute instruction extracted ({len(execute_instruction)} chars).")
             else:
                 plan = post_plan.strip()

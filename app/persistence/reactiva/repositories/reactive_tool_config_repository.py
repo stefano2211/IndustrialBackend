@@ -27,9 +27,15 @@ class ReactiveToolConfigRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_all(self) -> List[ReactiveToolConfig]:
-        """Get all reactive tool configs (system-scoped, no user filter)."""
+    async def get_all(self, tenant_id: Optional[str] = None) -> List[ReactiveToolConfig]:
+        """Get all reactive tool configs, optionally filtered by tenant."""
         stmt = select(ReactiveToolConfig)
+        if tenant_id is not None:
+            from app.domain.reactiva.schemas.reactive_mcp_source import ReactiveMCPSource
+            stmt = (
+                stmt.join(ReactiveMCPSource, ReactiveMCPSource.id == ReactiveToolConfig.source_id)
+                .where(ReactiveMCPSource.tenant_id == tenant_id)
+            )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

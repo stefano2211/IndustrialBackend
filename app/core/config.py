@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     system1_force_base_model: bool = True  # Force base model — no LoRA loading
 
     # Computer Use — disabled for local 8GB VRAM
+    # proactive: enables sistema1-vl in chat; reactive: controlled by reactive_computer_use_enabled below
     computer_use_enabled: bool = False
     computer_use_demo_mode: bool = False
     computer_use_max_steps: int = 15
@@ -83,7 +84,7 @@ class Settings(BaseSettings):
     # ── Reactive Domain — isolated namespaces (same infra containers) ─────
     reactive_qdrant_collection: str = "reactive_documents"
     reactive_minio_bucket: str = "reactive-bucket"
-    reactive_computer_use_enabled: bool = False  # Safety: no auto-clicks in reactive mode
+    reactive_computer_use_enabled: bool = False  # Requires system1_enabled + computer_use infra (VL LoRA). Enables autonomous GUI actions for high/critical reactive events.
     
     model_config = {"env_file": ".env", "extra": "ignore"}
 

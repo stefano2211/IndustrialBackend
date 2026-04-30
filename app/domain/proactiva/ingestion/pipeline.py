@@ -58,7 +58,7 @@ class DocumentProcessor:
         chunk_size = 1000
         chunk_overlap = 200
         if session:
-            from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
+            from app.persistence.shared.settings_repository import SettingsRepository
             repo = SettingsRepository(session)
             system_settings = await repo.get_settings()
             chunk_size = system_settings.document_chunk_size
@@ -72,7 +72,7 @@ class DocumentProcessor:
         doc_category = "document" # Default category since we removed classification
         logger.info(f"Document category set to default: {doc_category}")
 
-        # 3. Split — Two-stage: Hierarchical (section detection) ? Recursive (size enforcement)
+        # 3. Split  Two-stage: Hierarchical (section detection) ? Recursive (size enforcement)
         # Stage 1: the HierarchicalSplitter adds section metadata to each chunk
         hierarchical_chunks = self.splitter.split_documents(docs)
 

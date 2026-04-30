@@ -18,7 +18,7 @@ from app.persistence.db import get_session
 from app.domain.proactiva.db_collector.collector_service import collector_service
 from app.domain.proactiva.db_collector.encryption import encrypt
 from app.domain.proactiva.db_collector.scheduler import collector_scheduler
-from app.domain.schemas.db_source import (
+from app.domain.shared.schemas.db_source import (
     DbSource,
     DbSourceCreate,
     DbSourceRead,
@@ -146,7 +146,7 @@ async def run_source_now(
 ):
     """
     Trigger an immediate on-demand collection run for a specific source.
-    Runs in the background — poll /sources/{id}/status to check the result.
+    Runs in the background  poll /sources/{id}/status to check the result.
     """
     bg_tasks.add_task(collector_service.run_source_by_id, source_id)
     return {

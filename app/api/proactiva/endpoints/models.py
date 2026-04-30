@@ -1,4 +1,4 @@
-"""Model management endpoints — handlers for custom Model configurations."""
+"""Model management endpoints  handlers for custom Model configurations."""
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,7 +9,7 @@ from app.persistence.db import get_session
 from app.api import deps
 from app.domain.shared.schemas.user import User
 from app.persistence.proactiva.repositories.model_repository import ModelRepository
-from app.persistence.proactiva.repositories.settings_repository import SettingsRepository
+from app.persistence.shared.settings_repository import SettingsRepository
 from app.domain.proactiva.schemas.model import Model, ModelCreate, ModelRead, ModelUpdate
 from app.core.config import settings
 
@@ -150,7 +150,7 @@ async def list_provider_models(
                                         "details": {"source": label}
                                     })
                     except Exception:
-                        pass  # Un servidor caído no rompe el discovery del otro
+                        pass  # Un servidor cado no rompe el discovery del otro
 
             if all_models:
                 return all_models

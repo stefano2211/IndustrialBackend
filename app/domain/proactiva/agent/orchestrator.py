@@ -26,6 +26,7 @@ IMPORTANT:
 """
 
 def create_generalist_orchestrator(
+    generalist_model,
     expert_model,
     expert_model_instance=None,
     vision_model=None,

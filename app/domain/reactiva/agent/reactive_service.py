@@ -78,10 +78,45 @@ class ReactiveAgentService:
         # Instantiate unified vLLM models with the resolved model name
         generalist_model = await LLMFactory.get_llm(model=model_name, temperature=0.7)
         expert_model = await LLMFactory.get_llm(model=model_name, temperature=0.0)
-        
-        expert_model_instance = {
-            model_name: await LLMFactory.get_llm(model=model_name, temperature=0)
-        }
+
+        # Sistema 1 Histórico — resolved direct instance (same pattern as proactive)
+        expert_model_instance = await LLMFactory.get_llm(model=model_name, temperature=0)
+
+        # Vision LLM for reactive computer use (only if enabled)
+        vision_model = None
+        if settings.reactive_computer_use_enabled:
+            vl_lora_target = settings.system1_model
+            _vision_kwargs = {
+                "temperature": 1.0,
+                "max_tokens": 4096,
+                "streaming": False,
+                "stop": [],
+                "extra_body": {"chat_template_kwargs": {"enable_thinking": True}},
+                "base_url": settings.vllm_base_url,
+            }
+            if settings.system1_force_base_model:
+                vision_model = await LLMFactory.get_llm(
+                    provider=LLMProvider.VLLM,
+                    model_name=settings.system1_base_model,
+                    session=session,
+                    **_vision_kwargs,
+                )
+            else:
+                vl_ready = await _vllm_model_exists(settings.vllm_base_url, vl_lora_target)
+                if vl_ready:
+                    vision_model = await LLMFactory.get_llm(
+                        provider=LLMProvider.VLLM,
+                        model_name=vl_lora_target,
+                        session=session,
+                        **_vision_kwargs,
+                    )
+                else:
+                    vision_model = await LLMFactory.get_llm(
+                        provider=LLMProvider.VLLM,
+                        model_name=settings.system1_base_model,
+                        session=session,
+                        **_vision_kwargs,
+                    )
 
         # Contexts
         mcp_tools_context = await self._build_mcp_context(session)
@@ -90,6 +125,7 @@ class ReactiveAgentService:
             generalist_model=generalist_model,
             expert_model=expert_model,
             expert_model_instance=expert_model_instance,
+            vision_model=vision_model,
             mcp_tools_context=mcp_tools_context,
         )
 
@@ -206,9 +242,9 @@ class ReactiveAgentService:
             return [{"status": "skipped", "reason": "computer_use_disabled"}]
 
         # ── Resolve VL model — probe LoRA, fallback to base ────────────────────
-        vl_lora_name = getattr(settings, "system1_vl_model", "aura_tenant_01-vl")
-        base_model_name = getattr(settings, "system1_base_model", settings.local_vllm_model)
-        vllm_url = getattr(settings, "local_vllm_url", "")
+        vl_lora_name = settings.system1_model
+        base_model_name = settings.system1_base_model
+        vllm_url = settings.vllm_base_url
 
         vl_ready = await _vllm_model_exists(vllm_url, vl_lora_name) if vllm_url else False
         resolved_model = vl_lora_name if vl_ready else base_model_name

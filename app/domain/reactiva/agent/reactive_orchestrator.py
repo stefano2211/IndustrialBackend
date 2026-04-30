@@ -28,6 +28,7 @@ def create_reactive_orchestrator(
     generalist_model,
     expert_model,
     expert_model_instance=None,
+    vision_model=None,
     checkpointer=None,
     store=None,
     mcp_tools_context: str = "No dynamic tools registered.",
@@ -37,7 +38,7 @@ def create_reactive_orchestrator(
 ) -> object:
     """
     Creates the Reactive Orchestrator graph.
-    
+
     Subagents:
       - industrial-expert (Reactive RAG + MCP)
       - sistema1-historico (Reactive fine-tuned Text LoRA — event diagnosis prompt)
@@ -62,32 +63,28 @@ def create_reactive_orchestrator(
 
     # 2. Sistema 1 Histórico (Reactive wrapper — event-diagnosis prompt)
     if enable_system1 and expert_model_instance is not None:
-        historico_model = expert_model_instance.get("aura_tenant_01-v2")
-        if historico_model:
-            sistema1_historico = create_reactive_system1_historico_agent(
-                expert_model=historico_model,
-                checkpointer=checkpointer,
-                store=store,
-            )
-            if sistema1_historico:
-                subagents.append(sistema1_historico)
-                registered_subagent_names.append("sistema1-historico")
+        sistema1_historico = create_reactive_system1_historico_agent(
+            expert_model=expert_model_instance,
+            checkpointer=checkpointer,
+            store=store,
+        )
+        if sistema1_historico:
+            subagents.append(sistema1_historico)
+            registered_subagent_names.append("sistema1-historico")
 
     # 3. Sistema 1 VL (Reactive wrapper — remediation Observe-Think-Act loop)
-    if enable_system1 and settings.reactive_computer_use_enabled and expert_model_instance is not None:
-        vl_model = expert_model_instance.get("aura_tenant_01-vl")
-        if vl_model:
-            logger.warning(
-                "[ReactiveOrchestrator] DANGER: Computer Use (VL) is enabled for reactive mode. "
-                "The reactive agent will autonomously execute GUI actions on detected events."
-            )
-            sistema1_vl = create_reactive_system1_vl_agent(
-                vision_model=vl_model,
-                vl_replay_buffer=None,
-            )
-            if sistema1_vl:
-                subagents.append(sistema1_vl)
-                registered_subagent_names.append("sistema1-vl")
+    if enable_system1 and settings.reactive_computer_use_enabled and vision_model is not None:
+        logger.warning(
+            "[ReactiveOrchestrator] DANGER: Computer Use (VL) is enabled for reactive mode. "
+            "The reactive agent will autonomously execute GUI actions on detected events."
+        )
+        sistema1_vl = create_reactive_system1_vl_agent(
+            vision_model=vision_model,
+            vl_replay_buffer=None,
+        )
+        if sistema1_vl:
+            subagents.append(sistema1_vl)
+            registered_subagent_names.append("sistema1-vl")
 
     # Build prompt with only registered subagents
     system_prompt = build_reactive_orchestrator_prompt(registered_subagent_names)

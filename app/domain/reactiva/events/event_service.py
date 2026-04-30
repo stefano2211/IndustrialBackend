@@ -32,17 +32,18 @@ class EventProcessorService:
             while True:
                 event: Event = await queue.get()
                 logger.info(f"[EventProcessorService] Dequeued event {event.id} ({event.severity})")
-                asyncio.create_task(self._process_safe(event))
-                queue.task_done()
+                asyncio.create_task(self._process_safe(event, queue))
         except asyncio.CancelledError:
             logger.info("[EventProcessorService] Worker loop cancelled.")
             self._running = False
 
-    async def _process_safe(self, event: Event) -> None:
+    async def _process_safe(self, event: Event, queue: asyncio.Queue) -> None:
         try:
             await self._processor.process(event)
         except Exception as exc:
             logger.error(f"[EventProcessorService] Unhandled error for event {event.id}: {exc}")
+        finally:
+            queue.task_done()
 
     async def execute_approved(self, event: Event) -> None:
         """Public wrapper to execute a human-approved medium event."""

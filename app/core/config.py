@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     omniparser_enabled: bool = False
     omniparser_model_dir: str = "/omniparser/weights"
 
+    # Playwright Hybrid Mode — when True, browser tasks use Playwright
+    # (Accessibility Tree + semantic actions) instead of raw mss + xdotool.
+    # Falls back to xdotool for non-browser / native desktop tasks.
+    playwright_enabled: bool = False
+    playwright_headless: bool = True  # False to see the browser via VNC (debugging)
+
     # MLOps Architecture (Cloud Sync)
     mothership_api_url: str = "http://localhost:8001"
     mothership_api_key: str = "default-mothership-secret-key"

@@ -1,18 +1,24 @@
 """
-Computer Use Tools — Digital Optimus Local
-==========================================
+Computer Use Tools — Digital Optimus Local (Hybrid Vision Pipeline)
+===================================================================
 Herramientas LangChain para el loop Observe-Think-Act del Computer Use Agent.
 
-DEMO_MODE=True (config.computer_use_demo_mode):
-  - take_screenshot(): carga imágenes pre-grabadas de /static/demo/screens/
-    o genera un screenshot HTML simulado via Playwright headless.
-  - execute_action(): loguea la acción pero NO la ejecuta realmente.
-  - Funciona sin SAP GUI ni pantalla real — ideal para desarrollo y demos.
+Modos de operación (resueltos automáticamente por prioridad):
 
-DEMO_MODE=False (producción):
-  - take_screenshot(): captura pantalla real con mss (async via run_in_executor).
-  - execute_action(): ejecuta con pyautogui (async via asyncio.to_thread).
-  - Requiere que SAP GUI esté abierto y visible en la pantalla del edge node.
+  1. DEMO_MODE (config.computer_use_demo_mode):
+     - take_screenshot() → imágenes pre-grabadas / placeholder
+     - execute_action() → loguea pero NO ejecuta
+
+  2. PLAYWRIGHT MODE (config.playwright_enabled + browser activo):
+     - take_screenshot() → Playwright page.screenshot() (solo viewport, limpio)
+     - get_page_context() → Accessibility Tree + URL + título
+     - execute_action() → acciones semánticas pw_click, pw_fill, pw_goto
+     - Ideal para tareas web (Gmail, Google, SAP Fiori)
+
+  3. NATIVE MODE (fallback — mss + xdotool):
+     - take_screenshot() → captura pantalla completa Xvfb con mss
+     - execute_action() → xdotool / pyautogui
+     - Para SAP GUI desktop, terminales, apps nativas
 """
 
 import asyncio
@@ -149,10 +155,12 @@ def _add_coordinate_grid(b64_png: str) -> str:
 async def take_screenshot(config: RunnableConfig) -> str:
     """
     Captura la pantalla actual y la devuelve como imagen base64 PNG.
-    
-    En DEMO_MODE: retorna un screenshot simulado de una interfaz SAP.
-    En modo producción: captura la pantalla real del edge node con mss.
-    
+
+    Prioridad de captura:
+      1. DEMO_MODE → screenshot simulado
+      2. PLAYWRIGHT_ENABLED + browser activo → viewport limpio via Playwright
+      3. Fallback → pantalla completa Xvfb via mss
+
     Returns:
         String base64 de la imagen PNG. Incluye prefijo data:image/png;base64,...
         para compatibilidad directa con el modelo VL.
@@ -162,6 +170,22 @@ async def take_screenshot(config: RunnableConfig) -> str:
     if demo_mode:
         logger.debug("[ComputerUse] DEMO MODE: retornando screenshot simulado.")
         b64 = _get_demo_screenshot()
+    elif settings.playwright_enabled:
+        # ── Playwright hybrid: clean viewport-only screenshot ─────────────
+        try:
+            from app.domain.shared.agent.tools.browser_manager import get_browser_manager
+            mgr = get_browser_manager()
+            if mgr.is_ready:
+                logger.debug("[ComputerUse] Playwright: capturando viewport del browser...")
+                b64 = await mgr.screenshot_b64()
+            else:
+                logger.debug("[ComputerUse] Playwright no ready — fallback a mss.")
+                loop = asyncio.get_running_loop()
+                b64 = await loop.run_in_executor(None, _capture_screen_sync)
+        except Exception as e:
+            logger.warning(f"[ComputerUse] Playwright screenshot failed ({e}), fallback a mss.")
+            loop = asyncio.get_running_loop()
+            b64 = await loop.run_in_executor(None, _capture_screen_sync)
     else:
         logger.debug("[ComputerUse] Capturando pantalla real con mss...")
         try:
@@ -180,6 +204,48 @@ async def take_screenshot(config: RunnableConfig) -> str:
     b64 = _add_coordinate_grid(b64)
 
     return f"data:image/png;base64,{b64}"
+
+
+@tool
+async def get_page_context(config: RunnableConfig) -> str:
+    """
+    Returns the Accessibility Tree and page metadata for the current browser page.
+
+    This provides a structured, semantic view of all interactive elements
+    visible on the page (buttons, inputs, links, headings) — far more
+    reliable than guessing from pixel coordinates.
+
+    Use this BEFORE deciding where to click. When the accessibility tree
+    lists an element (e.g., button "Compose"), prefer pw_click over
+    coordinate-based click.
+
+    Only available when playwright_enabled=True and a browser is active.
+    Returns an error message if Playwright is not available.
+
+    Returns:
+        Formatted string with URL, title, and accessibility tree YAML.
+    """
+    if not settings.playwright_enabled:
+        return "(get_page_context unavailable: playwright_enabled=False. Use take_screenshot + coordinate-based actions.)"
+
+    try:
+        from app.domain.shared.agent.tools.browser_manager import get_browser_manager
+        mgr = get_browser_manager()
+        if not mgr.is_ready:
+            return "(Browser not started. Use run_shell_command or pw_goto to open a page first.)"
+
+        info = await mgr.page_info()
+        tree = await mgr.accessibility_snapshot()
+
+        return (
+            f"Current URL: {info['url']}\n"
+            f"Page Title: {info['title']}\n"
+            f"Viewport: {info['viewport']}\n\n"
+            f"Accessibility Tree:\n{tree}"
+        )
+    except Exception as e:
+        logger.warning(f"[ComputerUse] get_page_context error: {e}")
+        return f"(Accessibility tree error: {e})"
 
 
 @tool
@@ -217,7 +283,60 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
         logger.info(f"[ComputerUse] DEMO ACTION [{action_type}]: {action_json}")
         return f"[DEMO] Acción {action_type} registrada: {action_json}"
 
-    # Producción — ejecutar con pyautogui
+    # ── Playwright semantic actions (pw_* prefix) ────────────────────────────
+    if action_type.startswith("pw_") and settings.playwright_enabled:
+        from app.domain.shared.agent.tools.browser_manager import get_browser_manager
+        mgr = get_browser_manager()
+        if not mgr.is_ready:
+            return f"ERROR: Playwright browser not ready. Call pw_goto first to start the browser."
+
+        try:
+            if action_type == "pw_goto":
+                url = action.get("url", "")
+                return await mgr.goto(url)
+
+            elif action_type == "pw_click":
+                role = action.get("role", "")
+                name = action.get("name", "")
+                if role and name:
+                    return await mgr.click_by_role(role, name)
+                elif name:
+                    return await mgr.click_by_text(name)
+                elif "x" in action and "y" in action:
+                    return await mgr.click_coordinates(int(action["x"]), int(action["y"]))
+                else:
+                    return "ERROR: pw_click requires (role+name), (name), or (x+y)"
+
+            elif action_type == "pw_fill":
+                role = action.get("role", "textbox")
+                name = action.get("name", "")
+                value = action.get("value", "")
+                return await mgr.fill_field(role, name, value)
+
+            elif action_type == "pw_type":
+                text = action.get("text", "")
+                return await mgr.type_text(text)
+
+            elif action_type == "pw_press":
+                key = action.get("key", "")
+                return await mgr.press_key(key)
+
+            elif action_type == "pw_scroll":
+                direction = action.get("direction", "down")
+                amount = int(action.get("amount", 3))
+                return await mgr.scroll(direction, amount)
+
+            elif action_type == "pw_wait":
+                return await mgr.wait_for_load(timeout=int(action.get("timeout", 5000)))
+
+            else:
+                return f"ERROR: Unknown Playwright action type: {action_type}"
+
+        except Exception as e:
+            logger.error(f"[ComputerUse] Playwright action {action_type} failed: {e}")
+            return f"ERROR in {action_type}: {e}"
+
+    # ── Native mode — ejecutar con xdotool / pyautogui ───────────────────────
     def _execute_sync():
         try:
             try:
@@ -454,4 +573,4 @@ async def task_complete(config: RunnableConfig, summary: str) -> str:
 
 
 # Export de las herramientas para el subagente
-COMPUTER_USE_TOOLS = [take_screenshot, execute_action, run_shell_command, task_complete]
+COMPUTER_USE_TOOLS = [take_screenshot, get_page_context, execute_action, run_shell_command, task_complete]

@@ -47,6 +47,7 @@ dependencies = [
     "ultralytics",
     "huggingface_hub",
     "fastembed",
+    "playwright",
 ]
 
 [tool.uv]

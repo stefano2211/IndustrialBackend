@@ -41,6 +41,9 @@ RUN uv sync --no-install-project
 COPY app ./app
 RUN uv sync
 
+# Install Playwright browser dependencies
+RUN uv run playwright install chromium --with-deps
+
 # Script de arranque: lanza Xvfb en background y luego uvicorn
 COPY start.sh /start.sh
 RUN chmod +x /start.sh

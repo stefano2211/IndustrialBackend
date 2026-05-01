@@ -44,21 +44,42 @@ class EventProcessor:
 
         if severity == "low":
             await repo.update_status(event.id, "completed")
-            await broadcast_sse({"event": "analysis_ready", "data": {"id": str(event.id), "status": "completed", "analysis": analysis}})
+            await broadcast_sse({"event": "analysis_ready", "data": {
+                "id": str(event.id),
+                "status": "completed",
+                "agent_analysis": analysis,
+                "agent_plan": plan,
+                "resolved_at": datetime.utcnow().isoformat(),
+            }})
             logger.info(f"[EventProcessor] LOW event {event.id} analyzed and completed.")
 
         elif severity == "medium":
             await repo.update_status(event.id, "awaiting_approval")
-            await broadcast_sse({"event": "analysis_ready", "data": {"id": str(event.id), "status": "awaiting_approval", "analysis": analysis}})
+            await broadcast_sse({"event": "analysis_ready", "data": {
+                "id": str(event.id),
+                "status": "awaiting_approval",
+                "agent_analysis": analysis,
+                "agent_plan": plan,
+            }})
             logger.info(f"[EventProcessor] MEDIUM event {event.id} awaiting human approval.")
 
         elif severity in ("high", "critical"):
             await repo.update_status(event.id, "executing")
-            await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "executing"}})
+            await broadcast_sse({"event": "analysis_ready", "data": {
+                "id": str(event.id),
+                "status": "executing",
+                "agent_analysis": analysis,
+                "agent_plan": plan,
+            }})
             actions = await self._execute(event, plan, execute_instruction)
             await repo.update_analysis(event.id, analysis=analysis, plan=plan, actions=actions)
             await repo.update_status(event.id, "completed")
-            await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "completed", "actions": actions}})
+            await broadcast_sse({"event": "status_update", "data": {
+                "id": str(event.id),
+                "status": "completed",
+                "actions_taken": actions,
+                "resolved_at": datetime.utcnow().isoformat(),
+            }})
             logger.info(f"[EventProcessor] {severity.upper()} event {event.id} auto-executed.")
 
     async def _analyze(self, event: Event) -> tuple[str, Optional[str], Optional[str]]:
@@ -94,7 +115,12 @@ class EventProcessor:
                 actions = await self._execute(event, event.agent_plan)
                 await repo.update_analysis(event.id, analysis=event.agent_analysis or "", plan=event.agent_plan, actions=actions)
                 await repo.update_status(event.id, "completed")
-                await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "completed"}})
+                await broadcast_sse({"event": "status_update", "data": {
+                    "id": str(event.id),
+                    "status": "completed",
+                    "actions_taken": actions,
+                    "resolved_at": datetime.utcnow().isoformat(),
+                }})
                 logger.info(f"[EventProcessor] Approved event {event.id} executed and completed.")
             except Exception as exc:
                 logger.error(f"[EventProcessor] Approved execution failed for {event.id}: {exc}")

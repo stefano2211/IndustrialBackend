@@ -324,15 +324,37 @@ class ReactiveAgentService:
         result_summary = ""
         steps_taken = 0
 
+        from app.core.reactiva.event_queue import broadcast_sse
+
         try:
-            async for chunk in graph.astream(
+            async for ev in graph.astream_events(
                 {"messages": [HumanMessage(content=instruction)]},
                 config=config,
+                version="v2",
             ):
-                for node, state in chunk.items():
-                    if state.get("is_complete"):
-                        result_summary = state.get("result_summary", "")
-                        steps_taken = state.get("steps_taken", 0)
+                kind = ev["event"]
+
+                # Intercept the custom 'screenshot' event emitted by ComputerUseSubagent
+                if kind == "on_custom_event" and ev["name"] == "screenshot":
+                    data = ev["data"]
+                    await broadcast_sse({
+                        "event": "screenshot",
+                        "data": {
+                            "id": str(event.id),
+                            "step": data.get("step"),
+                            "b64": data.get("b64"),
+                            "action": data.get("action"),
+                            "click": data.get("click"),
+                            "has_omniparser": data.get("has_omniparser")
+                        }
+                    })
+
+                # Watch for chain completion to grab the final state
+                if kind == "on_chain_end":
+                    output = ev.get("data", {}).get("output", {})
+                    if isinstance(output, dict) and output.get("is_complete"):
+                        result_summary = output.get("result_summary", "")
+                        steps_taken = output.get("steps_taken", 0)
 
         except Exception as e:
             logger.error(f"[ReactiveAgentService] Computer Use loop failed: {e}")

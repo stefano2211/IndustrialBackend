@@ -323,6 +323,7 @@ class ReactiveAgentService:
 
         result_summary = ""
         steps_taken = 0
+        max_steps = settings.computer_use_max_steps
 
         from app.core.reactiva.event_queue import broadcast_sse
 
@@ -339,13 +340,17 @@ class ReactiveAgentService:
                     data = ev["data"]
                     await broadcast_sse({
                         "event": "screenshot",
+                        "type": "screenshot",  # mirror proactive chat format
                         "data": {
                             "id": str(event.id),
+                            "tenant_id": event.tenant_id,
                             "step": data.get("step"),
+                            "max_steps": max_steps,
                             "b64": data.get("b64"),
                             "action": data.get("action"),
                             "click": data.get("click"),
-                            "has_omniparser": data.get("has_omniparser")
+                            "has_omniparser": data.get("has_omniparser"),
+                            "has_a11y_tree": data.get("has_a11y_tree"),
                         }
                     })
 
@@ -358,6 +363,16 @@ class ReactiveAgentService:
 
         except Exception as e:
             logger.error(f"[ReactiveAgentService] Computer Use loop failed: {e}")
+            await broadcast_sse({
+                "event": "computer_use_error",
+                "type": "computer_use_error",
+                "data": {
+                    "id": str(event.id),
+                    "tenant_id": event.tenant_id,
+                    "error": str(e),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            })
             return [{
                 "type": "computer_use_error",
                 "error": str(e),
@@ -368,6 +383,19 @@ class ReactiveAgentService:
             f"[ReactiveAgentService] Computer Use loop complete for event {event.id}. "
             f"Steps: {steps_taken} | Result: {result_summary[:120]}"
         )
+
+        # Broadcast completion so frontend knows the loop finished
+        await broadcast_sse({
+            "event": "computer_use_complete",
+            "type": "computer_use_complete",
+            "data": {
+                "id": str(event.id),
+                "tenant_id": event.tenant_id,
+                "steps_taken": steps_taken,
+                "result": result_summary,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        })
 
         return [{
             "type": "computer_use",

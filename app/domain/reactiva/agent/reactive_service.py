@@ -19,6 +19,7 @@ from typing import Optional
 
 from loguru import logger
 from langchain_core.messages import HumanMessage
+from deepagents.backends.utils import create_file_data
 
 from app.core.llm import LLMFactory, LLMProvider, _vllm_model_exists
 from app.core.config import settings
@@ -205,26 +206,26 @@ class ReactiveAgentService:
             }
         }
 
-        output_text = ""
-
         try:
-            async for chunk in graph.astream(
-                {"messages": [HumanMessage(content=event_ctx)]},
+            from app.domain.reactiva.agent.prompts.reactive_industrial import (
+                REACTIVE_AGENTS_MD_CONTENT,
+            )
+
+            response = await graph.ainvoke(
+                {
+                    "messages": [HumanMessage(content=event_ctx)],
+                    "files": {"/AGENTS.md": create_file_data(REACTIVE_AGENTS_MD_CONTENT)},
+                },
                 config=config,
-            ):
-                for node, state in chunk.items():
-                    if not isinstance(state, dict):
-                        continue
-                    msgs = state.get("messages")
-                    if msgs is None:
-                        continue
-                    # LangGraph may wrap state values in Overwrite objects
-                    if hasattr(msgs, "value"):
-                        msgs = msgs.value
-                    if isinstance(msgs, list) and len(msgs) > 0:
-                        last_msg = msgs[-1]
-                        if hasattr(last_msg, "content"):
-                            output_text = last_msg.content
+            )
+
+            last_msg = response["messages"][-1]
+            output_text = last_msg.content if hasattr(last_msg, "content") else ""
+
+            # Strip Qwen <think>...</think> chain-of-thought blocks
+            output_text = re.sub(
+                r"<think>.*?</think>\s*", "", output_text, flags=re.DOTALL
+            )
 
         except Exception as e:
             logger.error(f"[{thread_id}] Reactive agent error: {e}")

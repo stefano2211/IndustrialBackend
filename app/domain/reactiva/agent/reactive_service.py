@@ -24,6 +24,8 @@ from app.core.llm import LLMFactory, LLMProvider, _vllm_model_exists
 from app.core.config import settings
 from app.domain.reactiva.agent.reactive_orchestrator import create_reactive_orchestrator
 from app.persistence.reactiva.repositories.reactive_tool_config_repository import ReactiveToolConfigRepository
+from app.persistence.proactiva.memoryAI.checkpointer import get_checkpointer
+from app.persistence.proactiva.memoryAI.store import get_store
 from app.domain.reactiva.schemas.event import Event
 
 
@@ -141,12 +143,17 @@ class ReactiveAgentService:
 
             logger.info(f"[ReactiveAgentService] Cache miss — building graph.")
 
+            checkpointer = await get_checkpointer()
+            store = await get_store()
+
             graph = create_reactive_orchestrator(
                 generalist_model=generalist_model,
                 expert_model=expert_model,
                 expert_model_instance=expert_model_instance,
                 vision_model=vision_model,
                 mcp_tools_context=mcp_tools_context,
+                checkpointer=checkpointer,
+                store=store,
             )
 
             if len(_REACTIVE_GRAPH_CACHE) >= _MAX_CACHE_SIZE:

@@ -42,15 +42,15 @@ class Settings(BaseSettings):
 
     # Defaults
     default_llm_provider: str = "vllm"
-    default_llm_model: Optional[str] = "Qwen/Qwen3.5-2B"
+    default_llm_model: Optional[str] = "Qwen/Qwen3.5-9B"
 
     # Generalist Orchestrator
-    generalist_llm_model: str = "Qwen/Qwen3.5-2B"
+    generalist_llm_model: str = "Qwen/Qwen3.5-9B"
 
     # Sistema 1 — Using base model directly (no LoRA for local 8GB VRAM)
-    system1_base_model: str = "Qwen/Qwen3.5-2B"
-    system1_historico_model: str = "Qwen/Qwen3.5-2B"
-    system1_model: str = "Qwen/Qwen3.5-2B"
+    system1_base_model: str = "Qwen/Qwen3.5-9B"
+    system1_historico_model: str = "Qwen/Qwen3.5-9B"
+    system1_model: str = "Qwen/Qwen3.5-9B"
     system1_enabled: bool = True
     system1_force_base_model: bool = True  # Force base model — no LoRA loading
 

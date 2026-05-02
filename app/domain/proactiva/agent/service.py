@@ -73,12 +73,11 @@ class AgentService:
             query=query
         )
         try:
+            from app.core.reasoning import extract_reasoning_from_text
             res = await llm.ainvoke(prompt)
-            content = res.content.strip()
-            think_match = re.search(r'<think>(.*?)</think>', content, flags=re.DOTALL)
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            if not content and think_match:
-                content = think_match.group(1).strip()
+            content, _reasoning = extract_reasoning_from_text(res.content.strip())
+            if not content and _reasoning:
+                content = _reasoning.strip()
 
             if content.startswith("```json") and len(content) > 10:
                 content = content[7:].rstrip("`").strip()
@@ -374,8 +373,13 @@ class AgentService:
                 merged_params["stop"] = [stop_val]
 
         # 3. Create Orchestrator LLM
-        # Cap output tokens: orchestrator routes/synthesizes only � prevents context overflow
+        # Cap output tokens: orchestrator routes/synthesizes only — prevents context overflow
         merged_params.setdefault("max_tokens", 1024)
+        # Enable thinking for the orchestrator — server default is now False
+        merged_params.setdefault(
+            "extra_body",
+            {"chat_template_kwargs": {"enable_thinking": True}},
+        )
         ui_generalist_llm = await LLMFactory.get_llm(
             provider=provider,
             model_name=model_name,
@@ -624,10 +628,12 @@ class AgentService:
         use_generalist: bool = False,
         mode: str = "chat",
         mode_context: dict | None = None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, str | None]:
         """
-        Invoke the Deep Agent and return the assistant's response text.
+        Invoke the Deep Agent and return (content, model_id, reasoning).
         """
+        from app.core.reasoning import extract_reasoning
+
         ctx = await self._prepare_agent(
             user_id=user_id,
             thread_id=thread_id,
@@ -654,7 +660,8 @@ class AgentService:
         )
 
         last_message = response["messages"][-1]
-        return last_message.content, ctx["resolved_model_id"]
+        content, reasoning = extract_reasoning(last_message)
+        return content, ctx["resolved_model_id"], reasoning
 
     async def stream(
         self,
@@ -698,13 +705,14 @@ class AgentService:
         query = ctx["query"]
         params = ctx["params"]
 
-        # State for filtering <think>...</think> tokens emitted by reasoning models
-        any_token_yielded = False
+        # Centralized reasoning filter replaces the old 150-line state machine
+        from app.core.reasoning import StreamingReasoningFilter, extract_reasoning_from_text
+        reasoning_filter = StreamingReasoningFilter()
+
         last_output_had_tool_calls = False
-        inside_think_block = False
-        think_buffer = ""
         # Buffer tokens per model step; flush only when we confirm no tool calls
         step_text_buffer: list = []
+        step_reasoning_buffer: list = []
         # Nesting depth: >0 means we are inside a subagent tool call.
         # Only stream tokens when depth == 0 (top-level orchestrator).
         subagent_depth = 0
@@ -724,8 +732,6 @@ class AgentService:
             if kind == "on_tool_start":
                 subagent_depth += 1
                 input_data = event.get("data", {}).get("input", {})
-                # deepagents wraps all subagents under a single "task" tool.
-                # Extract the real subagent name from subagent_type when available.
                 effective_name = input_data.get("subagent_type", name) if isinstance(input_data, dict) else name
                 yield {"type": "subagent", "status": "running", "name": effective_name, "input": input_data}
 
@@ -738,15 +744,13 @@ class AgentService:
                 yield {"type": "subagent", "status": "error", "name": name}
 
             # Reset per-model-turn counters when a new top-level LLM call starts.
-            # Gated on depth==0 to avoid subagent LLM turns clobbering orchestrator state.
             if kind == "on_chat_model_start" and subagent_depth == 0:
-                any_token_yielded = False
                 last_output_had_tool_calls = False
-                inside_think_block = False
-                think_buffer = ""
+                reasoning_filter.reset()
                 step_text_buffer = []
+                step_reasoning_buffer = []
 
-            # --- Live Screen Viewer: forward screenshot events from computer_use observe node ---
+            # --- Live Screen Viewer ---
             if kind == "on_custom_event" and name == "screenshot":
                 yield {"type": "screenshot", "data": event.get("data", {})}
 
@@ -754,6 +758,12 @@ class AgentService:
             if kind in ["on_chat_model_stream", "on_llm_stream"]:
                 data = event.get("data", {})
                 chunk = data.get("chunk")
+
+                # Check for structured reasoning from ReasoningChatOpenAI
+                if hasattr(chunk, "additional_kwargs"):
+                    structured_reasoning = chunk.additional_kwargs.get("reasoning_content")
+                    if structured_reasoning:
+                        step_reasoning_buffer.append(structured_reasoning)
 
                 text = ""
                 if hasattr(chunk, "content"):
@@ -763,68 +773,23 @@ class AgentService:
                 elif isinstance(chunk, dict):
                     text = chunk.get("content", "")
 
-
-
                 if text:
-                    # Filter out <think>...</think> blocks emitted by reasoning models
-                    think_buffer += text
-                    visible = ""
-                    while think_buffer:
-                        if inside_think_block:
-                            end_idx = think_buffer.find("</think>")
-                            if end_idx != -1:
-                                # Found end of think block
-                                think_buffer = think_buffer[end_idx + len("</think>"):]
-                                inside_think_block = False
-                            else:
-                                # Still inside think block. We can discard most of the buffer
-                                # to save memory, but keep the last 7 chars in case they are 
-                                # a partial "</think>" tag.
-                                if len(think_buffer) > 7:
-                                    think_buffer = think_buffer[-7:]
-                                break
-                        else:
-                            start_idx = think_buffer.find("<think>")
-                            if start_idx != -1:
-                                # Found think block start. Emit text before it.
-                                visible += think_buffer[:start_idx]
-                                think_buffer = think_buffer[start_idx + len("<think>"):]
-                                inside_think_block = True
-                            else:
-                                # No <think> start found.
-                                # Also check for orphan </think> � Qwen3/vLLM sometimes
-                                # streams thinking content WITHOUT emitting the opening
-                                # <think> tag, but DOES emit the closing </think>.
-                                close_idx = think_buffer.find("</think>")
-                                if close_idx != -1:
-                                    # Discard everything up to and including the orphan </think>.
-                                    # Also retroactively discard step_text_buffer: content already
-                                    # accumulated before this chunk was pre-think reasoning text.
-                                    think_buffer = think_buffer[close_idx + len("</think>"):]
-                                    step_text_buffer = []
-                                    # Continue loop � there may be real content after it
-                                else:
-                                    # No think tag found at all.
-                                    # Keep last 7 chars (partial of either <think> or </think>).
-                                    if len(think_buffer) > 7:
-                                        visible += think_buffer[:-7]
-                                        think_buffer = think_buffer[-7:]
-                                    break
-
+                    visible, reasoning_chunk = reasoning_filter.feed(text)
+                    if reasoning_chunk:
+                        step_reasoning_buffer.append(reasoning_chunk)
                     if visible and subagent_depth == 0:
                         step_text_buffer.append(visible)
-                    # Tokens are buffered and flushed at on_chat_model_end only if no tool calls.
 
                 continue
 
             # --- Flush buffered tokens / fallback for non-streaming models ---
-            # Only process end events from the top-level orchestrator.
             if kind == "on_chat_model_end" and subagent_depth == 0:
-                # Flush any remaining think_buffer into the step buffer
-                if not inside_think_block and think_buffer:
-                    step_text_buffer.append(think_buffer)
-                think_buffer = ""
-                inside_think_block = False
+                # Flush remaining buffer from the reasoning filter
+                flush_visible, flush_reasoning = reasoning_filter.flush()
+                if flush_reasoning:
+                    step_reasoning_buffer.append(flush_reasoning)
+                if flush_visible:
+                    step_text_buffer.append(flush_visible)
 
                 data = event.get("data", {})
                 output = data.get("output")
@@ -832,29 +797,26 @@ class AgentService:
                     last_output_had_tool_calls = bool(
                         hasattr(output, "tool_calls") and output.tool_calls
                     )
-                    # Fallback for non-streaming models: if no tokens were buffered
-                    # and this is not a tool-call turn, pull from output.content
+                    # Fallback for non-streaming models
                     if not step_text_buffer and not last_output_had_tool_calls:
                         raw_content = getattr(output, "content", None) or getattr(output, "text", "")
-                        text = raw_content or ""
-                        if text:
-                            import re as _re
-                            text_stripped = _re.sub(r'<think>.*?</think>', '', text, flags=_re.DOTALL).strip()
-                            if not text_stripped and text.strip():
-                                text = _re.sub(r'</?think>', '', text).strip()
-                            else:
-                                text = text_stripped
-                        if text:
-                            step_text_buffer.append(text)
+                        if raw_content:
+                            clean, reasoning = extract_reasoning_from_text(raw_content)
+                            if reasoning:
+                                step_reasoning_buffer.append(reasoning)
+                            if clean:
+                                step_text_buffer.append(clean)
 
                 # Only emit buffered tokens if this step had NO tool calls.
-                # Suppresses orchestrator pre-delegation reasoning (e.g. "I need to call sistema1-vl...").
-                if not last_output_had_tool_calls and step_text_buffer:
+                if not last_output_had_tool_calls:
+                    # Emit reasoning as a separate event first
+                    if step_reasoning_buffer:
+                        yield {"type": "reasoning", "content": "".join(step_reasoning_buffer)}
+                    # Then emit visible content tokens
                     for chunk in step_text_buffer:
                         yield chunk
-                    any_token_yielded = True
                 step_text_buffer = []
-
+                step_reasoning_buffer = []
 
         yield {"model_id": ctx["resolved_model_id"]}
 

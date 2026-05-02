@@ -71,6 +71,7 @@ class EventRepository:
         analysis: str,
         plan: Optional[str] = None,
         actions: Optional[list] = None,
+        reasoning: Optional[str] = None,
     ) -> Optional[Event]:
         event = await self.get_by_id(event_id)
         if not event:
@@ -80,6 +81,8 @@ class EventRepository:
             event.agent_plan = plan
         if actions is not None:
             event.actions_taken = actions
+        if reasoning is not None:
+            event.agent_reasoning = reasoning
         event.updated_at = datetime.utcnow()
         self.session.add(event)
         await self.session.commit()

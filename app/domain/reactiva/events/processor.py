@@ -39,8 +39,8 @@ class EventProcessor:
         await repo.update_status(event.id, "analyzing")
         await broadcast_sse({"event": "status_update", "data": {"id": str(event.id), "status": "analyzing"}})
 
-        analysis, plan, execute_instruction = await self._analyze(event)
-        await repo.update_analysis(event.id, analysis=analysis, plan=plan)
+        analysis, plan, execute_instruction, reasoning = await self._analyze(event)
+        await repo.update_analysis(event.id, analysis=analysis, plan=plan, reasoning=reasoning)
 
         if severity == "low":
             await repo.update_status(event.id, "completed")
@@ -48,6 +48,7 @@ class EventProcessor:
                 "id": str(event.id),
                 "status": "completed",
                 "agent_analysis": analysis,
+                "agent_reasoning": reasoning,
                 "agent_plan": plan,
                 "resolved_at": datetime.utcnow().isoformat(),
             }})
@@ -59,6 +60,7 @@ class EventProcessor:
                 "id": str(event.id),
                 "status": "awaiting_approval",
                 "agent_analysis": analysis,
+                "agent_reasoning": reasoning,
                 "agent_plan": plan,
             }})
             logger.info(f"[EventProcessor] MEDIUM event {event.id} awaiting human approval.")
@@ -69,10 +71,11 @@ class EventProcessor:
                 "id": str(event.id),
                 "status": "executing",
                 "agent_analysis": analysis,
+                "agent_reasoning": reasoning,
                 "agent_plan": plan,
             }})
             actions = await self._execute(event, plan, execute_instruction)
-            await repo.update_analysis(event.id, analysis=analysis, plan=plan, actions=actions)
+            await repo.update_analysis(event.id, analysis=analysis, plan=plan, actions=actions, reasoning=reasoning)
             await repo.update_status(event.id, "completed")
             await broadcast_sse({"event": "status_update", "data": {
                 "id": str(event.id),
@@ -82,21 +85,22 @@ class EventProcessor:
             }})
             logger.info(f"[EventProcessor] {severity.upper()} event {event.id} auto-executed.")
 
-    async def _analyze(self, event: Event) -> tuple[str, Optional[str], Optional[str]]:
+    async def _analyze(self, event: Event) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
         """
         Calls ReactiveAgentService to perform a diagnosis and remediation plan.
 
         Returns:
-            (analysis_text, plan_text, execute_instruction)
+            (analysis_text, plan_text, execute_instruction, reasoning)
             execute_instruction is the ---EXECUTE--- section, or None if unavailable.
+            reasoning is the model's thinking trace.
         """
         try:
             from app.domain.reactiva.agent.reactive_service import ReactiveAgentService
 
             reactive_service = ReactiveAgentService()
             async with async_session_factory() as session:
-                analysis, plan, execute_instruction = await reactive_service.analyze(event, session)
-            return analysis, plan, execute_instruction
+                analysis, plan, execute_instruction, reasoning = await reactive_service.analyze(event, session)
+            return analysis, plan, execute_instruction, reasoning
 
         except Exception as exc:
             logger.warning(f"[EventProcessor] ReactiveAgentService unavailable, using fallback: {exc}")
@@ -105,7 +109,7 @@ class EventProcessor:
                 f"Title: {event.title}. Description: {event.description}."
             )
             plan = None
-            return analysis, plan, None
+            return analysis, plan, None, None
 
     async def _execute_approved(self, event: Event) -> None:
         """Called by the approve endpoint for human-approved medium events."""

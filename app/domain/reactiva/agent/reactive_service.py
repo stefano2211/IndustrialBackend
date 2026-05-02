@@ -82,7 +82,11 @@ class ReactiveAgentService:
             )
 
         # Instantiate unified vLLM models with the resolved model name
-        generalist_model = await LLMFactory.get_llm(model=model_name, temperature=0.7, max_tokens=4096)
+        # Orchestrator gets thinking enabled; expert/historico inherit server default (off)
+        generalist_model = await LLMFactory.get_llm(
+            model=model_name, temperature=0.7, max_tokens=4096,
+            extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+        )
         expert_model = await LLMFactory.get_llm(model=model_name, temperature=0.0, max_tokens=4096)
 
         # Sistema 1 Histórico — resolved direct instance (same pattern as proactive)
@@ -165,17 +169,20 @@ class ReactiveAgentService:
             _REACTIVE_GRAPH_CACHE[cache_key] = {"agent": graph}
             return graph
 
-    async def analyze(self, event: Event, session) -> tuple[str, Optional[str], Optional[str]]:
+    async def analyze(self, event: Event, session) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
         """
         Analyze an event using the Reactive Orchestrator.
 
         Returns:
-            (analysis_text, plan_text, execute_instruction)
+            (analysis_text, plan_text, execute_instruction, reasoning)
 
             execute_instruction is the content of the ---EXECUTE--- section when
             sistema1-vl is available and the plan requires GUI interaction.
             It is passed as-is to execute_plan() → ComputerUseSubagent.
+            reasoning is the model's thinking trace (separated from content).
         """
+        from app.core.reasoning import extract_reasoning
+
         tenant_id = event.tenant_id
         thread_id = f"event-{event.id}"
 
@@ -207,6 +214,8 @@ class ReactiveAgentService:
             }
         }
 
+        reasoning: Optional[str] = None
+
         try:
             from app.domain.reactiva.agent.prompts.reactive_industrial import (
                 REACTIVE_AGENTS_MD_CONTENT,
@@ -221,17 +230,17 @@ class ReactiveAgentService:
             )
 
             last_msg = response["messages"][-1]
-            output_text = last_msg.content if hasattr(last_msg, "content") else ""
 
-            # Strip <think>...</think> blocks that leak when --reasoning-parser qwen3
-            # doesn't separate them correctly at the vLLM level (e.g. Qwen3.5-9B)
-            output_text = re.sub(r'<think>.*?</think>\s*', '', output_text, flags=re.DOTALL)
-            # Also handle unclosed <think> at the start (model cut off mid-thinking)
-            output_text = re.sub(r'^<think>.*', '', output_text, flags=re.DOTALL).strip()
+            # Extract reasoning via centralized parser (handles both structured
+            # reasoning_content from ReasoningChatOpenAI and regex fallback)
+            output_text, reasoning = extract_reasoning(last_msg)
 
         except Exception as e:
             logger.error(f"[{thread_id}] Reactive agent error: {e}")
-            return f"Error during analysis: {e}", None, None
+            return f"Error during analysis: {e}", None, None, None
+
+        if reasoning:
+            logger.info(f"[{thread_id}] Reasoning extracted ({len(reasoning)} chars)")
 
         # ── Parse three-section output ─────────────────────────────────────────
         # Section 1: Analysis  (before ---PLAN---)
@@ -258,7 +267,7 @@ class ReactiveAgentService:
                 plan = post_plan.strip()
 
         logger.info(f"[{thread_id}] Analysis complete.")
-        return analysis, plan, execute_instruction
+        return analysis, plan, execute_instruction, reasoning
 
     async def execute_plan(
         self,

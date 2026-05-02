@@ -41,6 +41,7 @@ class EventResponse(BaseModel):
     description: str
     raw_payload: Optional[Dict[str, Any]]
     agent_analysis: Optional[str]
+    agent_reasoning: Optional[str] = None
     agent_plan: Optional[str]
     actions_taken: Optional[List[Any]]
     created_at: datetime

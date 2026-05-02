@@ -51,7 +51,7 @@ async def chat_endpoint(
         checkpointer = getattr(fastapi_request.app.state, "checkpointer", None)
         store = getattr(fastapi_request.app.state, "store", None)
 
-        answer, resolved_model_id = await _agent_service.invoke(
+        answer, resolved_model_id, reasoning = await _agent_service.invoke(
             user_id=user_id,
             thread_id=thread_id,
             query=request.query,
@@ -65,7 +65,13 @@ async def chat_endpoint(
             use_generalist=request.use_generalist,
         )
 
-        session.add(ChatMessage(thread_id=thread_id, role="assistant", content=answer, model_id=resolved_model_id))
+        session.add(ChatMessage(
+            thread_id=thread_id,
+            role="assistant",
+            content=answer,
+            reasoning_content=reasoning,
+            model_id=resolved_model_id,
+        ))
         await session.commit()
 
         return ChatResponse(answer=answer, sources=[], thread_id=thread_id)
@@ -88,6 +94,7 @@ async def chat_stream_endpoint(
     
     Sends events:
       - data: {"type": "meta", "thread_id": "..."}
+      - data: {"type": "reasoning", "content": "..."}   ← model thinking trace
       - data: {"type": "token", "content": "..."}
       - data: {"type": "done", "full_content": "..."}
       - data: {"type": "error", "detail": "..."}
@@ -113,6 +120,7 @@ async def chat_stream_endpoint(
 
     async def event_generator():
         full_content = ""
+        full_reasoning = ""
         try:
             yield f"data: {json.dumps({'type': 'meta', 'thread_id': thread_id})}\n\n"
 
@@ -133,6 +141,9 @@ async def chat_stream_endpoint(
                 if isinstance(chunk, dict):
                     if "model_id" in chunk:
                         resolved_model_id = chunk["model_id"]
+                    elif chunk.get("type") == "reasoning":
+                        full_reasoning += chunk.get("content", "")
+                        yield f"data: {json.dumps(chunk)}\n\n"
                     elif chunk.get("type") == "subagent":
                         yield f"data: {json.dumps(chunk)}\n\n"
                     elif chunk.get("type") == "screenshot":
@@ -142,7 +153,13 @@ async def chat_stream_endpoint(
                 full_content += chunk
                 yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
 
-            session.add(ChatMessage(thread_id=thread_id, role="assistant", content=full_content, model_id=resolved_model_id))
+            session.add(ChatMessage(
+                thread_id=thread_id,
+                role="assistant",
+                content=full_content,
+                reasoning_content=full_reasoning or None,
+                model_id=resolved_model_id,
+            ))
             await session.commit()
 
             yield f"data: {json.dumps({'type': 'done', 'full_content': full_content})}\n\n"

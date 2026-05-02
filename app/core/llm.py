@@ -8,6 +8,7 @@ Adding a new provider = adding one entry to the registry.
 from enum import Enum
 from typing import Optional, Any, Dict
 from langchain_openai import ChatOpenAI
+from app.core.reasoning_chatopenai import ReasoningChatOpenAI
 from app.core.config import settings
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,7 @@ def _create_vllm(model_name: str, temperature: float, base_url: Optional[str] = 
     if 'stop' not in kwargs:
         kwargs['stop'] = ['<turn|>']
 
-    return ChatOpenAI(
+    return ReasoningChatOpenAI(
         openai_api_key="EMPTY",
         openai_api_base=base_url or settings.vllm_base_url,
         model=model_name or settings.default_llm_model,

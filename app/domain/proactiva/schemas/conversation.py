@@ -26,6 +26,7 @@ class ChatMessage(SQLModel, table=True):
     thread_id: str = Field(index=True)
     role: str  # 'user' or 'assistant'
     content: str
+    reasoning_content: Optional[str] = Field(default=None)
     model_id: Optional[str] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
@@ -47,4 +48,5 @@ class MessageRead(SQLModel):
     """Represents a single message."""
     role: str  # 'user' or 'assistant'
     content: str
+    reasoning_content: Optional[str] = None
 

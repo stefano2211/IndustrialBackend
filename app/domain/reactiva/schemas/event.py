@@ -44,6 +44,10 @@ class Event(SQLModel, table=True):
         default=None,
         description="Fast System-1 analysis text",
     )
+    agent_reasoning: Optional[str] = Field(
+        default=None,
+        description="Model reasoning/thinking trace (from <think> blocks)",
+    )
     agent_plan: Optional[str] = Field(
         default=None,
         description="Detailed orchestrator plan",

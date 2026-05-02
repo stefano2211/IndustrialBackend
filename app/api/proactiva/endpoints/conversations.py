@@ -55,7 +55,7 @@ async def get_conversation_messages(
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    return [MessageRead(role=m.role, content=m.content) for m in messages]
+    return [MessageRead(role=m.role, content=m.content, reasoning_content=getattr(m, 'reasoning_content', None)) for m in messages]
 
 
 @router.delete("/{thread_id}")

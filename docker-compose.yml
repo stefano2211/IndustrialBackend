@@ -67,6 +67,8 @@ services:
       - "hermes"
       - "--reasoning-parser"
       - "qwen3"
+      - "--default-chat-template-kwargs"
+      - '{"enable_thinking": false}'
       - "--enforce-eager"
     volumes:
       - hf_cache:/root/.cache/huggingface

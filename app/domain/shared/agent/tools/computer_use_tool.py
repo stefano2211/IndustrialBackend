@@ -26,6 +26,7 @@ import base64
 import io
 import json
 import os
+import shlex
 import subprocess
 
 from langchain_core.tools import tool
@@ -36,13 +37,25 @@ from app.core.config import settings
 
 
 # ── Clean screenshot store (for Live Screen Viewer — no coordinate grid) ──────
-# Set by take_screenshot() before grid overlay; read by observe node for SSE display.
-_clean_b64: str = ""
+# Thread-safe dict keyed by thread_id to avoid race conditions between concurrent
+# Computer Use sessions. Set by take_screenshot(); read by observe node for SSE display.
+from typing import Dict
+_clean_b64_map: Dict[str, str] = {}
 
 
-def get_clean_b64() -> str:
+def get_clean_b64(thread_id: str = "") -> str:
     """Returns the last clean screenshot (no coordinate grid) for the live viewer."""
-    return _clean_b64
+    return _clean_b64_map.get(thread_id, "")
+
+
+def _xdotool(*args: str) -> None:
+    """Run xdotool safely without shell=True (prevents command injection)."""
+    subprocess.run(
+        ["xdotool"] + list(args),
+        env={**os.environ, "DISPLAY": ":99"},
+        check=True,
+        timeout=5,
+    )
 
 
 # ── Screenshot capture ────────────────────────────────────────────────────────
@@ -195,9 +208,9 @@ async def take_screenshot(config: RunnableConfig) -> str:
             logger.error(f"[ComputerUse] Error capturando pantalla: {e}")
             b64 = _get_demo_screenshot()  # fallback a demo si falla
 
-    # Save clean screenshot BEFORE grid overlay — used by live viewer for display
-    global _clean_b64
-    _clean_b64 = b64
+    # Save clean screenshot BEFORE grid overlay — keyed by thread_id for thread safety
+    thread_id = config.get("configurable", {}).get("thread_id", "default") if config else "default"
+    _clean_b64_map[thread_id] = b64
 
     # Mejora A: Pintar cuadricula de coordenadas para que el VL model
     # lea las coordenadas directamente en la imagen (OmniParser concept)
@@ -353,23 +366,19 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
 
             if action_type == "click":
                 try:
-                    subprocess.run(
-                        f"DISPLAY=:99 xdotool mousemove {x} {y} click 1",
-                        shell=True, check=True, timeout=5
-                    )
+                    _xdotool("mousemove", str(x), str(y), "click", "1")
                     return f"Click ejecutado en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] xdotool click failed ({e}), fallback pyautogui")
                     pyautogui.click(x, y)
                     return f"Click ejecutado en ({x}, {y}) [fallback pyautogui]"
 
             elif action_type == "double_click":
                 try:
-                    subprocess.run(
-                        f"DISPLAY=:99 xdotool mousemove {x} {y} click --repeat 2 --delay 100 1",
-                        shell=True, check=True, timeout=5
-                    )
+                    _xdotool("mousemove", str(x), str(y), "click", "--repeat", "2", "--delay", "100", "1")
                     return f"Double-click en ({x}, {y}) [imagen: {action['x']},{action['y']}]"
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] xdotool double_click failed ({e}), fallback pyautogui")
                     pyautogui.doubleClick(x, y)
                     return f"Double-click en ({x}, {y}) [fallback pyautogui]"
 
@@ -381,26 +390,20 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 # For long text (>80 chars): use clipboard paste — faster and handles special chars
                 if len(text) > 80:
                     try:
-                        import base64 as _b64
-                        b64_text = _b64.b64encode(text.encode()).decode()
                         subprocess.run(
-                            f"echo {b64_text} | base64 -d | xclip -selection clipboard",
-                            shell=True, check=True, timeout=5
+                            ["xclip", "-selection", "clipboard"],
+                            input=text.encode(),
+                            check=True, timeout=5,
                         )
-                        subprocess.run(
-                            "DISPLAY=:99 xdotool key ctrl+v",
-                            shell=True, check=True, timeout=5
-                        )
+                        _xdotool("key", "ctrl+v")
                         return f"Texto pegado via clipboard: '{text[:50]}...'"
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"[ComputerUse] clipboard paste failed ({e}), fallback to xdotool type")
                         pass  # fall through to xdotool type
                 try:
-                    subprocess.run(
-                        ["xdotool", "type", "--clearmodifiers", "--delay", "30", text],
-                        env={**os.environ, "DISPLAY": ":99"},
-                        check=True, timeout=30,
-                    )
-                except Exception:
+                    _xdotool("type", "--clearmodifiers", "--delay", "30", text)
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] xdotool type failed ({e}), fallback pyautogui")
                     pyautogui.typewrite(text, interval=0.04)
                 return f"Texto escrito: '{text[:50]}{'...' if len(text) > 50 else ''}'"
 
@@ -419,21 +422,17 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 }
                 xdotool_key = xdotool_key_map.get(key, key)
                 try:
-                    subprocess.run(
-                        f"DISPLAY=:99 xdotool key {xdotool_key}",
-                        shell=True, check=True, timeout=5
-                    )
-                except Exception:
+                    _xdotool("key", xdotool_key)
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] xdotool key failed ({e}), fallback pyautogui")
                     pyautogui.press(key)
                 return f"Tecla presionada: {key}"
 
             elif action_type == "move":
                 try:
-                    subprocess.run(
-                        f"DISPLAY=:99 xdotool mousemove {x} {y}",
-                        shell=True, check=True, timeout=5
-                    )
-                except Exception:
+                    _xdotool("mousemove", str(x), str(y))
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] xdotool move failed ({e}), fallback pyautogui")
                     pyautogui.moveTo(x, y, duration=0.2)
                 return f"Mouse movido a ({x}, {y}) [imagen: {action['x']},{action['y']}]"
 
@@ -443,37 +442,31 @@ async def execute_action(config: RunnableConfig, action_json: str) -> str:
                 btn = "5" if amount > 0 else "4"
                 clicks = abs(amount)
                 try:
-                    subprocess.run(
-                        f"DISPLAY=:99 xdotool mousemove {x} {y} click --repeat {clicks} {btn}",
-                        shell=True, check=True, timeout=5
-                    )
-                except Exception:
+                    _xdotool("mousemove", str(x), str(y), "click", "--repeat", str(clicks), btn)
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] xdotool scroll failed ({e}), fallback pyautogui")
                     pyautogui.scroll(-amount, x=x, y=y)  # pyautogui: negative=down
                 return f"Scroll {'abajo' if amount > 0 else 'arriba'} ×{abs(amount)} en ({x},{y})"
 
             elif action_type == "new_tab":
-                subprocess.run("DISPLAY=:99 xdotool key ctrl+t", shell=True, timeout=5)
+                _xdotool("key", "ctrl+t")
                 return "Nueva pestaña abierta (Ctrl+T)"
 
             elif action_type == "close_tab":
-                subprocess.run("DISPLAY=:99 xdotool key ctrl+w", shell=True, timeout=5)
+                _xdotool("key", "ctrl+w")
                 return "Pestaña cerrada (Ctrl+W)"
 
             elif action_type == "focus_address_bar":
-                subprocess.run("DISPLAY=:99 xdotool key ctrl+l", shell=True, timeout=5)
+                _xdotool("key", "ctrl+l")
                 return "Barra de dirección enfocada (Ctrl+L) — ya puedes escribir la URL"
 
             elif action_type == "navigate":
                 url = action.get("url", "")
                 # Focus address bar, clear it, type URL and navigate
-                subprocess.run("DISPLAY=:99 xdotool key ctrl+l", shell=True, timeout=5)
+                _xdotool("key", "ctrl+l")
                 import time as _time; _time.sleep(0.3)
-                safe_url = url.replace("'", "'\''")
-                subprocess.run(
-                    f"DISPLAY=:99 xdotool type --clearmodifiers '{safe_url}'",
-                    shell=True, timeout=5
-                )
-                subprocess.run("DISPLAY=:99 xdotool key Return", shell=True, timeout=5)
+                _xdotool("type", "--clearmodifiers", url)
+                _xdotool("key", "Return")
                 return f"Navegando a: {url}"
 
             else:
@@ -526,14 +519,38 @@ async def run_shell_command(config: RunnableConfig, command: str) -> str:
         elif "--user-data-dir" not in _cmd:
             _binary, _, _rest = _cmd.partition(" ")
             _cmd = f"{_binary} {_profile} {_rest}".strip()
-        
+
         # Elimina el candado residual de la sesión anterior para evitar crasheos de perfil bloqueado
-        command = f"rm -f /tmp/chromium-profile/SingletonLock /tmp/chromium-profile/SingletonCookie; {_cmd}"
-        logger.debug(f"[ComputerUse] Chromium flags auto-injected & unlocked: {command}")
+        try:
+            subprocess.run(
+                ["rm", "-f", "/tmp/chromium-profile/SingletonLock", "/tmp/chromium-profile/SingletonCookie"],
+                check=False, timeout=2,
+            )
+        except Exception as e:
+            logger.debug(f"[ComputerUse] SingletonLock cleanup failed: {e}")
+        logger.debug(f"[ComputerUse] Chromium flags auto-injected & unlocked: {_cmd}")
+        command = _cmd
+
+    cmd_str = command.strip()
+    background = cmd_str.endswith(" &")
+    if background:
+        cmd_str = cmd_str[:-2].strip()
+
+    # Block dangerous patterns (defense-in-depth)
+    _blocked = ["rm -rf /", "mkfs", "dd if=", ":(){ :|:& };:", "curl.*|.*bash", "wget.*|.*bash", "> /dev/sd"]
+    import re
+    for pat in _blocked:
+        if re.search(pat, cmd_str, re.IGNORECASE):
+            logger.warning(f"[ComputerUse] BLOCKED dangerous command: {cmd_str[:100]}")
+            return "ERROR: Command blocked for security reasons."
+
+    cmd_parts = shlex.split(cmd_str)
+    if not cmd_parts:
+        return "ERROR: Empty command."
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_parts,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env={**os.environ, "DISPLAY": ":99"},
@@ -546,7 +563,7 @@ async def run_shell_command(config: RunnableConfig, command: str) -> str:
             result = output or err or "Command executed (no output)."
         except asyncio.TimeoutError:
             result = f"Command launched in background (pid={proc.pid}). Use take_screenshot to verify."
-        logger.info(f"[ComputerUse] Shell executed: {command!r} → {result[:100]}")
+        logger.info(f"[ComputerUse] Shell executed: {cmd_str!r} → {result[:100]}")
         return result
     except Exception as e:
         logger.error(f"[ComputerUse] Shell error: {e}")

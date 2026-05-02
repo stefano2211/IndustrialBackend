@@ -236,7 +236,7 @@ class PlaywrightBrowserManager:
             logger.warning(f"[BrowserManager] Accessibility snapshot failed: {e}")
             return f"(Accessibility tree unavailable: {e})"
 
-    def _format_a11y_tree(self, node: dict, depth: int = 0, max_depth: int = 5) -> str:
+    def _format_a11y_tree(self, node: dict, depth: int = 0, max_depth: int = 8) -> str:
         """
         Recursively format an accessibility tree node into compact text.
 

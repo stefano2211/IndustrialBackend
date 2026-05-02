@@ -110,9 +110,21 @@ async def lifespan(app: FastAPI):
 
     # Auto-download OmniParser V2 weights if not present (non-blocking background task)
     if _settings.omniparser_enabled:
-        t = asyncio.create_task(
-            get_omniparser().ensure_weights(_settings.omniparser_model_dir)
-        )
+        async def _omniparser_download():
+            try:
+                success = await get_omniparser().ensure_weights(_settings.omniparser_model_dir)
+                if success:
+                    logger.success("[OmniParser] Weights downloaded — ready for SoM grounding.")
+                else:
+                    logger.error(
+                        "[OmniParser] Weight download FAILED. OmniParser will remain unavailable. "
+                        "Check HF_TOKEN env var and network connectivity. "
+                        "Falling back to coordinate grid for Computer Use."
+                    )
+            except Exception as e:
+                logger.error(f"[OmniParser] Background download crashed: {e}")
+
+        t = asyncio.create_task(_omniparser_download())
         _background_tasks.add(t)
         t.add_done_callback(_background_tasks.discard)
 
@@ -121,6 +133,15 @@ async def lifespan(app: FastAPI):
     event_worker_task.cancel()
     await collector_scheduler.shutdown()
     await close_pool()
+
+    # Gracefully shutdown Playwright browser if it was initialized
+    try:
+        from app.domain.shared.agent.tools.browser_manager import get_browser_manager
+        browser_mgr = get_browser_manager()
+        if browser_mgr.is_ready:
+            await browser_mgr.shutdown()
+    except Exception as e:
+        logger.debug(f"BrowserManager shutdown error: {e}")
 
 
 from app.core.config import settings

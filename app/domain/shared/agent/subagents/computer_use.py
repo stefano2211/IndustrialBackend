@@ -19,7 +19,9 @@ Flujo por step:
 """
 
 import asyncio
+import hashlib
 import json
+import re as _re
 from typing import Optional
 
 from langchain_core.callbacks.manager import adispatch_custom_event
@@ -334,6 +336,8 @@ class ComputerUseState(TypedDict):
     parsed_elements: Optional[str]
     # OmniParser V2: annotated screenshot with numbered bounding boxes
     annotated_screenshot_b64: Optional[str]
+    # Playwright Accessibility Tree (semantic UI elements)
+    a11y_tree: Optional[str]
 
 
 # -- Graph Nodes ---------------------------------------------------------------
@@ -421,8 +425,6 @@ def _build_observe_node(llm: BaseChatModel):
     """
 
     async def observe(state: ComputerUseState, config: RunnableConfig) -> dict:
-        import hashlib
-
         logger.info(f"[ComputerUse] Step {state['steps_taken'] + 1}  Observando pantalla...")
 
         # Captura pantalla
@@ -437,8 +439,17 @@ def _build_observe_node(llm: BaseChatModel):
             new_hash = hashlib.md5(b64_data[:10000].encode()).hexdigest()
             if prev_hash == new_hash:
                 screen_changed = False
-                logger.info("[ComputerUse] Pantalla idéntica a la anterior. Esperando 1.5s...")
-                await asyncio.sleep(1.5)
+                # Determine wait time based on last action type (clicks may need longer)
+                last_was_click = False
+                if state.get("action_history"):
+                    try:
+                        last_act = json.loads(state["action_history"][-1].get("action_json", "{}"))
+                        last_was_click = last_act.get("type") in ("click", "double_click", "pw_click")
+                    except Exception:
+                        pass
+                wait_sec = 3.0 if last_was_click else 1.5
+                logger.info(f"[ComputerUse] Pantalla idéntica a la anterior. Esperando {wait_sec}s...")
+                await asyncio.sleep(wait_sec)
                 screenshot_result = await take_screenshot.ainvoke({}, config=config)
                 b64_data = screenshot_result.split(",", 1)[-1] if "," in screenshot_result else screenshot_result
                 # Check again after wait
@@ -454,15 +465,14 @@ def _build_observe_node(llm: BaseChatModel):
             last_action = last.get("action_json", "")
             if last_action:
                 try:
-                    import json as _json
-                    act = _json.loads(last_action)
+                    act = json.loads(last_action)
                     if act.get("type") in ("click", "double_click", "pw_click"):
                         fail_desc = f"click at ({act.get('x')},{act.get('y')}) step {last.get('step','?')}"
                         if fail_desc not in failed_elements:
                             failed_elements.append(fail_desc)
                             logger.warning(f"[ComputerUse] Failed click detected: {fail_desc}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[ComputerUse] Failed click parse error: {e}")
 
         # Prune failed_elements to avoid unbounded state growth
         if len(failed_elements) > 15:
@@ -504,7 +514,8 @@ def _build_observe_node(llm: BaseChatModel):
                 logger.debug(f"[ComputerUse] Accessibility tree unavailable: {e}")
 
         # -- Live Screen Viewer  stream screenshot to frontend via SSE --------------
-        clean_b64 = get_clean_b64()
+        thread_id = config.get("configurable", {}).get("thread_id", "default") if config else "default"
+        clean_b64 = get_clean_b64(thread_id)
         display_b64 = annotated_b64 if annotated_b64 else (clean_b64 or b64_data)
 
         # Extract last action info for the viewer (action label + click ripple)
@@ -546,6 +557,7 @@ def _build_observe_node(llm: BaseChatModel):
             "annotated_screenshot_b64": annotated_b64,
             "parsed_elements": parsed_elements,
             "failed_elements": failed_elements,
+            "a11y_tree": a11y_tree,
         }
 
     return observe
@@ -594,8 +606,8 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                             ),
                             "steps_taken": steps + 1,
                         }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[ComputerUse] Stall detection error: {e}")
 
         # -- Decide which screenshot to show (annotated with SoM > raw) --------
         display_screenshot = state.get("annotated_screenshot_b64") or screenshot_b64
@@ -619,11 +631,77 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 "Prefer 'click element #N' over raw coordinates when elements are listed above."
             )
 
+        a11y_tree = state.get("a11y_tree")
+        if a11y_tree:
+            text_parts.append(
+                f"\n<accessibility_tree>\n{a11y_tree}\n</accessibility_tree>\n"
+                "Use pw_click, pw_fill, pw_type, pw_press, pw_scroll for elements listed above."
+            )
+
+        # -- Conditional grounding mode (prevents VLM confusion between SoM/A11y/coords) ---
+        if parsed_elements:
+            text_parts.append(
+                "\n<grounding_mode>\n"
+                "OmniParser visual SoM is ACTIVE. Elements are numbered on the screenshot.\n"
+                "Use element_id references from <detected_elements>. DO NOT guess coordinates.\n"
+                "</grounding_mode>"
+            )
+        elif a11y_tree:
+            text_parts.append(
+                "\n<grounding_mode>\n"
+                "Accessibility Tree is ACTIVE. Use pw_* semantic actions with exact role+name.\n"
+                "DO NOT use raw coordinates when semantic actions are available.\n"
+                "</grounding_mode>"
+            )
+        else:
+            text_parts.append(
+                "\n<grounding_mode>\n"
+                "No structured elements available. Use raw coordinates (0-1920, 0-1080).\n"
+                "Read yellow grid labels on screenshot to determine exact positions.\n"
+                "</grounding_mode>"
+            )
+
+        # -- Structured previous_actions for temporal reasoning ----------------
+        if action_history:
+            prev_lines = []
+            for hist in action_history[-max_history:]:
+                prev_lines.append(
+                    f"  Step {hist.get('step', '?')}: {hist.get('action_summary', 'unknown')}"
+                )
+            text_parts.append(
+                f"\n<previous_actions>\n"
+                f"Last {len(prev_lines)} actions taken:\n"
+                + "\n".join(prev_lines)
+                + "\n</previous_actions>\n"
+                "Compare Previous vs Current screenshot to verify the last action worked.\n"
+                "If the screen did not change, the action failed — try a different approach."
+            )
+
         user_content = [{"type": "text", "text": "\n".join(text_parts)}]
+
+        # -- Frame history: previous screenshot for temporal comparison ----------
+        # With 48GB VRAM we can afford 2 images per turn (prev + current) for
+        # state-change detection, loading detection, and animation analysis.
+        if action_history and len(action_history) >= 1:
+            prev_b64 = action_history[-1].get("screenshot_b64")
+            if prev_b64:
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{prev_b64}"},
+                })
+                user_content.append({
+                    "type": "text",
+                    "text": "[Previous screenshot — state BEFORE last action]",
+                })
+
         if display_screenshot:
             user_content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:image/png;base64,{display_screenshot}"},
+            })
+            user_content.append({
+                "type": "text",
+                "text": "[Current screenshot — state AFTER last action]",
             })
 
         # -- Build UI-TARS style action history context ----------------------
@@ -717,7 +795,6 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                         resolved = False
                         for line in parsed_elements.splitlines():
                             if line.startswith(f"[{elem_id}]"):
-                                import re as _re
                                 m = _re.search(r"center\((\d+),(\d+)\)", line)
                                 if m:
                                     cx, cy = int(m.group(1)), int(m.group(2))
@@ -817,6 +894,7 @@ def _build_think_act_node(llm: BaseChatModel, vl_replay_buffer: Optional[VLRepla
                 "action_summary": action_summary,
                 "action_json": executed_action_json,
                 "screenshot_thumb": thumb,
+                "screenshot_b64": screenshot_b64,
             })
             if len(new_action_history) > max_history + 1:
                 new_action_history = new_action_history[-(max_history + 1):]

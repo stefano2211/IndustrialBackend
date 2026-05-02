@@ -131,6 +131,14 @@ class OmniParserService:
             ).to(self._device)
 
             self._available = True
+            if self._device == "cpu":
+                logger.warning(
+                    "[OmniParser] ⚠️ Running on CPU — Florence-2 captioning is very slow "
+                    "(~2-5s per element). With 10-20 elements per screenshot, each parse "
+                    "may take 20-100s. Consider enabling GPU (--gpus all in Docker) "
+                    "or disabling OmniParser (omniparser_enabled=False) and using the "
+                    "coordinate grid fallback instead."
+                )
             logger.success("[OmniParser] ✓ Modelos cargados correctamente.")
             return True
 
@@ -152,6 +160,8 @@ class OmniParserService:
 
     def _caption_element(self, crop_b64: str) -> str:
         """Genera descripción funcional de un crop de elemento."""
+        import time
+        t0 = time.time()
         try:
             import torch
             from PIL import Image
@@ -174,40 +184,74 @@ class OmniParserService:
             caption = self._caption_processor.batch_decode(
                 outputs, skip_special_tokens=True
             )[0].strip()
+            elapsed = time.time() - t0
+            if elapsed > 1.0:
+                logger.debug(f"[OmniParser] Caption took {elapsed:.2f}s (device={self._device}) — slow CPU detected")
             return caption or "UI element"
         except Exception as e:
             logger.debug(f"[OmniParser] Error captioning element: {e}")
             return "UI element"
 
-    async def ensure_weights(self, model_dir: str) -> None:
+    async def ensure_weights(self, model_dir: str) -> bool:
         """
         Background task: descarga microsoft/OmniParser-v2.0 si los pesos no existen.
         Llamar una vez desde el lifespan de FastAPI con asyncio.create_task().
         No bloquea el event loop — usa run_in_executor.
         Cuando termina, resetea _initialized para que el próximo is_available() cargue los modelos.
+
+        Returns True si los pesos existen o fueron descargados exitosamente.
         """
         icon_detect_path = os.path.join(model_dir, "icon_detect", "model.pt")
         if os.path.exists(icon_detect_path):
-            return  # Ya descargados
+            logger.info(f"[OmniParser] Pesos ya existen en {model_dir}. Download skipped.")
+            return True
+
+        # Ensure directory exists with write permissions
+        os.makedirs(model_dir, exist_ok=True)
 
         def _download():
-            try:
-                from huggingface_hub import snapshot_download
-                logger.info("[OmniParser] Descargando microsoft/OmniParser-v2.0 (background)...")
-                snapshot_download(
-                    repo_id="microsoft/OmniParser-v2.0",
-                    local_dir=model_dir,
-                    ignore_patterns=["*.md", "*.txt", ".gitattributes"],
+            import time
+            from huggingface_hub import snapshot_download
+
+            hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+            if not hf_token:
+                logger.warning(
+                    "[OmniParser] HF_TOKEN no configurado. "
+                    "Descarga pública requerida. Si el modelo es gated, la descarga fallará. "
+                    "Configura HF_TOKEN en .env o como variable de entorno."
                 )
-                logger.success(f"[OmniParser] ✓ Pesos descargados en {model_dir}. Se cargarán en el próximo paso.")
-                # Reset so the next is_available() call loads the models
-                self._initialized = False
-                self._available = False
-            except Exception as e:
-                logger.error(f"[OmniParser] Error en descarga automática: {e}")
+
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    logger.info(f"[OmniParser] Descargando microsoft/OmniParser-v2.0 (intent {attempt}/{max_retries})...")
+                    snapshot_download(
+                        repo_id="microsoft/OmniParser-v2.0",
+                        local_dir=model_dir,
+                        ignore_patterns=["*.md", "*.txt", ".gitattributes"],
+                        token=hf_token,
+                    )
+                    logger.success(f"[OmniParser] ✓ Pesos descargados en {model_dir}. Se cargarán en el próximo paso.")
+                    # Reset so the next is_available() call loads the models
+                    self._initialized = False
+                    self._available = False
+                    return True
+                except Exception as e:
+                    logger.error(f"[OmniParser] Error descarga intent {attempt}/{max_retries}: {e}")
+                    if attempt < max_retries:
+                        wait_sec = 2 ** attempt  # exponential backoff: 2, 4, 8s
+                        logger.info(f"[OmniParser] Reintentando en {wait_sec}s...")
+                        time.sleep(wait_sec)
+                    else:
+                        logger.error(
+                            "[OmniParser] Falló descarga después de 3 intentos. "
+                            "OmniParser permanecerá desactivado. Fallback: cuadrícula de coordenadas."
+                        )
+                        return False
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _download)
+        success = await loop.run_in_executor(None, _download)
+        return success
 
     def _parse_sync(self, screenshot_b64: str) -> OmniParserResult:
         """Síncrono — ejecutar via run_in_executor."""
@@ -227,9 +271,27 @@ class OmniParserService:
             draw_img = img.copy()
             draw = ImageDraw.Draw(draw_img)
 
+            # Try system fonts first, then fallback to PIL default
+            def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+                font_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    "/System/Library/Fonts/Helvetica.ttc",  # macOS
+                    "C:/Windows/Fonts/arial.ttf",           # Windows
+                ]
+                for fp in font_paths:
+                    if os.path.exists(fp):
+                        try:
+                            return ImageFont.truetype(fp, size)
+                        except Exception:
+                            continue
+                return ImageFont.load_default()
+
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
-                font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+                font = _load_font(14)
+                font_small = _load_font(11)
             except Exception:
                 font = ImageFont.load_default()
                 font_small = font
@@ -240,7 +302,17 @@ class OmniParserService:
             ]
 
             if boxes is not None:
-                for idx, box in enumerate(boxes.xyxy.cpu().numpy()):
+                _cpu_slow = self._device != "cuda"
+                _boxes_list = boxes.xyxy.cpu().numpy()
+                _total_elements = len(_boxes_list)
+                if _cpu_slow and _total_elements > 8:
+                    # CPU only: cap at 8 elements to avoid 20-40s hangs per screenshot
+                    logger.warning(
+                        f"[OmniParser] Detected {_total_elements} elements — capping to 8 on CPU "
+                        f"to keep latency reasonable. GPU would process all {_total_elements}."
+                    )
+                    _boxes_list = _boxes_list[:8]
+                for idx, box in enumerate(_boxes_list):
                     x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
                     cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
                     element_id = idx + 1

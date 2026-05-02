@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings
 from typing import List, Optional
 
@@ -25,11 +27,16 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "aura_db"
 
-    # CORS
+    # CORS — configurable via env; comma-separated list of origins
     BACKEND_CORS_ORIGINS: List[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://localhost:8080",
+        origin.strip()
+        for origin in (
+            os.environ.get(
+                "BACKEND_CORS_ORIGINS",
+                "http://localhost:5173,http://localhost:3000,http://localhost:8080",
+            ).split(",")
+        )
+        if origin.strip()
     ]
 
     # Security

@@ -60,6 +60,9 @@ def create_reactive_system1_historico_agent(
         )
         return None
 
+    # Safe accessor: CompiledSubAgent may be a TypedDict (dict at runtime)
+    runnable = agent["runnable"] if isinstance(agent, dict) else agent.runnable
+
     # Override description to reflect reactive event-diagnosis role
     return CompiledSubAgent(
         name="sistema1-historico",
@@ -71,7 +74,7 @@ def create_reactive_system1_historico_agent(
             "DO NOT use for real-time sensor readings — use industrial-expert instead. "
             "DO NOT use for GUI actions — use sistema1-vl instead."
         ),
-        runnable=agent.runnable,
+        runnable=runnable,
     )
 
 
@@ -107,6 +110,9 @@ def create_reactive_system1_vl_agent(
         )
         return None
 
+    # Safe accessor: CompiledSubAgent may be a TypedDict (dict at runtime)
+    runnable = agent["runnable"] if isinstance(agent, dict) else agent.runnable
+
     # Description tuned for reactive remediation context
     return CompiledSubAgent(
         name="sistema1-vl",
@@ -119,5 +125,5 @@ def create_reactive_system1_vl_agent(
             "Do NOT use for answering historical questions — use sistema1-historico instead. "
             "Do NOT use for real-time data queries — use industrial-expert instead."
         ),
-        runnable=agent.runnable,
+        runnable=runnable,
     )

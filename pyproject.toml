@@ -48,6 +48,9 @@ dependencies = [
     "huggingface_hub",
     "fastembed",
     "playwright",
+    "torch",
+    "torchvision",
+    "transformers",
 ]
 
 [tool.uv]

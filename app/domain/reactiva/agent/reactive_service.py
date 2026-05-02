@@ -213,6 +213,8 @@ class ReactiveAgentService:
                 config=config,
             ):
                 for node, state in chunk.items():
+                    if not isinstance(state, dict):
+                        continue
                     msgs = state.get("messages")
                     if msgs is None:
                         continue

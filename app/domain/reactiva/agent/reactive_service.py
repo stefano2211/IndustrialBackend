@@ -81,11 +81,11 @@ class ReactiveAgentService:
             )
 
         # Instantiate unified vLLM models with the resolved model name
-        generalist_model = await LLMFactory.get_llm(model=model_name, temperature=0.7)
-        expert_model = await LLMFactory.get_llm(model=model_name, temperature=0.0)
+        generalist_model = await LLMFactory.get_llm(model=model_name, temperature=0.7, max_tokens=4096)
+        expert_model = await LLMFactory.get_llm(model=model_name, temperature=0.0, max_tokens=4096)
 
         # Sistema 1 Histórico — resolved direct instance (same pattern as proactive)
-        expert_model_instance = await LLMFactory.get_llm(model=model_name, temperature=0)
+        expert_model_instance = await LLMFactory.get_llm(model=model_name, temperature=0, max_tokens=4096)
 
         # Vision LLM for reactive computer use (only if enabled)
         vision_model = None

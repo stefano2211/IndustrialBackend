@@ -1,4 +1,4 @@
-﻿"""
+"""
 CollectorService — Orchestrates on-demand and scheduled data collection
 from external databases for MLOps fine-tuning.
 """

@@ -1,4 +1,4 @@
-"""Prompt endpoints — thin HTTP handlers for Prompt CRUD."""
+"""Prompt endpoints â€” thin HTTP handlers for Prompt CRUD."""
 
 import uuid
 from typing import List

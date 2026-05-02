@@ -1,4 +1,4 @@
-﻿"""Document service — Business logic for document upload, retrieval, and deletion."""
+"""Document service — Business logic for document upload, retrieval, and deletion."""
 
 import asyncio
 import os

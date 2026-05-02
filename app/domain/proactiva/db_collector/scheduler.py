@@ -1,4 +1,4 @@
-﻿"""
+"""
 DbCollector Scheduler — APScheduler-based cron job manager.
 
 Lifecycle:

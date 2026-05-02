@@ -1,4 +1,4 @@
-"""Chat endpoint — thin handler delegating to AgentService + ConversationService."""
+"""Chat endpoint â€” thin handler delegating to AgentService + ConversationService."""
 
 import json
 import uuid
@@ -84,7 +84,7 @@ async def chat_stream_endpoint(
     conv_service: ConversationService = Depends(get_conversation_service),
 ):
     """
-    Chat with the AI Agent — Server-Sent Events (SSE) streaming.
+    Chat with the AI Agent â€” Server-Sent Events (SSE) streaming.
     
     Sends events:
       - data: {"type": "meta", "thread_id": "..."}

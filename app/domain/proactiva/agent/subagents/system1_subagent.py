@@ -1,4 +1,4 @@
-﻿"""Re-export wrapper --- implementation moved to app.domain.shared.agent.subagents.system1."""
+"""Re-export wrapper --- implementation moved to app.domain.shared.agent.subagents.system1."""
 from app.domain.shared.agent.subagents.system1 import (
     create_system1_agent,
     create_system1_historico_agent,

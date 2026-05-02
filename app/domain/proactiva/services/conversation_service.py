@@ -1,4 +1,4 @@
-"""Conversation service — Business logic for conversation management."""
+"""Conversation service â€” Business logic for conversation management."""
 
 import uuid
 from typing import List

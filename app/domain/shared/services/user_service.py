@@ -1,4 +1,4 @@
-"""User service — Business logic for user management."""
+"""User service â€” Business logic for user management."""
 
 from typing import Optional, List
 from uuid import UUID

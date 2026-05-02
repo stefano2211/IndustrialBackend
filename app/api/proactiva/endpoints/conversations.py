@@ -1,4 +1,4 @@
-"""Conversation endpoints — thin HTTP handlers delegating to ConversationService."""
+"""Conversation endpoints â€” thin HTTP handlers delegating to ConversationService."""
 
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException

@@ -200,6 +200,7 @@ class ReactiveAgentService:
         )
 
         config = {
+            "recursion_limit": 100,
             "configurable": {
                 "thread_id": thread_id,
                 "tenant_id": tenant_id,
@@ -221,11 +222,6 @@ class ReactiveAgentService:
 
             last_msg = response["messages"][-1]
             output_text = last_msg.content if hasattr(last_msg, "content") else ""
-
-            # Strip Qwen <think>...</think> chain-of-thought blocks
-            output_text = re.sub(
-                r"<think>.*?</think>\s*", "", output_text, flags=re.DOTALL
-            )
 
         except Exception as e:
             logger.error(f"[{thread_id}] Reactive agent error: {e}")

@@ -65,6 +65,8 @@ services:
       - "--enable-auto-tool-choice"
       - "--tool-call-parser"
       - "hermes"
+      - "--reasoning-parser"
+      - "qwen3"
       - "--enforce-eager"
     volumes:
       - hf_cache:/root/.cache/huggingface

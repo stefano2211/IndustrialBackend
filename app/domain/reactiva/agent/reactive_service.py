@@ -223,6 +223,12 @@ class ReactiveAgentService:
             last_msg = response["messages"][-1]
             output_text = last_msg.content if hasattr(last_msg, "content") else ""
 
+            # Strip <think>...</think> blocks that leak when --reasoning-parser qwen3
+            # doesn't separate them correctly at the vLLM level (e.g. Qwen3.5-9B)
+            output_text = re.sub(r'<think>.*?</think>\s*', '', output_text, flags=re.DOTALL)
+            # Also handle unclosed <think> at the start (model cut off mid-thinking)
+            output_text = re.sub(r'^<think>.*', '', output_text, flags=re.DOTALL).strip()
+
         except Exception as e:
             logger.error(f"[{thread_id}] Reactive agent error: {e}")
             return f"Error during analysis: {e}", None, None

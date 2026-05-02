@@ -19,6 +19,14 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.core.middleware import GlobalExceptionHandler
 
+from app.api.router import api_router
+from app.persistence.db import init_db
+from app.persistence.proactiva.memoryAI.checkpointer import get_checkpointer, close_pool
+from app.persistence.proactiva.memoryAI.store import get_store
+from app.domain.proactiva.db_collector.scheduler import collector_scheduler
+from app.domain.reactiva.events.event_service import EventProcessorService
+from app.domain.shared.agent.tools.omniparser_service import get_omniparser
+
 UPLOAD_DIR = "/tmp/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -109,10 +117,10 @@ async def lifespan(app: FastAPI):
     app.state.event_service = event_service
 
     # Auto-download OmniParser V2 weights if not present (non-blocking background task)
-    if _settings.omniparser_enabled:
+    if settings.omniparser_enabled:
         async def _omniparser_download():
             try:
-                success = await get_omniparser().ensure_weights(_settings.omniparser_model_dir)
+                success = await get_omniparser().ensure_weights(settings.omniparser_model_dir)
                 if success:
                     logger.success("[OmniParser] Weights downloaded — ready for SoM grounding.")
                 else:
@@ -143,8 +151,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"BrowserManager shutdown error: {e}")
 
-
-from app.core.config import settings
 
 app = FastAPI(
     title="IA Industrial - Document Analysis System (Edge AI)",

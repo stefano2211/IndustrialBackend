@@ -213,8 +213,14 @@ class ReactiveAgentService:
                 config=config,
             ):
                 for node, state in chunk.items():
-                    if "messages" in state and len(state["messages"]) > 0:
-                        last_msg = state["messages"][-1]
+                    msgs = state.get("messages")
+                    if msgs is None:
+                        continue
+                    # LangGraph may wrap state values in Overwrite objects
+                    if hasattr(msgs, "value"):
+                        msgs = msgs.value
+                    if isinstance(msgs, list) and len(msgs) > 0:
+                        last_msg = msgs[-1]
                         if hasattr(last_msg, "content"):
                             output_text = last_msg.content
 
